@@ -1,11 +1,36 @@
-fastapi>=0.104.0
-uvicorn>=0.24.0
-pydantic>=2.0.0
-pydantic-settings>=2.0.0
-langchain-openai>=0.1.0
-langchain>=0.1.0
-PyMuPDF>=1.23.0
-ebooklib>=0.18
+# Web框架
+fastapi==0.110.0
+uvicorn[standard]==0.27.1
+python-multipart==0.0.9
+
+# LangChain
+langchain==0.1.10
+langchain-openai==0.1.1
+langchain-community==0.0.27
+
+# 文档处理
+pymupdf==1.23.26
+python-magic==0.4.27
+python-docx==1.1.0
+openpyxl==3.1.2
+epub-meta==0.0.7
+ebooklib==0.20
+
+# 向量数据库
 chromadb>=0.4.0
-Pillow>=10.0.0
-python-multipart>=0.0.6
+
+# 数据处理
+pydantic==2.6.1
+pydantic-settings==2.1.0
+python-dotenv==1.0.1
+
+# 数据库（可选）
+sqlalchemy==2.0.25
+aiosqlite==0.19.0
+
+# 缓存（可选）
+redis==5.0.1
+
+# 工具
+httpx>=0.26.0
+aiofiles==23.2.1

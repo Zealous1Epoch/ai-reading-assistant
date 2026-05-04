@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": [
+      "Bash(python -m venv venv)",
+      "Bash(pkill -f \"uvicorn app.main:app\")",
+      "Bash(lsof -ti:8000)",
+      "Bash(xargs kill *)",
+      "Bash(curl -s -X POST http://localhost:8000/books/upload-and-analyze -F file=@/Users/pp/Python（Ai）/智能读书助手/backend/uploads/36338e94-5f60-442f-8902-9ad7862fe4b9.epub)",
+      "Bash(python3 -c ' *)"
+    ]
+  }
+}

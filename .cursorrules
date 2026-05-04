@@ -1,0 +1,25 @@
+# 智能读书助手项目约束 (AI Reading Assistant Rules)
+
+## 1. 技术栈约束 (Tech Stack)
+- Backend: FastAPI (Python 3.10+)
+- Frontend: Streamlit (用于快速实现 NotebookLM 的三栏布局)
+- LLM API: DeepSeek API (使用 OpenAI SDK 兼容模式调用)
+- PDF Parsing: PyMuPDF (fitz) 或 Unstructured
+- Vector DB: ChromaDB (用于长文本检索)
+
+## 2. 核心功能逻辑
+- 章节识别：必须能够识别 PDF/Epub 中的目录结构，将书籍物理切分为独立章节。
+- 深度分析：AI 提炼必须包含“论点”、“论据”、“多身份视角问题”、“思维漏洞分析”。
+- 异步处理：解析书籍等耗时操作需使用异步处理，避免前端卡死。
+
+## 3. UI 布局规范 (NotebookLM Style)
+- 严格遵循三栏设计：
+  - 左侧 (Sidebar): 上传区、已解析章节列表。
+  - 中间 (Main): 原文展示区（Markdown 格式，支持滚动）。
+  - 右侧 (Action): AI 分析结果区 + 底部对话框。
+
+## 4. 代码质量要求
+- 所有的 API 调用必须包含错误处理（try-except）。
+- 关键逻辑（如章节切分算法）必须有中文注释。
+- 环境变量需从 .env 文件读取，严禁将 API Key 硬编码在代码中。
+- 为了方便部署，必须包含 Dockerfile。

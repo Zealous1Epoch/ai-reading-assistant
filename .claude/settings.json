@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s http://localhost:8502*)",
+      "Bash(curl -s http://localhost:8000/health*)",
+      "Bash(tesseract *)",
+      "Bash(textutil *)",
+      "Bash(ollama list)",
+      "Bash(brew list *)"
+    ]
+  }
+}

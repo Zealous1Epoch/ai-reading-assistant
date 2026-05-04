@@ -1,0 +1,11 @@
+.git
+.cursor
+**/__pycache__
+*.pyc
+.venv
+venv
+.env
+backend/.env
+data
+uploads
+*.md

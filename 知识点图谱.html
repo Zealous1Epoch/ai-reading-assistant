@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能读书助手 — 知识点图谱</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Serif+SC:wght@400;600;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --zinc-50: #fafafa;
+    --zinc-100: #f4f4f5;
+    --zinc-200: #e4e4e7;
+    --zinc-300: #d4d4d8;
+    --zinc-400: #a1a1aa;
+    --zinc-500: #71717a;
+    --zinc-600: #52525b;
+    --zinc-700: #3f3f46;
+    --zinc-800: #27272a;
+    --zinc-900: #18181b;
+    --zinc-950: #09090b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: var(--zinc-50);
+    color: var(--zinc-900);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Hero ── */
+  .hero {
+    background: var(--zinc-900);
+    color: var(--zinc-50);
+    padding: 80px 0 60px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 50% 0%, rgba(255,255,255,.06) 0%, transparent 70%);
+  }
+  .hero h1 {
+    font-family: 'Noto Serif SC', serif;
+    font-size: 3rem;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+    position: relative;
+  }
+  .hero p {
+    color: var(--zinc-400);
+    font-size: 1.05rem;
+    margin-top: 12px;
+    position: relative;
+  }
+
+  /* ── Stats Bar ── */
+  .stats-bar {
+    max-width: 1200px;
+    margin: -30px auto 0;
+    display: flex;
+    gap: 1px;
+    background: var(--zinc-200);
+    border-radius: 20px;
+    overflow: hidden;
+    position: relative;
+    z-index: 1;
+  }
+  .stat-card {
+    flex: 1;
+    background: #fff;
+    padding: 28px 24px;
+    text-align: center;
+    border: 1px solid var(--zinc-100);
+  }
+  .stat-card:first-child { border-radius: 20px 0 0 20px; }
+  .stat-card:last-child { border-radius: 0 20px 20px 0; }
+  .stat-num {
+    font-family: 'Noto Serif SC', serif;
+    font-size: 2.8rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--zinc-900);
+  }
+  .stat-label {
+    font-size: 0.85rem;
+    color: var(--zinc-500);
+    margin-top: 6px;
+    letter-spacing: 0.04em;
+  }
+  .stat-num.hot { color: var(--zinc-950); position: relative; }
+  .stat-num.hot::after {
+    content: '★';
+    font-size: 1rem;
+    vertical-align: super;
+    margin-left: 2px;
+  }
+
+  /* ── Controls ── */
+  .controls {
+    max-width: 1200px;
+    margin: 40px auto 0;
+    padding: 0 20px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .search-box {
+    flex: 1;
+    min-width: 280px;
+    padding: 14px 20px;
+    border: 1px solid var(--zinc-200);
+    border-radius: 100px;
+    font-size: 0.95rem;
+    font-family: inherit;
+    background: #fff;
+    outline: none;
+    transition: border-color .2s, box-shadow .2s;
+    color: var(--zinc-900);
+  }
+  .search-box:focus {
+    border-color: var(--zinc-400);
+    box-shadow: 0 0 0 3px rgba(0,0,0,.04);
+  }
+  .search-box::placeholder { color: var(--zinc-400); }
+
+  /* ── Module Chips ── */
+  .chip-row {
+    max-width: 1200px;
+    margin: 16px auto 0;
+    padding: 0 20px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .chip {
+    padding: 8px 18px;
+    border: 1px solid var(--zinc-200);
+    border-radius: 100px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    background: #fff;
+    transition: all .2s;
+    white-space: nowrap;
+    color: var(--zinc-600);
+    font-family: inherit;
+  }
+  .chip:hover { border-color: var(--zinc-400); color: var(--zinc-900); }
+  .chip.active { background: var(--zinc-900); color: #fff; border-color: var(--zinc-900); }
+  .chip .count {
+    font-size: 0.72rem;
+    color: var(--zinc-400);
+    margin-left: 4px;
+  }
+  .chip.active .count { color: var(--zinc-400); }
+
+  /* ── Content ── */
+  .content {
+    max-width: 1200px;
+    margin: 32px auto 80px;
+    padding: 0 20px;
+  }
+  .module-section { margin-bottom: 48px; }
+  .module-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--zinc-200);
+  }
+  .module-header h2 {
+    font-family: 'Noto Serif SC', serif;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--zinc-900);
+  }
+  .module-header .badge {
+    font-size: 0.8rem;
+    color: var(--zinc-500);
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
+  }
+
+  /* ── Cards Grid ── */
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 12px;
+  }
+  .card {
+    background: #fff;
+    border: 1px solid var(--zinc-100);
+    border-radius: 16px;
+    padding: 20px 24px;
+    transition: border-color .2s, box-shadow .2s;
+    cursor: default;
+  }
+  .card:hover {
+    border-color: var(--zinc-300);
+    box-shadow: 0 2px 12px rgba(0,0,0,.04);
+  }
+  .card.highlight {
+    border-color: var(--zinc-900);
+    background: var(--zinc-50);
+  }
+  .card.hot-card {
+    border-color: var(--zinc-800);
+    border-width: 2px;
+    background: var(--zinc-50);
+  }
+  .card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .card-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--zinc-900);
+    flex: 1;
+  }
+  .hot-badge {
+    font-size: 0.68rem;
+    background: var(--zinc-900);
+    color: #fff;
+    padding: 2px 10px;
+    border-radius: 100px;
+    white-space: nowrap;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+  }
+  .card-file {
+    display: inline-block;
+    margin-top: 6px;
+    font-size: 0.78rem;
+    font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+    color: var(--zinc-500);
+    background: var(--zinc-50);
+    padding: 3px 10px;
+    border-radius: 6px;
+    letter-spacing: -0.01em;
+  }
+  .card-desc {
+    margin-top: 10px;
+    font-size: 0.88rem;
+    color: var(--zinc-600);
+    line-height: 1.5;
+  }
+  .card-toggle {
+    margin-top: 14px;
+    font-size: 0.8rem;
+    color: var(--zinc-400);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    user-select: none;
+    transition: color .2s;
+    background: none;
+    border: none;
+    font-family: inherit;
+    padding: 0;
+  }
+  .card-toggle:hover { color: var(--zinc-700); }
+  .card-toggle .arrow { transition: transform .2s; font-size: 0.7rem; }
+  .card-interview {
+    margin-top: 12px;
+    padding: 14px 16px;
+    background: var(--zinc-50);
+    border-radius: 10px;
+    font-size: 0.84rem;
+    color: var(--zinc-700);
+    display: none;
+    line-height: 1.5;
+  }
+  .card-interview.open { display: block; }
+  .card-interview .q-label {
+    font-weight: 600;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--zinc-400);
+    margin-bottom: 4px;
+  }
+
+  /* ── Bottom Hero: Top 5 ── */
+  .top5-hero {
+    background: var(--zinc-900);
+    padding: 80px 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .top5-hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 20% 80%, rgba(255,255,255,.04) 0%, transparent 60%);
+  }
+  .top5-inner {
+    max-width: 800px;
+    margin: 0 auto;
+    position: relative;
+  }
+  .top5-hero h2 {
+    font-family: 'Noto Serif SC', serif;
+    font-size: 2rem;
+    font-weight: 700;
+    color: #fff;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .top5-hero .subtitle {
+    text-align: center;
+    color: var(--zinc-500);
+    font-size: 0.95rem;
+    margin-bottom: 40px;
+  }
+  .top5-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .top5-item {
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 16px;
+    padding: 24px 28px;
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    transition: background .2s;
+  }
+  .top5-item:hover { background: rgba(255,255,255,.07); }
+  .top5-num {
+    font-family: 'Noto Serif SC', serif;
+    font-size: 2.2rem;
+    font-weight: 900;
+    color: rgba(255,255,255,.15);
+    line-height: 1;
+    min-width: 48px;
+  }
+  .top5-body h3 {
+    font-weight: 600;
+    color: #fff;
+    font-size: 1.05rem;
+    margin-bottom: 4px;
+  }
+  .top5-body .top5-file {
+    font-size: 0.78rem;
+    font-family: 'SF Mono', 'Menlo', monospace;
+    color: var(--zinc-500);
+  }
+  .top5-body p {
+    color: var(--zinc-400);
+    font-size: 0.88rem;
+    margin-top: 8px;
+    line-height: 1.5;
+  }
+
+  /* ── Footer ── */
+  .footer {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--zinc-400);
+    font-size: 0.82rem;
+  }
+
+  /* ── No Results ── */
+  .no-results {
+    text-align: center;
+    padding: 80px 20px;
+    color: var(--zinc-400);
+    display: none;
+  }
+  .no-results.visible { display: block; }
+  .no-results .icon { font-size: 3rem; margin-bottom: 12px; }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    .hero h1 { font-size: 2rem; }
+    .stats-bar { flex-wrap: wrap; border-radius: 16px; }
+    .stat-card { flex: 1 1 50%; }
+    .stat-card:first-child { border-radius: 16px 0 0 0; }
+    .cards-grid { grid-template-columns: 1fr; }
+    .top5-hero { padding: 60px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ HERO ═══════════════ -->
+<header class="hero">
+  <h1>智能读书助手 · 知识点图谱</h1>
+  <p>FastAPI + LangChain + ChromaDB + React — 全栈项目知识拆解</p>
+</header>
+
+<!-- ═══════════════ STATS ═══════════════ -->
+<div class="stats-bar" id="statsBar">
+  <div class="stat-card">
+    <div class="stat-num" id="totalCount">0</div>
+    <div class="stat-label">知识点总数</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num" id="moduleCount">0</div>
+    <div class="stat-label">模块分类</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num hot" id="hotCount">0</div>
+    <div class="stat-label">面试高频</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-num" id="visibleCount">0</div>
+    <div class="stat-label">当前显示</div>
+  </div>
+</div>
+
+<!-- ═══════════════ CONTROLS ═══════════════ -->
+<div class="controls">
+  <input type="text" class="search-box" id="searchInput" placeholder="搜索知识点、文件名、模块…" autocomplete="off">
+</div>
+<div class="chip-row" id="chipRow"></div>
+
+<!-- ═══════════════ CONTENT ═══════════════ -->
+<div class="content" id="content"></div>
+<div class="no-results" id="noResults">
+  <div class="icon">∅</div>
+  <p>没有匹配的知识点，换个关键词试试</p>
+</div>
+
+<!-- ═══════════════ TOP 5 ═══════════════ -->
+<section class="top5-hero">
+  <div class="top5-inner">
+    <h2>面试高频 TOP 5</h2>
+    <p class="subtitle">面试官最可能深挖的五个知识点，优先吃透</p>
+    <div class="top5-list">
+      <div class="top5-item">
+        <div class="top5-num">01</div>
+        <div class="top5-body">
+          <h3>RAG 完整链路</h3>
+          <span class="top5-file">services/book_processor.py → routers/analysis.py</span>
+          <p>上传 → 切章 → 向量化入库 → 语义搜索 → 拼 Prompt → LLM 回答 → SSE 返回。面试官会要求你从头到尾画出这条链路，解释每一步的技术选型。</p>
+        </div>
+      </div>
+      <div class="top5-item">
+        <div class="top5-num">02</div>
+        <div class="top5-body">
+          <h3>SSE 流式输出</h3>
+          <span class="top5-file">routers/analysis.py:144 + app.jsx:221</span>
+          <p>后端 StreamingResponse + 前端 ReadableStream.getReader()。面试官必问：SSE 和 WebSocket 的区别？为什么选 SSE？连接断了怎么处理？</p>
+        </div>
+      </div>
+      <div class="top5-item">
+        <div class="top5-num">03</div>
+        <div class="top5-body">
+          <h3>asyncio.gather 并发</h3>
+          <span class="top5-file">routers/book_processor.py:230</span>
+          <p>批量上传 5 本书并行处理，为什么用 gather 而不是 for 循环？gather 和 wait 有什么区别？部分失败怎么处理？</p>
+        </div>
+      </div>
+      <div class="top5-item">
+        <div class="top5-num">04</div>
+        <div class="top5-body">
+          <h3>System Prompt 设计</h3>
+          <span class="top5-file">services/analysis_service.py:136-153</span>
+          <p>四层拼接：system prompt + 上下文 + 历史对话 + 用户输入。面试官可能会让你现场改 prompt 来优化某个场景的输出质量。</p>
+        </div>
+      </div>
+      <div class="top5-item">
+        <div class="top5-num">05</div>
+        <div class="top5-body">
+          <h3>知识图谱结构化输出解析</h3>
+          <span class="top5-file">routers/tools.py _knowledge_graph + _build_knowledge_html</span>
+          <p>AI 返回 [BOOK]/[CHAPTERS]/[INDEX]/[RECOMMEND] 标记格式文本，后端逐行解析提取章节卡片、关键词索引、推荐列表，组装完整 HTML 页面。展示 prompt 设计 + 结构化解析 + 模板渲染的完整链路。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  智能读书助手 · 知识点图谱 · 用于面试准备与学习
+</footer>
+
+<script>
+// ═══════════════ DATA ═══════════════
+const MODULES = [
+  {
+    id: "fastapi",
+    name: "Web 框架 / FastAPI",
+    icon: "⚡",
+    points: [
+      {title:"路由注册 include_router",file:"main.py:29-33",desc:"用路由器拆分大型项目，每个文件管一类功能，避免 main.py 膨胀到几千行",interview:"面试官问：\"你项目里路由是怎么组织的？为什么不用 Flask 的蓝图？\""},
+      {title:"路径参数 {book_id}",file:"routers/book_processor.py:249",desc:"RESTful 风格，用 URL 路径标识资源而非查询参数",interview:"面试官问：\"RESTful API 的设计原则是什么？URL 路径和 query param 怎么分工？\""},
+      {title:"请求体校验 Pydantic BaseModel",file:"models/schemas.py + routers/analysis.py:13-19",desc:"声明式字段定义，FastAPI 自动校验 JSON 类型、必填、格式，省掉手写 if/else",interview:"面试官问：\"如果前端多传了一个字段会怎样？Pydantic 的 Extra.forbid 你用过吗？\""},
+      {title:"文件上传 UploadFile",file:"routers/book_processor.py:158",desc:"FastAPI 原生 multipart/form-data 支持，直接拿到文件对象和文件名",interview:"面试官问：\"大文件上传（比如 500MB PDF）会有什么问题？你怎么限制文件大小？\""},
+      {title:"静态文件挂载 StaticFiles",file:"main.py:41",desc:"FastAPI 直接 serve 前端 HTML/JSX 文件，前后端一体部署，无需 nginx",interview:"面试官问：\"生产环境下 FastAPI serve 静态文件合适吗？为什么通常建议用 nginx？\""},
+      {title:"CORS 中间件",file:"main.py:20-26",desc:"允许浏览器跨域调用 API，开发时 allow_origins=['*']，上线要收窄",interview:"面试官问：\"CORS 的原理是什么？浏览器为什么会发一个 OPTIONS 预检请求？\""},
+      {title:"SSE 流式响应 StreamingResponse",file:"routers/analysis.py:144-152",desc:"设置 media_type=text/event-stream，长连接持续推送 AI 生成内容",interview:"面试官问：\"SSE 和 WebSocket 有什么区别？你的场景为什么选 SSE？\""},
+      {title:"后台任务 BackgroundTasks",file:"routers/book_processor.py:66",desc:"耗时操作（如文件处理）异步执行，HTTP 请求立刻返回不阻塞",interview:"面试官问：\"BackgroundTasks 和 Celery 有什么区别？什么场景不该用 BackgroundTasks？\""},
+      {title:"HTTP 异常处理 HTTPException",file:"routers/ 多处",desc:"语义化的 HTTP 错误返回（404 资源不存在、400 参数错误、500 服务器异常）",interview:"面试官问：\"你的异常处理策略是什么？有统一的异常处理中间件吗？\""},
+    ]
+  },
+  {
+    id: "async",
+    name: "异步编程",
+    icon: "⟳",
+    points: [
+      {title:"async/await 语法",file:"几乎所有 async def 函数",desc:"Python 异步编程的基础，让你的服务器能同时处理多个请求不互相阻塞",interview:"面试官问：\"async/await 和 threading 的区别是什么？GIL 在异步下还有影响吗？\""},
+      {title:"asyncio.gather 并发",file:"routers/book_processor.py:230",desc:"多本书并行处理，5 本书一起上传，总时间 ≈ 最慢那本的时间，而非 5 本之和",interview:"面试官问：\"asyncio.gather 和 asyncio.wait 的区别？如果其中一个任务失败，gather 默认行为是什么？\""},
+      {title:"async for 流式消费",file:"services/analysis_service.py:177",desc:"逐 chunk 接收 LLM 输出，收到一个字就处理一个字，不等全部生成完",interview:"面试官问：\"async for 和普通 for 循环的底层区别是什么？\""},
+      {title:"事件循环 asyncio.run",file:"main.py:63 (uvicorn 内部)",desc:"uvicorn 启动时自动创建事件循环，一个线程调度所有异步任务",interview:"面试官问：\"一个线程怎么能同时处理几千个连接？事件循环的原理是什么？\""},
+      {title:"并行 OCR + ThreadPoolExecutor",file:"services/book_processor.py:115-122",desc:"OCR 是 CPU 密集任务，用线程池并行处理多页，fitz.Document 非线程安全需加锁",interview:"面试官问：\"为什么 OCR 用 ThreadPoolExecutor 而不是 asyncio？CPU 密集 vs IO 密集怎么区分？\""},
+    ]
+  },
+  {
+    id: "ai",
+    name: "AI / LLM",
+    icon: "🧠",
+    points: [
+      {title:"System Prompt 设计",file:"services/analysis_service.py:136-153",desc:"定义 AI 的角色、回答风格、格式规则。从学术严谨到通俗易懂自动切换",interview:"面试官问：\"你这个 system prompt 是怎么迭代出来的？测试了多少次？最关键的改动是什么？\""},
+      {title:"6 个工具的 Prompt 模板",file:"routers/tools.py:95-249",desc:"每个工具（总结、背景调研、十问、导图、推荐、辩论）各自定制 prompt 结构和输出格式",interview:"面试官问：\"如果 AI 没有按你规定的格式输出，你怎么处理？\""},
+      {title:"四层上下文组装",file:"services/analysis_service.py:159-174",desc:"system prompt → 章节上下文(4000字截断) → 历史对话(最近3轮) → 用户消息 + 格式提醒",interview:"面试官问：\"你把历史对话放在上下文前面还是后面？顺序有影响吗？\""},
+      {title:"JSON 结构化输出 + 正则解析",file:"services/book_processor.py:210-219",desc:"prompt 要求 AI 输出 JSON，然后用 re.search(r'\\{.*\\}', ...) 提取——因为 LLM 可能多输出文字",interview:"面试官问：\"LLM 不保证输出合法 JSON，你有哪些应对策略？\""},
+      {title:"Token 截断处理",file:"services/analysis_service.py:161 + 多处 [:5000]",desc:"上下文窗口有限（DeepSeek 约 64K），手动截断避免超限",interview:"面试官问：\"你怎么估算 token 数？为什么在字符层面截断而不是用 tiktoken 精确计数？\""},
+      {title:"延迟初始化 LLM",file:"services/book_processor.py:53-65",desc:"@property + 懒加载——不调用 AI 就不创建连接，省内存",interview:"面试官问：\"为什么用 @property 而不是 __init__ 里初始化？有什么场景懒加载会出问题？\""},
+      {title:"温度参数 temperature",file:"services/analysis_service.py:33",desc:"章节切分用 0.1（精确），对话用 0.7（有创意但不胡编）",interview:"面试官问：\"temperature=0 和 temperature=1 的区别？你的场景怎么选的？\""},
+      {title:"思维导图六级深度 Prompt",file:"routers/tools.py:185-207",desc:"书名→章节→主题→论点→论据→具体引文/数据。要求六级深度，禁止字数限制，上下文12000字",interview:"面试官问：\"为什么要求六级？prompt 是怎么逐步迭代出这个结构的？太长的 prompt 有什么副作用？\""},
+      {title:"AI 前言清洗（双重防护）",file:"routers/tools.py:207 + RightPanel.jsx cleanMindmapData",desc:"后端 prompt 禁止输出前言，前端渲染前自动切除第一个 # 前的废话。双重保险确保思维导图纯净",interview:"面试官问：\"为什么要做双重防护？LLM 遵循 prompt 指令的可靠性大概是多少？\""},
+      {title:"知识图谱结构化输出解析",file:"routers/tools.py:435-600",desc:"AI 返回 [BOOK]/[CHAPTERS]/[INDEX]/[RECOMMEND] 标记格式的文本，后端逐行解析为章节卡片+关键词索引+推荐列表，组装完整 HTML 页面",interview:"面试官问：\"这种标记格式的解析方案可靠吗？如果 AI 漏了一个标记或格式不对怎么办？\""},
+    ]
+  },
+  {
+    id: "rag",
+    name: "RAG 检索增强生成",
+    icon: "🔍",
+    points: [
+      {title:"ChromaDB 持久化客户端",file:"services/book_processor.py:47-48",desc:"chromadb.PersistentClient——向量数据存磁盘，服务重启不丢",interview:"面试官问：\"ChromaDB 和 Pinecone / Weaviate 的区别？什么场景选 ChromaDB？\""},
+      {title:"文档向量化入库",file:"services/book_processor.py:425-453",desc:"collection.add(ids, documents, metadatas)——批量写入章节向量",interview:"面试官问：\"embedding 是在什么时候计算的？用的是哪个模型？\""},
+      {title:"语义搜索 collection.query",file:"services/book_processor.py:465-470",desc:"query_texts=用户问题, n_results=5——返回 top-5 最相关章节",interview:"面试官问：\"n_results 为什么选 5？做过对比实验吗（3 vs 5 vs 10）？\""},
+      {title:"相似度转换",file:"services/book_processor.py:489",desc:"relevance_score = 1 - distance——把 ChromaDB 返回的距离转成相似度",interview:"面试官问：\"ChromaDB 的 distance 是欧氏距离还是余弦距离？1-distance 这个公式合理吗？\""},
+      {title:"元数据过滤 where_filter",file:"services/book_processor.py:458-463",desc:"按 book_id 过滤，实现单本书搜索 vs 跨书对比搜索",interview:"面试官问：\"ChromaDB 的 where 过滤支持哪些操作符？$in 和 $and 你都用到了吗？\""},
+      {title:"搜索结果为对话提供上下文",file:"routers/analysis.py:104-128",desc:"把检索结果拼接成 [书名→章节] 格式，作为 LLM 的参考内容",interview:"面试官问：\"RAG 的完整链路是什么？你的检索结果是怎么喂给 LLM 的？\""},
+      {title:"来源标注 + 跳转",file:"routers/analysis.py:120-127 + app.jsx:177-192",desc:"AI 回答末尾附带来源章节信息，前端渲染为可点击的 badge，点击跳转到原文",interview:"面试官问：\"用户怎么验证 AI 回答的准确性？你做了哪些引用机制？\""},
+      {title:"全文关键词精确搜索",file:"routers/search.py:32-67",desc:"在 ChromaDB 中按 book_id 过滤后用 str.find() 遍历所有章节定位关键词，返回含上下文片段的结果列表",interview:"面试官问：\"为什么全文搜索不用 ChromaDB 的语义搜索？什么场景用精确匹配，什么场景用语义搜索？\""},
+    ]
+  },
+  {
+    id: "doc",
+    name: "文档处理",
+    icon: "📄",
+    points: [
+      {title:"PyMuPDF 解析 PDF",file:"services/book_processor.py:67-95",desc:"fitz.open() 逐页提取文本 + 元数据（书名、作者、页数）",interview:"面试官问：\"PyMuPDF 和 pdfplumber 的区别？你选 PyMuPDF 的理由是什么？\""},
+      {title:"扫描版 PDF 检测",file:"services/book_processor.py:84-85",desc:"平均每页 < 20 字符 → 判定为扫描版。一个简洁但有效的启发式规则",interview:"面试官问：\"这个阈值为什么是 20？如果 PDF 混合了文字页和扫描页怎么办？\""},
+      {title:"OCR 降级 Tesseract",file:"services/book_processor.py:97-124",desc:"扫描版 PDF → fitz 渲染为图片 → Tesseract 中英文识别（chi_sim+eng）",interview:"面试官问：\"Tesseract 的准确率大概是多少？如果 OCR 结果很差你怎么处理？\""},
+      {title:"Tesseract 线程安全处理",file:"services/book_processor.py:106-108",desc:"fitz.Document 不是线程安全的，渲染阶段加 threading.Lock 保护",interview:"面试官问：\"你怎么发现 fitz 不是线程安全的？不加锁会有什么现象？\""},
+      {title:"EPUB 解析 ebooklib",file:"services/book_processor.py:126-158",desc:"按 spine(阅读顺序)遍历文档、HTML 标签清洗、段落结构保留",interview:"面试官问：\"EPUB 的 spine 是什么？为什么不能按文件列表顺序读？\""},
+      {title:"python-magic 文件类型检测",file:"services/document_service.py:24-29",desc:"MIME 类型检测 + 文件扩展名降级双重保险",interview:"面试官问：\"为什么既用 magic 又用扩展名？单靠扩展名有什么安全问题？\""},
+      {title:"OCR 进度实时反馈",file:"services/book_processor.py _ocr_progress + routers/book_processor.py /status",desc:"OCR 阶段维护 {book_id: {current, total}} 字典，前端轮询 /status 获取进度并渲染进度条+页数",interview:"面试官问：\"OCR 进度是怎么从后端传到前端的？为什么不用 SSE 推送进度？\""},
+      {title:"上传异步三阶段链路",file:"routers/book_processor.py /upload + /analyze + /status",desc:"Phase1 POST /upload 秒返回 book_id → Phase2 BackgroundTasks 异步分析 → Phase3 轮询 /status 获取 OCR 进度和分析完成状态",interview:"面试官问：\"为什么拆成三个接口而不是一个？如果用户上传后立即关掉浏览器会怎样？\""},
+      {title:"章节内容自动清洗",file:"services/book_processor.py _clean_chapter_content",desc:"移除 [PAGE X] 标记、CIP 数据块、纯数字/符号行、乱码行(有效字符<40%)、规范化空白",interview:"面试官问：\"清洗规则是怎么迭代出来的？有没有清洗过头把正文也删掉的情况？\""},
+    ]
+  },
+  {
+    id: "split",
+    name: "章节切分",
+    icon: "✂",
+    points: [
+      {title:"AI 识别目录",file:"services/book_processor.py:175-224",desc:"取前 5000 字 → 调 LLM → 提取 [{title, level, pattern}]。省成本 + 够用",interview:"面试官问：\"为什么只取前 5000 字？如果目录在书的中间怎么办？\""},
+      {title:"正则降级方案（6 种格式）",file:"services/book_processor.py:226-282",desc:"中文第X章、英文Chapter、Part、Section、数字编号、无编号标题——全覆盖",interview:"面试官问：\"这 6 种正则你是怎么收集到的？有没有真实书籍完全匹配不了？\""},
+      {title:"目录区 vs 正文区去重",file:"services/book_processor.py:257-268",desc:"同一章节标题在目录区和正文各出现一次时，取正文位置（靠后的那条）",interview:"面试官问：\"你怎么区分目录区和正文区？如果正文区的标题出现在正文内容之前怎么办？\""},
+      {title:"按目录位置切分文本",file:"services/book_processor.py:284-351",desc:"用正则找标题在文本中的位置 → 按位置切分 → 过滤 < 50字的碎片章节",interview:"面试官问：\"如果两个章节标题在文本中匹配到相同位置怎么办？边界情况你考虑过吗？\""},
+      {title:"兜底：按段落切分",file:"services/book_processor.py:353-386",desc:"每 2000 字一切，保证极端情况（无目录的书籍）也不崩",interview:"面试官问：\"2000 字这个阈值怎么定的？和 chunk_size 概念有什么关系？\""},
+      {title:"三层降级链",file:"book_processor.py",desc:"AI 目录 → 正则扫描 → 按段落切分。每层都有保底，体现防御性编程思维",interview:"面试官问：\"如果这三层全部失败了会怎样？你能设计第四层降级吗？\""},
+    ]
+  },
+  {
+    id: "react",
+    name: "React 前端",
+    icon: "⚛",
+    points: [
+      {title:"useState 全局状态管理",file:"app.jsx:5-24",desc:"12 个 state 变量管理应用状态：书籍列表、当前书、当前章、对话消息、流式状态等",interview:"面试官问：\"为什么没用 Redux 或 Context？12 个 useState 在大型组件里有什么问题？\""},
+      {title:"useEffect 生命周期",file:"app.jsx:27-43",desc:"页面加载时调 /books/list 恢复数据、localStorage 同步收藏夹",interview:"面试官问：\"useEffect 的依赖数组为什么有时是空数组？cleanup 函数你用过吗？\""},
+      {title:"组件化拆分（三栏布局）",file:"components/LeftPanel.jsx + MiddlePanel.jsx + RightPanel.jsx",desc:"左中右三栏各一个组件，通过 props 传递数据和方法，职责清晰",interview:"面试官问：\"你怎么划分组件边界的？什么逻辑放父组件，什么放子组件？\""},
+      {title:"SSE 前端消费 ReadableStream",file:"app.jsx:221-252",desc:"fetch → response.body.getReader() → 循环读取 → 手动解析 data: {...}\n\n → 更新 state",interview:"面试官问：\"为什么不用 EventSource API？它和 fetch + getReader 的区别是什么？\""},
+      {title:"文件拖拽上传",file:"components/LeftPanel.jsx",desc:"HTML5 Drag & Drop API + FormData 批量提交",interview:"面试官问：\"拖拽上传要考虑哪些 UX 细节？dragover 事件不处理有什么后果？\""},
+      {title:"localStorage 持久化",file:"app.jsx:26-29",desc:"收藏夹存浏览器 localStorage，刷新不丢，useEffect 监听变化自动同步",interview:"面试官问：\"localStorage 的容量限制是多少？如果用户清了浏览器数据怎么办？\""},
+      {title:"思维导图全屏悬浮弹窗",file:"RightPanel.jsx mindmapExpanded + overlayMindmapRef",desc:"点击放大→fixed遮罩(backdrop-filter:blur + 黑色半透明)→白色rounded-3xl卡片(92vw×90vh)→markmap重新渲染→点背景/✕关闭",interview:"面试官问：\"为什么用 React.createElement 而不是 JSX？弹窗的退出动画怎么实现？点背景关闭是怎么阻止事件冒泡的？\""},
+      {title:"AI 工具结果收藏",file:"RightPanel.jsx + app.jsx handleToggleFavorite",desc:"收藏数据结构增加 type 字段(qa/tool)，工具结果附带 toolId+toolLabel。收藏列表显示类型标签，导出区分来源",interview:"面试官问：\"为什么不在现有数据结构上加字段而是增加 type 枚举？向后兼容怎么处理的？\""},
+      {title:"层级 TOC 目录渲染",file:"LeftPanel.jsx:266-307",desc:"利用 AI 返回的 toc[{title,level}]，level=1 显示编号序号，level=2 缩进+圆点标记。无 TOC 时退化为平铺",interview:"面试官问：\"TOC 数据从哪里来？如果 AI 识别错了层级关系，用户看到的效果是什么？\""},
+      {title:"上传进度轮询（三阶段）",file:"app.jsx handleUploadMultiple",desc:"Phase1 逐个POST上传文件→Phase2 POST异步分析→Phase3 轮询GET /books/status 显示OCR进度条→完成后获取分析结果",interview:"面试官问：\"为什么用轮询而不是 WebSocket？轮询间隔 2 秒怎么定的？最大等待 10 分钟后怎么办？\""},
+      {title:"markmap 第三方库集成",file:"RightPanel.jsx useEffect x2",desc:"CDN 加载 markmap-lib + markmap-view + d3。Transformer 将 Markdown 转为节点树，Markmap.create() 绑定到 SVG 元素",interview:"面试官问：\"markmap 的内部原理是什么？它为什么需要 d3？为什么用 CDN 而不是 npm 打包？\""},
+      {title:"工具结果 Markdown 渲染引擎",file:"RightPanel.jsx:320-460",desc:"自建渲染管线：表格→列表、**bold**→strong、编号标题→卡片模式、bullet层级(·/◦)、正文首行缩进。不依赖 marked/showdown",interview:"面试官问：\"为什么不直接用 marked.js？手写渲染器的权衡是什么？\""},
+    ]
+  },
+  {
+    id: "deploy",
+    name: "部署",
+    icon: "☁",
+    points: [
+      {title:"Procfile 启动命令",file:"backend/Procfile",desc:"web: uvicorn app.main:app --host 0.0.0.0 --port $PORT——Railway/Heroku 标准部署格式",interview:"面试官问：\"Procfile 是哪个平台的规范？$PORT 环境变量是谁注入的？\""},
+      {title:"Dockerfile 容器化",file:"根目录 Dockerfile",desc:"将应用打包为 Docker 镜像，环境一致，避免 '我机器上能跑' 问题",interview:"面试官问：\"你的 Dockerfile 是单阶段还是多阶段构建？镜像大概多大？\""},
+      {title:"runtime.txt Python 版本",file:"backend/runtime.txt",desc:"指定 python-3.11.10 给部署平台自动识别",interview:"面试官问：\"为什么锁定 3.11 而不是 3.12？项目里有没有用到 3.12 的新特性？\""},
+      {title:"环境变量管理 .env",file:".env + config.py",desc:"API Key 等敏感信息不写进代码，pydantic-settings 自动读取",interview:"面试官问：\".env 文件要不要进 git？如果多个环境（开发/测试/生产）怎么办？\""},
+    ]
+  },
+  {
+    id: "product",
+    name: "产品/工程思维",
+    icon: "💡",
+    points: [
+      {title:"PRD 产品需求文档",file:"PRD.md",desc:"完整的产品设计：定位、目标用户、功能优先级(P0/P1/P2)、竞品分析、数据模型、路线图",interview:"面试官问：\"你写 PRD 的过程是怎样的？P0/P1/P2 的优先级是怎么划分的？\""},
+      {title:"问题记录文档 PROBLEMS.md",file:"PROBLEMS.md",desc:"记录了 9 个开发中踩过的真实坑和解决方案，展现复盘习惯",interview:"面试官问：\"你记录过的 bug 里哪一个最让你印象深刻？怎么排查和解决的？\""},
+      {title:"部分失败容忍",file:"routers/book_processor.py:234-236",desc:"批量上传 5 本，1 本失败不阻塞其余——返回 {results: [...], errors: [...]}",interview:"面试官问：\"批量操作的错误处理你是怎么做 trade-off 的？全部回滚 vs 部分成功？\""},
+      {title:"前端降级策略",file:"app.jsx:87-115",desc:"批量端点不可用时自动降级为逐个上传，对用户透明",interview:"面试官问：\"这种降级策略在移动端网络不稳定时会有什么表现？\""},
+      {title:"文档驱动的开发习惯",file:"PRD.md + PROBLEMS.md + 知识点图谱.html + 项目架构学习手册.html",desc:"四位一体：PRD定需求、PROBLEMS记录踩坑、知识点图谱拆解技术点、架构手册梳理全貌。体现工程素养",interview:"面试官问：\"你为什么要写这些文档？什么时候更新？哪些是给别人看的？\""},
+      {title:"三层降级 + 双重防护",file:"book_processor.py(三层章节切分) + tools.py/RightPanel.jsx(AI前言清洗)",desc:"贯穿项目的防御性设计思路：关键路径上永远有 Plan B，不信任 AI 输出格式",interview:"面试官问：\"你项目里总共有几处降级和防护？如果让你画一张防御架构图你会怎么画？\""},
+    ]
+  },
+];
+
+// ═══════════════ RENDER ═══════════════
+const contentEl = document.getElementById('content');
+const noResultsEl = document.getElementById('noResults');
+const chipRow = document.getElementById('chipRow');
+const searchInput = document.getElementById('searchInput');
+
+let activeModule = null;
+let searchQuery = '';
+
+function getAllPoints() {
+  return MODULES.flatMap(m => m.points.map(p => ({...p, module: m.id, moduleName: m.name})));
+}
+
+function renderChips() {
+  const allPoints = getAllPoints();
+  const totalPoints = allPoints.length;
+
+  // All chip
+  let html = `<button class="chip${activeModule === null ? ' active' : ''}" data-module="">全部<span class="count">${totalPoints}</span></button>`;
+
+  MODULES.forEach(m => {
+    const count = m.points.length;
+    html += `<button class="chip${activeModule === m.id ? ' active' : ''}" data-module="${m.id}">${m.icon} ${m.name}<span class="count">${count}</span></button>`;
+  });
+
+  chipRow.innerHTML = html;
+
+  // Click handlers
+  chipRow.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      activeModule = chip.dataset.module || null;
+      renderChips();
+      renderCards();
+    });
+  });
+}
+
+function renderCards() {
+  const allPoints = getAllPoints();
+  const hotIds = new Set([
+    "路由注册 include_router",
+    "SSE 流式响应 StreamingResponse",
+    "asyncio.gather 并发",
+    "System Prompt 设计",
+    "三层降级链",
+    "思维导图六级深度 Prompt",
+    "知识图谱结构化输出解析",
+    "上传异步三阶段链路",
+  ]);
+
+  // Filter
+  let filtered = allPoints;
+  if (activeModule) {
+    filtered = filtered.filter(p => p.module === activeModule);
+  }
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    filtered = filtered.filter(p =>
+      p.title.toLowerCase().includes(q) ||
+      p.desc.toLowerCase().includes(q) ||
+      p.file.toLowerCase().includes(q) ||
+      p.moduleName.toLowerCase().includes(q) ||
+      p.interview.toLowerCase().includes(q)
+    );
+  }
+
+  // Group by module
+  const grouped = {};
+  filtered.forEach(p => {
+    if (!grouped[p.module]) grouped[p.module] = { name: p.moduleName, id: p.module, points: [] };
+    grouped[p.module].points.push(p);
+  });
+
+  if (filtered.length === 0) {
+    contentEl.innerHTML = '';
+    noResultsEl.classList.add('visible');
+  } else {
+    noResultsEl.classList.remove('visible');
+    let html = '';
+
+    Object.values(grouped).forEach(mod => {
+      const modIcon = MODULES.find(m => m.id === mod.id)?.icon || '';
+      html += `<section class="module-section">
+        <div class="module-header">
+          <h2>${modIcon} ${mod.name}</h2>
+          <span class="badge">${mod.points.length} 个知识点</span>
+        </div>
+        <div class="cards-grid">`;
+
+      mod.points.forEach(p => {
+        const isHot = hotIds.has(p.title);
+        const isHighlight = p.title.includes('三层降级') || p.title.includes('RAG 完整');
+        let cardClass = 'card';
+        if (isHot) cardClass += ' hot-card';
+        else if (isHighlight) cardClass += ' highlight';
+
+        html += `<div class="${cardClass}">
+          <div class="card-header">
+            <span class="card-title">${p.title}</span>
+            ${isHot ? '<span class="hot-badge">高频</span>' : ''}
+          </div>
+          <span class="card-file">${p.file}</span>
+          <p class="card-desc">${p.desc}</p>
+          <button class="card-toggle" onclick="toggleInterview(this)">
+            <span class="arrow">▶</span> 面试追问
+          </button>
+          <div class="card-interview">
+            <div class="q-label">面试官可能会问</div>
+            ${p.interview}
+          </div>
+        </div>`;
+      });
+
+      html += `</div></section>`;
+    });
+
+    contentEl.innerHTML = html;
+  }
+
+  // Update stats
+  document.getElementById('totalCount').textContent = allPoints.length;
+  document.getElementById('moduleCount').textContent = MODULES.length;
+  document.getElementById('hotCount').textContent = hotIds.size;
+  document.getElementById('visibleCount').textContent = filtered.length;
+}
+
+function toggleInterview(btn) {
+  const interview = btn.nextElementSibling;
+  const arrow = btn.querySelector('.arrow');
+  const isOpen = interview.classList.contains('open');
+  interview.classList.toggle('open');
+  arrow.textContent = isOpen ? '▶' : '▼';
+}
+
+// Search
+searchInput.addEventListener('input', (e) => {
+  searchQuery = e.target.value.trim();
+  renderCards();
+});
+
+// Init
+renderChips();
+renderCards();
+</script>
+</body>
+</html>

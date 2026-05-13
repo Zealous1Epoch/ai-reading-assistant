@@ -96,36 +96,39 @@ async def stream_chat(request: ChatRequest):
     chapter_context = None
     sources = []
 
+    # 收集上下文：指定章节 + RAG 搜索结果
+    context_parts = []
+
     if request.chapter_id:
-        # 当前章节模式
         chapter = book_processor.get_chapter_by_id(request.chapter_id)
         if chapter:
-            chapter_context = chapter.content
-    elif request.selected_book_ids or request.book_id:
-        # 多书/整本书模式：RAG 搜索
-        search_ids = request.selected_book_ids or ([request.book_id] if request.book_id else None)
+            context_parts.append(f"[当前章节：{chapter.title}]\n{chapter.content[:4000]}")
+            sources.append({
+                "book_title": "",
+                "chapter_title": chapter.title,
+                "chapter_id": chapter.chapter_id,
+                "book_id": chapter.book_id
+            })
 
+    if request.selected_book_ids or request.book_id:
+        search_ids = request.selected_book_ids or ([request.book_id] if request.book_id else None)
         if search_ids:
             search_results = await book_processor.search_chapters(
                 query=request.message,
                 book_ids=search_ids,
                 n_results=5
             )
-        else:
-            search_results = []
-
-        if search_results:
-            parts = []
             for r in search_results:
                 source_label = f"[{r.book_title} → {r.title}]" if r.book_title else f"[{r.title}]"
-                parts.append(f"{source_label}\n{r.content_snippet}")
+                context_parts.append(f"{source_label}\n{r.content_snippet}")
                 sources.append({
                     "book_title": r.book_title,
                     "chapter_title": r.title,
                     "chapter_id": r.chapter_id,
                     "book_id": r.book_id
                 })
-            chapter_context = "\n\n---\n\n".join(parts)
+
+    chapter_context = "\n\n---\n\n".join(context_parts) if context_parts else None
 
     async def generate():
         async for chunk in analysis_service.stream_chat(

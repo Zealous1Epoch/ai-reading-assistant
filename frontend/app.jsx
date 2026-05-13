@@ -7,8 +7,7 @@ function App() {
     const [currentBook, setCurrentBook] = useState(null);
     const [currentChapter, setCurrentChapter] = useState(null);
     const [uploadProgress, setUploadProgress] = useState(null); // { current, total } or null
-    const [chapterMessages, setChapterMessages] = useState([]);
-    const [bookMessages, setBookMessages] = useState([]);
+    const [bookChats, setBookChats] = useState({});
     const [crossBookMessages, setCrossBookMessages] = useState([]);
     const [isStreaming, setIsStreaming] = useState(false);
     const [contentMode, setContentMode] = useState('book');
@@ -35,6 +34,16 @@ function App() {
             .then(data => {
                 if (data.books?.length > 0) {
                     setBooks(data.books);
+                    const saved = (() => { try { return JSON.parse(localStorage.getItem('reading_progress')); } catch { return null; } })();
+                    if (saved?.bookId) {
+                        const book = data.books.find(b => b.book_id === saved.bookId);
+                        if (book) {
+                            setCurrentBook(book);
+                            const chapter = book.chapters?.find(c => c.chapter_id === saved.chapterId);
+                            setCurrentChapter(chapter || book.chapters?.[0] || null);
+                            return;
+                        }
+                    }
                     setCurrentBook(data.books[0]);
                     setCurrentChapter(data.books[0].chapters?.[0] || null);
                 }
@@ -43,9 +52,13 @@ function App() {
     }, []);
 
     const getMessages = () => {
-        if (chatMode === 'chapter') return { msgs: chapterMessages, setMsgs: setChapterMessages };
         if (chatMode === 'cross') return { msgs: crossBookMessages, setMsgs: setCrossBookMessages };
-        return { msgs: bookMessages, setMsgs: setBookMessages };
+        const bookId = currentBook?.book_id;
+        const msgs = bookChats[bookId] || [];
+        const setMsgs = (updater) => {
+            setBookChats(prev => ({ ...prev, [bookId]: typeof updater === 'function' ? updater(prev[bookId] || []) : updater }));
+        };
+        return { msgs, setMsgs };
     };
 
     const handleToggleBook = (bookId) => {
@@ -68,6 +81,7 @@ function App() {
             const res = await fetch(`${API_BASE}/books/${bookId}`, { method: 'DELETE' });
             if (!res.ok) throw new Error('删除失败');
             setBooks(prev => prev.filter(b => b.book_id !== bookId));
+            setBookChats(prev => { const next = { ...prev }; delete next[bookId]; return next; });
             if (currentBook?.book_id === bookId) {
                 setCurrentBook(books.find(b => b.book_id !== bookId) || null);
                 setCurrentChapter(null);
@@ -78,64 +92,78 @@ function App() {
         }
     };
 
-    // 批量上传
+    // 批量上传（上传 → 异步分析 → 轮询进度）
     const handleUploadMultiple = async (files) => {
         const total = files.length;
-        setUploadProgress({ current: 0, total });
+        setUploadProgress({ phase: 'uploading', current: 0, total });
 
-        // 尝试批量端点（并行处理）
-        try {
-            const formData = new FormData();
-            for (const file of files) {
-                formData.append('files', file);
-            }
-            const res = await fetch(`${API_BASE}/books/batch-upload`, {
-                method: 'POST',
-                body: formData
-            });
-            if (res.ok) {
-                const data = await res.json();
-                // 添加成功的书籍
-                if (data.results?.length > 0) {
-                    setBooks(prev => [...data.results, ...prev]);
-                    if (!currentBook) {
-                        setCurrentBook(data.results[0]);
-                        setCurrentChapter(data.results[0].chapters?.[0] || null);
-                    }
-                }
-                // 报告失败
-                if (data.errors?.length > 0) {
-                    alert(data.errors.map(e => `${e.file}: ${e.error}`).join('\n'));
-                }
-                setUploadProgress(null);
-                return;
-            }
-        } catch (e) {
-            console.log('批量端点不可用，逐个上传...');
-        }
-
-        // 降级：逐个上传
+        // Phase 1: 上传所有文件（快速）
+        const uploaded = [];
         for (let i = 0; i < files.length; i++) {
-            setUploadProgress({ current: i + 1, total });
+            setUploadProgress({ phase: 'uploading', current: i + 1, total });
             const file = files[i];
             const formData = new FormData();
             formData.append('file', file);
             try {
-                const res = await fetch(`${API_BASE}/books/upload-and-analyze`, {
-                    method: 'POST',
-                    body: formData
-                });
-                const data = await res.json();
-                setBooks(prev => [data, ...prev]);
-                if (!currentBook) {
-                    setCurrentBook(data);
-                    setCurrentChapter(data.chapters?.[0] || null);
+                const res = await fetch(`${API_BASE}/books/upload`, { method: 'POST', body: formData });
+                if (res.ok) {
+                    const data = await res.json();
+                    uploaded.push(data);
                 }
             } catch (err) {
-                console.error('上传失败:', err);
                 alert(`上传 ${file.name} 失败: ${err.message}`);
             }
         }
+
+        if (uploaded.length === 0) { setUploadProgress(null); return; }
+
+        // Phase 2: 异步分析 + 轮询进度
+        setUploadProgress({ phase: 'analyzing', current: 0, total: uploaded.length, ocrProgress: null });
+
+        // 启动所有异步分析
+        for (const item of uploaded) {
+            fetch(`${API_BASE}/books/analyze/${item.book_id}`, { method: 'POST' }).catch(() => {});
+        }
+
+        // 轮询状态
+        const pollInterval = 2000;
+        const maxWait = 600000; // 10分钟
+        const startTime = Date.now();
+        let completed = 0;
+
+        while (completed < uploaded.length && Date.now() - startTime < maxWait) {
+            await new Promise(r => setTimeout(r, pollInterval));
+
+            const pending = uploaded.filter(item => !item._done);
+            for (const item of pending) {
+                try {
+                    const res = await fetch(`${API_BASE}/books/status/${item.book_id}`);
+                    const status = await res.json();
+                    if (status.status === 'completed') {
+                        completed++;
+                        item._done = true;
+                        // 获取分析结果
+                        const ar = await fetch(`${API_BASE}/books/analysis/${item.book_id}`);
+                        if (ar.ok) {
+                            const result = await ar.json();
+                            setBooks(prev => [{ ...result, _new: true }, ...prev]);
+                            if (!currentBook) {
+                                setCurrentBook(result);
+                                setCurrentChapter(result.chapters?.[0] || null);
+                            }
+                        }
+                    } else if (status.ocr_progress) {
+                        setUploadProgress(prev => ({
+                            ...prev,
+                            ocrProgress: status.ocr_progress,
+                            ocrFilename: item.filename
+                        }));
+                    }
+                } catch (e) { /* 继续轮询 */ }
+            }
+            setUploadProgress(prev => ({ ...prev, current: completed }));
+        }
+
         setUploadProgress(null);
     };
 
@@ -171,6 +199,9 @@ function App() {
         } else {
             setCurrentChapter(chapter);
         }
+        if (currentBook?.book_id) {
+            localStorage.setItem('reading_progress', JSON.stringify({ bookId: currentBook.book_id, chapterId: chapter.chapter_id }));
+        }
     };
 
     // 从来源标注跳转到原文
@@ -202,10 +233,11 @@ function App() {
         try {
             const history = msgs.length > 0 ? msgs.slice(-6) : [];
             const body = { message, chat_history: history };
-            if (chatMode === 'chapter') {
-                body.chapter_id = currentChapter?.chapter_id;
-            } else if (chatMode === 'book') {
+            if (chatMode === 'book') {
                 body.book_id = currentBook?.book_id;
+                if (currentChapter?.chapter_id) {
+                    body.chapter_id = currentChapter.chapter_id;
+                }
             } else {
                 body.selected_book_ids = selectedBookIds.length > 0 ? selectedBookIds : null;
             }
@@ -339,7 +371,6 @@ function App() {
             <MiddlePanel
                 currentBook={currentBook}
                 currentChapter={currentChapter}
-                chapters={currentBook?.chapters || []}
                 chatMessages={getActiveMessages()}
                 isStreaming={isStreaming}
                 onSendMessage={handleSendMessage}
@@ -359,6 +390,7 @@ function App() {
                 onRunTool={handleRunTool}
                 onBackToTools={handleBackToTools}
                 favorites={favorites}
+                onToggleFavorite={handleToggleFavorite}
                 onRemoveFavorite={handleRemoveFavorite}
             />
         </div>

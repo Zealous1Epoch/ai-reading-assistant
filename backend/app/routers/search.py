@@ -29,6 +29,44 @@ async def search_chapters(
     return results
 
 
+@router.get("/fulltext")
+async def fulltext_search(
+    keyword: str = Query(..., description="精确搜索关键词"),
+    book_id: str = Query(..., description="书籍ID"),
+    limit: int = Query(20, ge=1, le=50, description="返回结果数量")
+):
+    """全文精确关键词搜索——在所有章节中查找关键词出现的位置"""
+    if not keyword.strip() or not book_id:
+        raise HTTPException(status_code=400, detail="关键词和书籍ID不能为空")
+
+    results = book_processor.collection.get(
+        where={"book_id": book_id},
+        include=["documents", "metadatas"]
+    )
+
+    matches = []
+    if results["ids"]:
+        for i, doc_id in enumerate(results["ids"]):
+            content = results["documents"][i]
+            metadata = results["metadatas"][i]
+            idx = content.find(keyword)
+            pos = 0
+            while idx != -1 and len(matches) < limit:
+                start = max(0, idx - 30)
+                end = min(len(content), idx + len(keyword) + 80)
+                snippet = ('...' if start > 0 else '') + content[start:end] + ('...' if end < len(content) else '')
+                matches.append({
+                    "chapter_id": doc_id,
+                    "chapter_title": metadata.get("title", ""),
+                    "chapter_index": metadata.get("chapter_index", 0),
+                    "position": idx,
+                    "snippet": snippet
+                })
+                pos = idx + 1
+                idx = content.find(keyword, pos)
+    return {"keyword": keyword, "matches": sorted(matches, key=lambda m: (m["chapter_index"], m["position"]))}
+
+
 @router.get("/semantic", response_model=list[ChapterSearchResult])
 async def semantic_search(
     query: str = Query(..., description="语义搜索查询"),

@@ -41,6 +41,7 @@ class BookProcessor:
     def __init__(self, persist_directory: str = "./data/chroma_db"):
         self._llm = None  # 延迟初始化
         self.persist_directory = persist_directory
+        self._ocr_progress = {}  # {book_id: {"current": N, "total": M}}
         os.makedirs(persist_directory, exist_ok=True)
 
         # 初始化 ChromaDB
@@ -64,7 +65,7 @@ class BookProcessor:
             )
         return self._llm
 
-    def extract_text_from_pdf(self, file_path: str) -> Tuple[str, dict]:
+    def extract_text_from_pdf(self, file_path: str, book_id: str = "") -> Tuple[str, dict]:
         """从PDF提取文本（自动降级到OCR处理扫描版PDF）"""
         doc = fitz.open(file_path)
         full_text = ""
@@ -86,21 +87,26 @@ class BookProcessor:
 
         if needs_ocr and HAS_OCR:
             print(f"检测到扫描版PDF（{total_pages}页，仅{text_chars}文字），启动OCR...")
-            ocr_text = self._ocr_pdf(doc)
+            ocr_text = self._ocr_pdf(doc, book_id)
             if len(ocr_text) > text_chars:
                 full_text = ocr_text
                 print(f"OCR完成，提取到{len(ocr_text)}文字")
+            if book_id in self._ocr_progress:
+                del self._ocr_progress[book_id]
+        elif needs_ocr and not HAS_OCR:
+            print(f"警告：检测到扫描版PDF（{total_pages}页，仅{text_chars}文字），但pytesseract未安装，OCR被跳过。请安装: pip install pytesseract")
 
         doc.close()
         return full_text, metadata
 
-    def _ocr_pdf(self, doc: fitz.Document) -> str:
+    def _ocr_pdf(self, doc: fitz.Document, book_id: str = "") -> str:
         """对扫描版PDF执行OCR识别（并行处理，使用本地Tesseract）"""
         import threading
         total = len(doc)
         result = [""] * total
         done = 0
         _lock = threading.Lock()  # fitz.Document非线程安全，需加锁
+        self._ocr_progress[book_id] = {"current": 0, "total": total}
 
         def ocr_page(page_num: int) -> tuple:
             # 渲染阶段加锁（fitz非线程安全），OCR阶段不加锁
@@ -118,6 +124,7 @@ class BookProcessor:
                 page_num, text = f.result()
                 result[page_num] = f"\n[PAGE {page_num + 1}]\n{text}"
                 done += 1
+                self._ocr_progress[book_id] = {"current": done, "total": total}
                 if done % 20 == 0 or done == total:
                     print(f"  OCR进度: {done}/{total}页")
 
@@ -157,12 +164,12 @@ class BookProcessor:
 
         return full_text, metadata
 
-    def extract_text(self, file_path: str) -> Tuple[str, dict]:
+    def extract_text(self, file_path: str, book_id: str = "") -> Tuple[str, dict]:
         """自动检测格式并提取文本"""
         suffix = Path(file_path).suffix.lower()
 
         if suffix == ".pdf":
-            return self.extract_text_from_pdf(file_path)
+            return self.extract_text_from_pdf(file_path, book_id)
         elif suffix == ".epub":
             return self.extract_text_from_epub(file_path)
         elif suffix == ".txt":
@@ -389,7 +396,7 @@ class BookProcessor:
         """处理书籍：提取文本、识别目录、切分章节、向量化存储"""
 
         # 1. 提取文本
-        full_text, metadata = self.extract_text(file_path)
+        full_text, metadata = self.extract_text(file_path, book_id)
 
         # 2. 先用AI识别目录（仅看前5000字，省成本）
         toc_items = await self.detect_toc_by_ai(full_text[:5000])
@@ -422,6 +429,46 @@ class BookProcessor:
             file_format=metadata.get("format", "Unknown")
         )
 
+    def _clean_chapter_content(self, text: str) -> str:
+        """清洗章节内容：移除PDF噪声、乱码、CIP数据"""
+        # 1. 移除 [PAGE X] 标记
+        text = re.sub(r'\n?\[PAGE\s*\d+\]\n?', '\n', text)
+
+        # 2. 逐行过滤乱码（非正常文本行占比过高则丢弃）
+        clean_lines = []
+        for line in text.split('\n'):
+            stripped = line.strip()
+            if not stripped:
+                clean_lines.append('')
+                continue
+            # 跳过纯数字/符号行
+            if re.match(r'^[\d\s\.\,\-\+\=]+$', stripped):
+                continue
+            # 跳过含大量乱码字符的行（非中英文、非标点的字符占比 > 40%）
+            valid_chars = sum(1 for c in stripped if c.isalpha() or c.isdigit() or
+                              '一' <= c <= '鿿' or '　' <= c <= '〿' or
+                              '＀' <= c <= '￯' or c in ' .,;:!?()（）[]【】《》、，。；：？！—…·\t')
+            if len(stripped) > 0 and valid_chars / len(stripped) < 0.4:
+                continue
+            clean_lines.append(stripped)
+
+        text = '\n'.join(clean_lines)
+
+        # 3. 移除 CIP 数据块（图书在版编目）
+        text = re.sub(r'图书在版编目.*?ISBN[^\n]*', '', text, flags=re.DOTALL)
+        text = re.sub(r'CIP.*?核字[^\n]*', '', text)
+
+        # 4. 规范化空白
+        text = re.sub(r'\n{4,}', '\n\n\n', text)
+        text = re.sub(r' {3,}', '  ', text)
+
+        # 5. 移除首尾明显的非正文行（如纯英文标题行在中文书中）
+        lines = text.strip().split('\n')
+        if lines and len(lines[0].strip()) < 5 and not any('一' <= c <= '鿿' for c in lines[0]):
+            lines = lines[1:]
+
+        return '\n'.join(lines).strip()
+
     async def store_chapters_to_chroma(self, book_id: str, chapters: List[Chapter], book_title: str = ""):
         """将章节存储到ChromaDB"""
 
@@ -434,8 +481,9 @@ class BookProcessor:
         metadatas = []
 
         for chapter in chapters:
+            cleaned_content = self._clean_chapter_content(chapter.content)
             ids.append(chapter.chapter_id)
-            documents.append(chapter.content)
+            documents.append(cleaned_content)
             metadatas.append({
                 "book_id": book_id,
                 "book_title": book_title,

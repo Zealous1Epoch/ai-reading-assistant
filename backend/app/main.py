@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from app.config import get_settings
-from app.routers import chat, books, book_processor, search, analysis, tools
+from app.routers import chat, book_processor, search, analysis, tools
 import os
 
 settings = get_settings()

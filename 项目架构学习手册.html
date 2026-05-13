@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能读书助手 — 架构学习手册</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --card: #fff;
+    --border: #e5e5e5;
+    --text: #27272a;
+    --text2: #52525b;
+    --text3: #a1a1aa;
+    --accent: #18181b;
+    --tag-bg: #f4f4f5;
+    --code-bg: #f4f4f5;
+    --link: #2563eb;
+    --h-line: #e4e4e7;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'Inter', -apple-system, 'PingFang SC', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.75;
+    font-size: 15px;
+  }
+
+  /* ===== 导航 ===== */
+  nav.toc {
+    position: fixed; top:0; left:0; bottom:0; width: 280px;
+    background: var(--card);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 32px 24px;
+    z-index: 10;
+  }
+  nav.toc h2 {
+    font-family: 'Noto Serif SC', 'Georgia', serif;
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    letter-spacing: -0.3px;
+  }
+  nav.toc a {
+    display: block;
+    font-size: 13px;
+    color: var(--text2);
+    text-decoration: none;
+    padding: 6px 0;
+    border-bottom: 1px solid transparent;
+    transition: color 0.15s;
+  }
+  nav.toc a:hover { color: var(--accent); }
+  nav.toc a.l2 { padding-left: 20px; font-size: 12.5px; }
+  nav.toc a.l3 { padding-left: 36px; font-size: 12px; color: var(--text3); }
+
+  /* ===== 主体 ===== */
+  main {
+    margin-left: 280px;
+    max-width: 860px;
+    padding: 48px 64px 120px;
+  }
+  h1 {
+    font-family: 'Noto Serif SC', 'Georgia', serif;
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    margin-bottom: 8px;
+  }
+  .subtitle { color: var(--text3); font-size: 14px; margin-bottom: 40px; }
+
+  h2 {
+    font-family: 'Noto Serif SC', 'Georgia', serif;
+    font-size: 22px;
+    font-weight: 700;
+    margin-top: 56px;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--h-line);
+  }
+  h3 {
+    font-size: 17px;
+    font-weight: 600;
+    margin-top: 36px;
+    margin-bottom: 12px;
+  }
+  h4 {
+    font-size: 15px;
+    font-weight: 600;
+    margin-top: 24px;
+    margin-bottom: 8px;
+  }
+  p { margin-bottom: 14px; color: var(--text2); }
+  strong { color: var(--text); }
+
+  /* ===== 学习清单 ===== */
+  .checklist {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin: 24px 0;
+  }
+  .checklist span {
+    font-size: 13px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px 14px;
+    color: var(--text2);
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+  }
+  .checklist span.done {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+    text-decoration: line-through;
+  }
+
+  /* ===== 卡片 ===== */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px 28px;
+    margin: 20px 0;
+  }
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .card-grid .card { margin: 0; padding: 20px 22px; }
+
+  /* ===== 表格 ===== */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 14px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: var(--tag-bg);
+  }
+  tr:last-child td { border-bottom: none; }
+  td { color: var(--text2); }
+  td:first-child { font-weight: 500; color: var(--text); white-space: nowrap; }
+
+  /* ===== 代码块 ===== */
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.65;
+    margin: 14px 0;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+  code {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.9em;
+    background: var(--code-bg);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  pre code { background: none; padding: 0; }
+
+  /* ===== 流程图 ===== */
+  .flow {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 20px 0;
+    font-size: 13px;
+  }
+  .flow .node {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 16px;
+    text-align: center;
+    font-weight: 500;
+  }
+  .flow .arrow { color: var(--text3); font-size: 18px; }
+
+  /* ===== 学习路径卡片 ===== */
+  .path-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px 28px;
+    margin: 12px 0;
+    border-left: 3px solid var(--accent);
+  }
+  .path-card h4 { margin-top: 0; }
+  .path-card .meta { font-size: 12px; color: var(--text3); margin-bottom: 8px; }
+
+  /* ===== 知识点标签 ===== */
+  .tag {
+    display: inline-block;
+    font-size: 11px;
+    background: var(--tag-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1px 8px;
+    margin: 0 2px 4px 0;
+    color: var(--text2);
+  }
+
+  /* 响应式 */
+  @media (max-width: 900px) {
+    nav.toc { display: none; }
+    main { margin-left: 0; padding: 32px 24px 80px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== 目录导航 ==================== -->
+<nav class="toc">
+  <h2>架构学习手册</h2>
+  <a href="#overview">项目概览</a>
+  <a href="#stack" class="l2">技术栈一览</a>
+  <a href="#directories" class="l2">目录结构</a>
+  <a href="#backend">后端架构</a>
+  <a href="#routers" class="l2">路由层</a>
+  <a href="#services" class="l2">服务层</a>
+  <a href="#models" class="l2">数据模型</a>
+  <a href="#config" class="l2">配置管理</a>
+  <a href="#frontend">前端架构</a>
+  <a href="#components" class="l2">组件树 &amp; 职责</a>
+  <a href="#state" class="l2">全局状态</a>
+  <a href="#design" class="l2">设计语言</a>
+  <a href="#dataflow">核心数据流</a>
+  <a href="#flow-upload" class="l2">上传解析流程</a>
+  <a href="#flow-chat" class="l2">三模式对话流程</a>
+  <a href="#flow-tools" class="l2">AI 工具流程</a>
+  <a href="#decisions">关键决策记录</a>
+  <a href="#deploy">部署架构</a>
+  <a href="#learn">学习路径建议</a>
+</nav>
+
+<!-- ==================== 主体内容 ==================== -->
+<main>
+
+<h1>智能读书助手</h1>
+<p class="subtitle">基于 DeepSeek API 的 AI 辅助深度阅读工具 · 架构学习手册<br>版本 1.2 · 2026-05-13</p>
+
+<!-- 学习进度检查单 -->
+<div class="checklist" id="checklist"></div>
+
+<!-- ============================================================ -->
+<!-- 第1章：项目概览 -->
+<!-- ============================================================ -->
+<h2 id="overview">一、项目概览</h2>
+
+<h3>1.1 这是什么项目</h3>
+<p>
+一款面向深度阅读者的 <strong>AI 辅助阅读工具</strong>，帮助用户高效理解和分析书籍内容。
+上传 PDF/EPUB/TXT 格式的书籍后，AI 会自动切分章节、生成摘要和关键词；
+支持三种模式的 AI 对话（当前章节 / 整本书 / 多书对比），并提供六个分析工具（总结、背景调研、读书十问、思维导图、书籍推荐、芒格辩论法）。
+</p>
+
+<div class="card-grid">
+  <div class="card">
+    <h4 style="margin-top:0">核心能力</h4>
+    <ul style="color:var(--text2);font-size:14px;padding-left:20px;">
+      <li>AI 辅助章节自动切分</li>
+      <li>ChromaDB 向量语义搜索</li>
+      <li>三模式 RAG 对话</li>
+      <li>7 个深度分析工具</li>
+      <li>知识图谱 HTML 导出</li>
+      <li>思维导图全屏放大</li>
+      <li>收藏夹 + 导出</li>
+      <li>全文关键词精确搜索</li>
+      <li>层级目录 TOC 展示</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4 style="margin-top:0">解决的问题</h4>
+    <ul style="color:var(--text2);font-size:14px;padding-left:20px;">
+      <li>书太厚没时间精读</li>
+      <li>读完后记不住要点</li>
+      <li>想对比多本书观点</li>
+      <li>缺乏批判性思考视角</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4 style="margin-top:0">支持格式</h4>
+    <ul style="color:var(--text2);font-size:14px;padding-left:20px;">
+      <li>PDF（含扫描版 OCR 降级）</li>
+      <li>EPUB（按 spine 阅读顺序）</li>
+      <li>TXT（纯文本）</li>
+      <li>批量并行上传</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<h3 id="stack">1.2 技术栈一览</h3>
+
+<table>
+  <tr><th>层次</th><th>技术</th><th>作用</th></tr>
+  <tr><td>后端框架</td><td>FastAPI + Uvicorn</td><td>异步高性能 Python Web 服务</td></tr>
+  <tr><td>AI 引擎</td><td>LangChain + DeepSeek API</td><td>通过 OpenAI 兼容协议调用，支持流式输出</td></tr>
+  <tr><td>向量数据库</td><td>ChromaDB</td><td>章节语义搜索（RAG 核心组件）</td></tr>
+  <tr><td>文档解析</td><td>PyMuPDF + EbookLib</td><td>PDF/EPUB 文本提取 + 元数据</td></tr>
+  <tr><td>OCR</td><td>Tesseract（可选依赖）</td><td>扫描版 PDF 自动降级</td></tr>
+  <tr><td>前端框架</td><td>React 18 + Babel Standalone</td><td>浏览器端编译 JSX，无构建步骤</td></tr>
+  <tr><td>样式</td><td>Tailwind CSS (CDN)</td><td>极简黑白 zinc 色系</td></tr>
+  <tr><td>可视化</td><td>markmap + d3</td><td>Markdown 渲染为交互式思维导图，六级深度</td></tr>
+  <tr><td>全文搜索</td><td>Python 字符串匹配</td><td>关键词精确定位，显示上下文和章节信息</td></tr>
+  <tr><td>持久化</td><td>JSON 文件 + ChromaDB + localStorage</td><td>书籍索引 / 向量数据 / 前端收藏夹</td></tr>
+  <tr><td>部署</td><td>Docker + Railway</td><td>单容器 FastAPI + 前端静态资源</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h3 id="directories">1.3 目录结构</h3>
+
+<pre><code>智能读书助手/
+├── <strong>backend/</strong>                          # FastAPI 后端
+│   ├── app/
+│   │   ├── main.py                   # 应用入口：注册路由、CORS、挂载前端静态文件
+│   │   ├── config.py                 # 配置管理（pydantic-settings，从 .env 加载）
+│   │   ├── models/
+│   │   │   ├── book_models.py        # 领域模型（Chapter/TocItem/BookAnalysisResult）
+│   │   │   └── schemas.py            # API 请求/响应 Pydantic 模型
+│   │   ├── routers/
+│   │   │   ├── book_processor.py     # ★ 核心：上传、解析、批量、删除、列表
+│   │   │   ├── analysis.py           # ★ AI 分析：SSE 流式对话 + 章节深度分析
+│   │   │   ├── tools.py              # 6 个 AI 工具后端接口
+│   │   │   └── search.py             # 全文关键词搜索 + 语义搜索
+│   │   └── services/
+│   │       ├── book_processor.py     # ★ 核心服务：文本提取 → 目录识别 → 章节切分 → 向量存储
+│   │       ├── analysis_service.py   # ★ AI 分析：流式对话 + 摘要 + 深度分析
+│   │       ├── ai_service.py         # 通用 AI 对话服务（单例）
+│   │       └── document_service.py   # 文档格式检测 + 元数据
+│   ├── data/
+│   │   ├── books_index.json          # 书籍索引持久化文件
+│   │   └── chroma_db/                # ChromaDB 向量库存储文件
+│   ├── uploads/                      # 上传的原始书籍文件
+│   ├── requirements.txt
+│   └── runtime.txt
+├── <strong>frontend/</strong>                         # React 前端（无构建步骤）
+│   ├── index.html                    # HTML 入口（CDN 引入所有依赖）
+│   ├── app.jsx                       # ★ App 根组件：全局状态 + API + 数据流
+│   └── components/
+│       ├── LeftPanel.jsx             # 左侧面板：书籍管理 + 章节导航
+│       ├── MiddlePanel.jsx           # 中间面板：章节内容 + AI 对话
+│       └── RightPanel.jsx            # 右侧面板：AI 工具 + 收藏夹 + 全屏放大
+├── Dockerfile                        # 容器构建
+├── Procfile                          # Railway 部署声明
+├── railway.json                      # Railway 配置
+└── PRD.md                            # 产品需求文档</code></pre>
+
+<!-- ============================================================ -->
+<!-- 第2章：后端架构 -->
+<!-- ============================================================ -->
+<h2 id="backend">二、后端架构详解</h2>
+
+<h3 id="routers">2.1 路由层（Routers）— API 接口全景</h3>
+
+<table>
+  <tr><th>文件</th><th>前缀</th><th>接口</th><th>方法</th><th>用途</th></tr>
+  <tr>
+    <td rowspan="7">book_processor.py</td>
+    <td rowspan="8">/books</td>
+    <td>/upload</td><td>POST</td><td>上传文件，快速返回 book_id</td>
+  </tr>
+  <tr><td>/analyze/{book_id}</td><td>POST</td><td>异步分析（BackgroundTasks）★</td></tr>
+  <tr><td>/status/{book_id}</td><td>GET</td><td>获取处理状态（含 OCR 进度）</td></tr>
+  <tr><td>/batch-upload</td><td>POST</td><td>批量上传（并行处理）★</td></tr>
+  <tr><td>/list</td><td>GET</td><td>获取全部书籍列表（从索引文件恢复）</td></tr>
+  <tr><td>/analysis/{book_id}</td><td>GET</td><td>获取分析结果</td></tr>
+  <tr><td>/{book_id}</td><td>DELETE</td><td>删除书籍（内存+ChromaDB+文件+索引）</td></tr>
+  <tr><td>/chapters/{chapter_id}</td><td>GET</td><td>获取单个章节内容</td></tr>
+
+  <tr>
+    <td rowspan="5">analysis.py</td>
+    <td rowspan="5">/analysis</td>
+    <td>/chat/stream</td><td>POST</td><td>★ SSE 流式对话（核心接口）</td>
+  </tr>
+  <tr><td>/chat</td><td>POST</td><td>非流式对话（备用）</td></tr>
+  <tr><td>/chapter/{id}</td><td>POST</td><td>深度分析：论点+杠精+总结</td></tr>
+  <tr><td>/chapter/{id}/summary</td><td>GET</td><td>章节摘要 + 关键词</td></tr>
+  <tr><td>/quick</td><td>POST</td><td>快速分析（总结/要点/批判）</td></tr>
+
+  <tr>
+    <td rowspan="1">tools.py</td>
+    <td rowspan="1">/api/tools</td>
+    <td>/{tool_id}</td><td>POST</td><td>运行 7 个 AI 工具之一</td>
+  </tr>
+
+  <tr>
+    <td rowspan="3">search.py</td>
+    <td rowspan="3">/search</td>
+    <td>/fulltext</td><td>GET</td><td>全文关键词精确搜索 ★</td>
+  </tr>
+  <tr><td>/chapters</td><td>GET</td><td>关键词搜索</td></tr>
+  <tr><td>/semantic</td><td>GET</td><td>语义向量搜索</td></tr>
+</table>
+
+<h3 id="services">2.2 服务层（Services）— 核心业务逻辑</h3>
+
+<h4>BookProcessor（书籍处理器 — 最核心的服务）</h4>
+<div class="card">
+<p style="margin-top:0">位置: <code>backend/app/services/book_processor.py</code> (530行)</p>
+<p><strong>单例模式</strong>，初始化时创建 ChromaDB PersistentClient 和 book_chapters collection。</p>
+<p><strong>主流程</strong> <code>process_book()</code>：</p>
+
+<div class="flow">
+  <span class="node">提取文本<br>PDF/EPUB/TXT</span>
+  <span class="arrow">→</span>
+  <span class="node">AI识别目录<br>前5000字</span>
+  <span class="arrow">→</span>
+  <span class="node">正则降级<br>6组模式</span>
+  <span class="arrow">→</span>
+  <span class="node">按目录切分<br>三级定位</span>
+  <span class="arrow">→</span>
+  <span class="node">存入ChromaDB<br>向量化</span>
+  <span class="arrow">→</span>
+  <span class="node">返回<br>BookAnalysisResult</span>
+</div>
+
+<table>
+  <tr><th>方法</th><th>功能</th><th>关键技术点</th></tr>
+  <tr>
+    <td>extract_text_from_pdf()</td>
+    <td>PyMuPDF 提取 PDF 文本</td>
+    <td>自动检测扫描版（&lt;20字/页）→ OCR降级；渲染阶段加锁（fitz非线程安全）</td>
+  </tr>
+  <tr>
+    <td>extract_text_from_epub()</td>
+    <td>EbookLib 提取 EPUB 文本</td>
+    <td>按 spine 阅读顺序遍历，保留块级换行，去除行内HTML标签</td>
+  </tr>
+  <tr>
+    <td>detect_toc_by_ai()</td>
+    <td>DeepSeek 识别目录结构</td>
+    <td>取前5000字，System Prompt 内置示例，要求返回JSON数组</td>
+  </tr>
+  <tr>
+    <td>_fallback_toc_detection()</td>
+    <td>正则降级匹配章节</td>
+    <td>6组正则模式，去重取正文位置（非目录区），上限30条</td>
+  </tr>
+  <tr>
+    <td>split_by_toc()</td>
+    <td>按目录边界切分章节</td>
+    <td>三级匹配：行首精确→子串→宽松；自动插入前置章承接首页内容</td>
+  </tr>
+  <tr>
+    <td>search_chapters()</td>
+    <td>语义搜索</td>
+    <td>Chromadb query，支持单书/多书 where 过滤，top-N返回</td>
+  </tr>
+  <tr>
+    <td>store_chapters_to_chroma()</td>
+    <td>向量化批量写入</td>
+    <td>metadata 包含书名/章节号/字数，供后续过滤和展示</td>
+  </tr>
+</table>
+</div>
+
+<h4>AnalysisService（AI 分析服务）</h4>
+<div class="card">
+<p style="margin-top:0">位置: <code>backend/app/services/analysis_service.py</code> (250行)</p>
+<table>
+  <tr><th>方法</th><th>功能</th><th>关键技术点</th></tr>
+  <tr>
+    <td>analyze_chapter()</td>
+    <td>深度分析章节</td>
+    <td>结构化JSON输出（论点论据+杠精视角+对话总结），要求AI发现隐含假设和逻辑漏洞</td>
+  </tr>
+  <tr>
+    <td><strong>stream_chat()</strong></td>
+    <td>流式对话（核心）</td>
+    <td>AsyncGenerator + SSE；System Prompt根据内容类型自动切换风格（学术/通俗）；内置 Markdown 禁用指令</td>
+  </tr>
+  <tr>
+    <td>generate_chapter_summary()</td>
+    <td>章节摘要+关键词</td>
+    <td>100-200字摘要 + 3-5个关键词，JSON格式输出</td>
+  </tr>
+  <tr>
+    <td>quick_analysis()</td>
+    <td>快速分析</td>
+    <td>三种模式：总结(100字)/要点(3-5条)/批判(1-2个问题)</td>
+  </tr>
+</table>
+<p><strong>两种 LLM 实例</strong>：<code>self.llm</code>（非流式，temperature=0.7）和 <code>self.streaming_llm</code>（流式），均延迟初始化。</p>
+</div>
+
+<h4>AIService（通用 AI 服务 — 旧版，被 AnalysisService 取代）</h4>
+<div class="card">
+<p style="margin-top:0;color:var(--text3)">位置: <code>backend/app/services/ai_service.py</code> (58行) — 提供 chat / summarize / answer_question 三个基础方法。新版代码主要使用 AnalysisService。</p>
+</div>
+
+<h4>DocumentService（文档处理服务）</h4>
+<div class="card">
+<p style="margin-top:0;color:var(--text3)">位置: <code>backend/app/services/document_service.py</code> (83行) — MIME 类型检测 + 扩展名降级 + PDF 元数据提取。新版文本提取逻辑已合并到 BookProcessor 中。</p>
+</div>
+
+<h3 id="models">2.3 数据模型</h3>
+
+<table>
+  <tr><th>模型</th><th>关键字段</th><th>用途</th></tr>
+  <tr>
+    <td><strong>BookAnalysisResult</strong></td>
+    <td>book_id, title, author, total_chapters, total_words, chapters, toc, file_format, created_at</td>
+    <td>书籍分析完成后的完整结果，包含所有章节列表和目录树</td>
+  </tr>
+  <tr>
+    <td><strong>Chapter</strong></td>
+    <td>chapter_id, book_id, title, content, word_count, chapter_index, start_position, end_position</td>
+    <td>单个章节的完整数据，content 字段在 books_index.json 中为空（按需从 ChromaDB 加载）</td>
+  </tr>
+  <tr>
+    <td><strong>TocItem</strong></td>
+    <td>title, level (1=章/2=节), pattern（用于全文匹配的文本模式）</td>
+    <td>目录项，用于精确定位章节边界</td>
+  </tr>
+  <tr>
+    <td><strong>ChapterSearchResult</strong></td>
+    <td>chapter_id, book_id, book_title, title, content_snippet, relevance_score</td>
+    <td>语义搜索结果，content_snippet 截取前300字</td>
+  </tr>
+  <tr>
+    <td><strong>ChatRequest</strong></td>
+    <td>message, chapter_id?, book_id?, selected_book_ids?, chat_history?</td>
+    <td>流式对话请求体（三模式合一）</td>
+  </tr>
+  <tr>
+    <td><strong>ToolRequest</strong></td>
+    <td>book_id, chapter_id?, user_input?</td>
+    <td>AI 工具调用请求</td>
+  </tr>
+</table>
+
+<h3 id="config">2.4 配置管理</h3>
+
+<pre><code># config.py — pydantic-settings 自动加载 .env
+class Settings(BaseSettings):
+    app_name: str = "智能读书助手"
+    deepseek_api_key: str = ""                    # 从 .env 加载
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-chat"
+    database_url: str = "sqlite:///./data/books.db"  # 预留，未启用
+    redis_url: str = "redis://localhost:6379/0"      # 预留，未启用
+
+# 单例模式
+@lru_cache()
+def get_settings() -> Settings:
+    return Settings()</code></pre>
+
+<!-- ============================================================ -->
+<!-- 第3章：前端架构 -->
+<!-- ============================================================ -->
+<h2 id="frontend">三、前端架构详解</h2>
+
+<h3 id="components">3.1 组件树与职责</h3>
+
+<pre><code><strong>App</strong> (app.jsx)          ← 全局状态管理 + 所有 API 调用 + 数据流协调
+│
+├── <strong>LeftPanel</strong> (w-72)     ← 来源管理
+│   ├── 上传拖拽区（支持多文件批量，上传中(x/n) 进度指示）
+│   ├── 已上传书籍列表（点击展开层级目录 TOC，悬停显示删除按钮）
+│   ├── 层级 TOC 视图（level=1 编号章节 + level=2 缩进圆点子节）
+│   ├── 综合阅读模式：每本书左侧多选框 + 已选计数提示
+│   └── 全文关键词搜索（精确定位，显示章节标题和上下文片段）
+│
+├── <strong>MiddlePanel</strong> (flex-1)  ← 内容消费
+│   ├── 顶部栏：书名 + 当前章节标题
+│   ├── 章节内容卡片
+│   │   ├── AI 摘要 + 关键词标签
+│   │   └── 展开/收起全文
+│   ├── 对话消息列表（三种模式独立历史）
+│   │   ├── Markdown 清理渲染（清除 # * ` 等符号）
+│   │   ├── 内联引用 badge（「《书名》·章节名」格式高亮，可点击跳转）
+│   │   ├── SSE 流式打字动画指示器
+│   │   └── 问答收藏按钮（type: 'qa'，内容去重 + localStorage 持久化）
+│   ├── 来源标注区域（可点击跳转到对应书籍章节）
+│   └── 底部输入框 + 三模式切换
+│       ├── 📖 当前书籍 → 基于整本书 RAG 搜索 top-5 章节对话
+│       ├── 🌐 整本书 → RAG 搜索 top-5 章节对话
+│       └── 📚 综合阅读 → 跨书 RAG 搜索对话（需勾选书籍）
+│
+└── <strong>RightPanel</strong> (w-80)    ← 工具 + 收藏
+    ├── 7 个 AI 工具卡片（点击启动）
+    │   ├── 总结 → 输入范围 → AI生成 / 背景调研 → 直接生成
+    │   ├── 读书十问 → 固定10题 / 思维导图 → markmap 六级深度渲染
+    │   ├── 知识图谱 → AI 生成精读笔记 → 后端组装 HTML → 预览+下载
+    │   └── 书籍推荐 → 直接生成 / 芒格辩论 → 输入观点
+    ├── 思维导图全屏悬浮弹窗（毛玻璃背景 + 92vw×90vh 白卡片）
+    ├── 工具状态机：卡片视图 → 输入视图 → 加载视图 → 结果视图
+    │   ├── 工具结果标题栏 ☆ 收藏按钮（type: 'tool' 含 toolId/toolLabel）
+    │   ├── Markdown 表格 → 自动转列表
+    │   ├── 编号/标题 → 卡片模式（标题头+分隔线+正文区）
+    │   └── Bullet 层级渲染（· 一级 / ◦ 二级 / 正文首行缩进）
+    └── 收藏夹（QA 对话 + 工具结果，类型标签区分，多选 + 导出 TXT + 删除）</code></pre>
+
+<h3 id="state">3.2 全局状态管理（App 组件）</h3>
+
+<table>
+  <tr><th>State</th><th>类型</th><th>说明</th></tr>
+  <tr><td>books</td><td>BookAnalysisResult[]</td><td>所有已上传书籍，页面加载时从 /books/list 恢复</td></tr>
+  <tr><td>currentBook</td><td>BookAnalysisResult | null</td><td>当前选中的书籍</td></tr>
+  <tr><td>currentChapter</td><td>Chapter | null</td><td>当前选中章节，change 时自动加载 AI 摘要和内容</td></tr>
+  <tr><td>chapterMessages</td><td>Message[]</td><td>📖 当前章节模式的对话历史</td></tr>
+  <tr><td>bookMessages</td><td>Message[]</td><td>🌐 整本书模式的对话历史</td></tr>
+  <tr><td>crossBookMessages</td><td>Message[]</td><td>📚 综合阅读模式的对话历史</td></tr>
+  <tr><td>chatMode</td><td>'chapter' | 'book' | 'cross'</td><td>当前对话模式，决定 getMessages() 返回哪个历史</td></tr>
+  <tr><td>selectedBookIds</td><td>string[]</td><td>综合阅读模式中勾选的书籍 ID 列表</td></tr>
+  <tr><td>favorites</td><td>Favorite[]</td><td>收藏夹，localStorage 持久化，按 question+answer 去重</td></tr>
+  <tr><td>sources</td><td>Source[] | null</td><td>流式返回的来源标注，{book_title, chapter_title, chapter_id, book_id}</td></tr>
+</table>
+
+<h3 id="design">3.3 设计语言 — 极简黑白艺术风</h3>
+
+<table>
+  <tr><th>要素</th><th>规范</th><th>CSS 类名</th></tr>
+  <tr><td>色彩体系</td><td>仅 zinc 色系（50→900），禁用任何彩色</td><td>bg-zinc-50~900, text-zinc-*, border-zinc-*</td></tr>
+  <tr><td>主容器</td><td>白底 + 3xl 圆角 + 细灰边框</td><td>bg-white rounded-3xl border border-zinc-200</td></tr>
+  <tr><td>背景</td><td>浅灰底色</td><td>bg-zinc-50</td></tr>
+  <tr><td>按钮</td><td>全圆角胶囊形</td><td>rounded-full</td></tr>
+  <tr><td>标题字体</td><td>衬线体（有书卷气）</td><td>Noto Serif SC</td></tr>
+  <tr><td>正文字体</td><td>无衬线体（现代易读）</td><td>Inter</td></tr>
+  <tr><td>间距</td><td>主容器 p-3 gap-3，卡片 px-4 pt-4 pb-2</td><td>强调呼吸感</td></tr>
+  <tr><td>高亮</td><td>纯灰高亮，禁用彩色</td><td>bg-zinc-50 ring-zinc-200</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<!-- 第4章：核心数据流 -->
+<!-- ============================================================ -->
+<h2 id="dataflow">四、核心数据流</h2>
+
+<h3 id="flow-upload">4.1 书籍上传与解析流程（最复杂的流程）</h3>
+
+<pre><code>异步三阶段上传链:
+  Phase 1 — POST /books/upload   → 保存文件到 uploads/ → 返回 {book_id, filename, format}
+  Phase 2 — POST /books/analyze/{book_id} → BackgroundTasks 异步分析（文本提取→目录识别→章节切分→向量存储）
+  Phase 3 — GET /books/status/{book_id} → 前端轮询 {status, ocr_progress: {current, total}}
+            → status=completed 时 GET /books/analysis/{book_id} 获取结果
+
+用户拖拽/选择文件
+  │
+  ▼
+前端: 文件格式校验(.pdf/.epub/.txt) → FormData
+  │
+  ▼
+POST /books/upload（单本快速返回）→ POST /books/analyze/{book_id}（异步分析）
+  或 POST /books/batch-upload（多本并行，部分失败不阻塞）
+  │
+  ▼
+后端 book_processor.py:
+  │
+  ├── 1. 保存原始文件 → backend/uploads/{uuid}.{ext}
+  │
+  ├── 2. extract_text(file_path) → 自动检测格式
+  │     ├─ PDF:  PyMuPDF 逐页提取 → 检测扫描版(平均<20字/页)
+  │     │         └─ 是扫描版 + Tesseract已安装 → OCR（4线程并行，渲染加锁）
+  │     ├─ EPUB: EbookLib 按 spine 顺序遍历 → HTML→纯文本（保留块级换行）
+  │     └─ TXT:  直接 utf-8 读取
+  │
+  ├── 3. detect_toc_by_ai(text[:5000]) → DeepSeek API
+  │     ├─ System Prompt: "你是专业的书籍结构分析助手"
+  │     ├─ 要求返回 JSON: [{title, level, pattern}, ...]
+  │     └─ 失败 → 返回空列表[]
+  │
+  ├── 4. _fallback_toc_detection(full_text) ← AI 失败时的保底方案
+  │     ├─ 6组正则: 第X章/Chapter X/Part X/Section X/X.X/序言附录等
+  │     ├─ 去重策略: 相同章节号保留正文位置(靠后)，非目录区(靠前)
+  │     └─ 上限30条
+  │
+  ├── 5. split_by_toc(full_text, toc_items)
+  │     ├─ 三级匹配定位章节边界:
+  │     │   L1: 行首精确匹配 + 行尾终止(排除正文中的引用)
+  │     │   L2: 子串匹配（取最后出现位置=正文位置）
+  │     │   L3: 宽松匹配（允许标题前后空白）
+  │     ├─ 自动插入前置章（首页/目录等内容不被丢弃）
+  │     └─ 过滤: word_count < 50 的过短章节
+  │
+  ├── 6. store_chapters_to_chroma(book_id, chapters, book_title)
+  │     ├─ collection.add(ids, documents, metadatas)
+  │     └─ metadata: {book_id, book_title, title, chapter_index, word_count}
+  │
+  └── 7. 返回 BookAnalysisResult → 写入 data/books_index.json（content 字段置空，仅存元信息）
+        └─ 前端轮询 /books/status/{id} → completed 后获取分析结果 → 更新 books state
+</code></pre>
+
+<h3 id="flow-chat">4.2 三模式对话流程（最常用的流程）</h3>
+
+<pre><code>用户输入消息 → 按下发送
+  │
+  ├── 📖 <strong>当前书籍模式</strong> (chatMode='book'):
+  │     请求: POST /analysis/chat/stream
+  │           {message, book_id, chat_history}
+  │     后端:
+  │       1. ChromaDB.query(message) → 语义搜索 top-5 相关章节
+  │       2. 拼接章节片段作为上下文
+  │       3. DeepSeek 流式生成 → SSE data: {"content":"..."}
+  │     特点: RAG 增强，覆盖全书相关内容，适合通读
+  │
+  └── 📚 <strong>综合阅读模式</strong> (chatMode='cross'):
+        请求: POST /analysis/chat/stream
+             {message, selected_book_ids, chat_history}
+        后端:
+          1. ChromaDB.query(message, where={book_id: {$in: selected_book_ids}})
+              → 跨书语义搜索 top-5 最相关章节
+          2. 拼接多书内容作为上下文对比
+          3. DeepSeek 流式生成 → SSE + 多书来源标注
+        特点: 跨书对比分析，适合主题研究
+
+<strong>SSE 数据格式</strong>:
+  data: {"content":"这是流式"}     ← 逐 token 推送
+  data: {"content":"生成的"}
+  data: {"content":"回答内容"}
+  data: {"sources":[...]}          ← 仅在整本书/综合阅读模式出现
+  data: [DONE]                     ← 结束标记</code></pre>
+
+<h3 id="flow-tools">4.3 AI 工具流程</h3>
+
+<pre><code>用户点击工具卡片
+  │
+  ├── <strong>需要输入的工具</strong>（总结 / 芒格辩论 / 思维导图）:
+  │     cards → input → 用户输入 → loading → result
+  │
+  └── <strong>无需输入的工具</strong>（背景调研 / 读书十问 / 知识图谱 / 书籍推荐）:
+        cards → loading → result
+  │
+  ▼
+POST /api/tools/{tool_id}
+  Body: {book_id, chapter_id?, user_input?}
+  │
+  ▼
+后端 tools.py:
+  1. 从 ChromaDB 获取全书章节
+     ├─ 指定 chapter_id → 取该章 10000 字
+     └─ 全书 → 每章取前 2000 字（最多20章）
+  2. 根据 tool_id 组装专用 Prompt
+     ├─ summarize:      核心内容+关键论点+重要概念
+     ├─ background:     时代背景+作者背景+学术脉络+争论+影响力
+     ├─ questions:      10个固定深度问题（读书十问模板）
+     ├─ mindmap:        生成 Markdown #→###### 六级层级（书名→章节→主题→论点→论据→引文/数据）
+     │                  上下文 12000 字，禁止 AI 输出前言废话
+     ├─ recommend:      推荐3-5本同主题书籍（书名+理由+关联+适合读者）
+     ├─ debate:         经济学/心理学/社会学/哲学 四学科正反辩论+总结
+     └─ knowledge-graph: AI 生成结构化精读笔记（摘要+摘录+AI批注+关键词索引+书籍推荐）
+  3. DeepSeek API 调用 → 返回结果
+  │
+  ▼
+前端 RightPanel 结果渲染:
+  ├─ 思维导图:
+  │   ├─ cleanMindmapData() 前端二次清洗（定位第一个 \n# 切除前言）
+  │   ├─ markmap-lib + markmap-view (v0.15.4) + d3 渲染为交互式 SVG
+  │   └─ 全屏放大按钮 → 悬浮弹窗（毛玻璃背景 + 92vw×90vh 白卡片）
+  ├─ 知识图谱:
+  │   ├─ 后端解析 AI 结构化文本 → 组装完整 HTML 页面（锌色系卡片）
+  │   ├─ 含章节摘要、原文摘录、AI 批注、核心概念索引、书籍推荐附录
+  │   ├─ 每章预留「我的笔记」手写区域（横线纸风格）
+  │   └─ iframe 预览 + 下载 HTML 文件
+  ├─ 工具结果标题栏: ☆ 收藏按钮（type: 'tool' + toolId + toolLabel 元数据）
+  ├─ Markdown 表格 → 自动转为要点列表
+  ├─ 编号/标题行 → 卡片模式（标题头 + 分隔线 + 正文区）
+  ├─ Bullet 层级: · (U+00B7) 一级 / ◦ (U+25E6) 二级 / 正文首行缩进两字
+  └─ **bold** → &lt;strong&gt;，清除残余 # * 符号</code></pre>
+
+<!-- ============================================================ -->
+<!-- 第5章：关键决策记录 -->
+<!-- ============================================================ -->
+<h2 id="decisions">五、关键技术与设计决策</h2>
+
+<table>
+  <tr><th>#</th><th>决策</th><th>选型</th><th>原因</th></tr>
+  <tr>
+    <td>1</td>
+    <td>章节切分策略</td>
+    <td><strong>AI 优先 + 正则降级</strong></td>
+    <td>AI 识别准确但可能失败，正则保底确保永远有章节可用</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td>AI 目录识别范围</td>
+    <td><strong>仅看前 5000 字</strong></td>
+    <td>省 Token 成本；目录通常在书籍开头</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td>扫描版 PDF 处理</td>
+    <td><strong>自动检测 → Tesseract OCR</strong></td>
+    <td>平均每页 &lt;20 字符触发 OCR；每页渲染加锁解决 fitz 线程安全问题</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td>去重策略（目录vs正文）</td>
+    <td><strong>取正文位置（靠后）</strong></td>
+    <td>目录区章节标题出现早，正文标题出现晚，取后者作为切分边界</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>章节正文存储</td>
+    <td><strong>ChromaDB 存全文，JSON 仅存元信息</strong></td>
+    <td>前端按需加载章节内容，JSON 文件保持轻量</td>
+  </tr>
+  <tr>
+    <td>6</td>
+    <td>前端架构</td>
+    <td><strong>无构建步骤（Babel Standalone）</strong></td>
+    <td>简化部署，不需要 Node.js 构建链；适合小型前端</td>
+  </tr>
+  <tr>
+    <td>7</td>
+    <td>流式对话协议</td>
+    <td><strong>SSE（Server-Sent Events）</strong></td>
+    <td>比 WebSocket 简单，逐 token 推送，前端 Fetch API + ReadableStream 消费</td>
+  </tr>
+  <tr>
+    <td>8</td>
+    <td>对话历史策略</td>
+    <td><strong>三模式独立存储</strong></td>
+    <td>不同场景的上下文不混淆，切换模式不影响已有对话</td>
+  </tr>
+  <tr>
+    <td>9</td>
+    <td>收藏去重</td>
+    <td><strong>question + answer 联合判断</strong></td>
+    <td>相同问答不重复收藏，localStorage 持久化</td>
+  </tr>
+  <tr>
+    <td>10</td>
+    <td>服务实例化</td>
+    <td><strong>单例模式（模块级实例）</strong></td>
+    <td>LLM 和 ChromaDB 客户端开销大，全局复用</td>
+  </tr>
+  <tr>
+    <td>11</td>
+    <td>LLM 温度</td>
+    <td><strong>书处理器 0.1 / 分析服务 0.7</strong></td>
+    <td>目录识别需高确定性；对话分析需一定创造性</td>
+  </tr>
+  <tr>
+    <td>12</td>
+    <td>上下文窗口</td>
+    <td><strong>单章 10000 字 / RAG top-5 片段</strong></td>
+    <td>思维导图模式扩至 12000 字以支持六级深度；DeepSeek 上下文 64K</td>
+  </tr>
+  <tr>
+    <td>13</td>
+    <td>思维导图 PNG 导出</td>
+    <td><strong>放弃 → 改为全屏悬浮弹窗</strong></td>
+    <td>offscreen canvas+SVG 导出遇到 CJK 字体处理、getBBox 返回 0 等连锁问题 10+ 次迭代无解；放大直接查看更实用</td>
+  </tr>
+  <tr>
+    <td>14</td>
+    <td>思维导图层级</td>
+    <td><strong>六级深度（书名→章节→主题→论点→论据→引文/数据）</strong></td>
+    <td>初始4级仅到主题层太简略，需深入到具体论据、案例、引文才能体现论证逻辑链</td>
+  </tr>
+  <tr>
+    <td>15</td>
+    <td>AI 前言清洗</td>
+    <td><strong>前后端双重防护</strong></td>
+    <td>后端 Prompt 约束「第一行必须是 # 开头」+ 前端 cleanMindmapData() 定位第一个 \n# 切除前文；单层不可靠</td>
+  </tr>
+  <tr>
+    <td>16</td>
+    <td>收藏数据结构扩展</td>
+    <td><strong>增加 type 字段（qa / tool）</strong></td>
+    <td>工具结果收藏需区分来源类型、toolId、toolLabel；导出时按 type 格式化标题行</td>
+  </tr>
+  <tr>
+    <td>17</td>
+    <td>上传处理链路</td>
+    <td><strong>异步三阶段（upload → analyze → poll status）</strong></td>
+    <td>大文件处理耗时长（OCR 2-5s/页），同步等待超时；异步解耦后前端轮询进度（含 OCR 页数反馈）</td>
+  </tr>
+  <tr>
+    <td>18</td>
+    <td>知识图谱输出格式</td>
+    <td><strong>后端组装完整 HTML 页面</strong></td>
+    <td>AI 返回结构化文本 → 后端解析（章节/摘录/批注/关键词/推荐）→ 组装锌色系 HTML；前端 iframe 预览 + 下载</td>
+  </tr>
+</table>
+
+<!-- ============================================================ -->
+<!-- 第6章：部署架构 -->
+<!-- ============================================================ -->
+<h2 id="deploy">六、部署架构</h2>
+
+<div class="card">
+<h4 style="margin-top:0">Docker 容器化部署（Railway）</h4>
+<pre><code># Dockerfile 核心步骤
+FROM python:3.11-slim-bookworm
+RUN apt-get install -y libmagic1          # python-magic 的 C 依赖
+COPY backend/requirements.txt ./
+RUN pip install -r requirements.txt
+COPY backend/ ./backend/                   # 后端代码
+COPY frontend/ ./frontend/                 # 前端静态资源
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+</code></pre>
+
+<table>
+  <tr><th>组件</th><th>配置</th></tr>
+  <tr><td>基础镜像</td><td>python:3.11-slim-bookworm（轻量 Debian）</td></tr>
+  <tr><td>系统依赖</td><td>libmagic1（MIME 类型检测）</td></tr>
+  <tr><td>Python 依赖</td><td>FastAPI, LangChain, PyMuPDF, EbookLib, ChromaDB, Pydantic 等</td></tr>
+  <tr><td>端口</td><td>${PORT:-8000}（Railway 注入 PORT 环境变量）</td></tr>
+  <tr><td>前端服务</td><td>FastAPI 直接挂载 StaticFiles + FileResponse，无需 Nginx</td></tr>
+  <tr><td>可选依赖</td><td>Tesseract OCR（未预装，按需 apt install）</td></tr>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<!-- 第7章：学习路径 -->
+<!-- ============================================================ -->
+<h2 id="learn">七、建议学习路径</h2>
+
+<div class="path-card">
+  <h4>第一阶段：理解全貌（1-2小时）</h4>
+  <p class="meta">目标：知道项目做什么、怎么跑起来</p>
+  <ol style="padding-left:20px;color:var(--text2);">
+    <li>阅读 PRD.md — 了解产品定位和功能清单</li>
+    <li>阅读 README.md — 了解如何启动和基本 API</li>
+    <li>浏览本手册 — 建立整体架构心智模型</li>
+    <li>启动项目：<code>cd backend && python -m app.main</code></li>
+    <li>打开 http://localhost:8000/docs 浏览 Swagger 文档</li>
+  </ol>
+</div>
+
+<div class="path-card">
+  <h4>第二阶段：后端核心（3-5小时）</h4>
+  <p class="meta">目标：理解数据如何流转</p>
+  <ol style="padding-left:20px;color:var(--text2);">
+    <li><strong>入口 → 路由 → 服务</strong>：从 <code>main.py</code> 开始，追踪一个上传请求从路由到服务层的完整调用链</li>
+    <li><strong>书籍处理核心</strong>：精读 <code>services/book_processor.py</code>，重点是 <code>process_book()</code> 的6个步骤</li>
+    <li><strong>目录识别双轨策略</strong>：理解 AI 识别和正则降级的协作关系</li>
+    <li><strong>ChromaDB 集成</strong>：理解向量化存储和语义搜索的实现</li>
+    <li><strong>SSE 流式对话</strong>：精读 <code>routers/analysis.py</code> 的 <code>stream_chat()</code>，理解 AsyncGenerator + SSE 机制</li>
+    <li><strong>AI 工具 Prompt 工程</strong>：精读 <code>routers/tools.py</code>，学习6个工具的 Prompt 设计思路</li>
+  </ol>
+</div>
+
+<div class="path-card">
+  <h4>第三阶段：前端架构（2-3小时）</h4>
+  <p class="meta">目标：理解 UI 如何消费后端数据</p>
+  <ol style="padding-left:20px;color:var(--text2);">
+    <li><strong>入口 HTML</strong>：理解 CDN 依赖加载顺序（React → Babel → Tailwind → markmap）</li>
+    <li><strong>App 根组件</strong>：理解全局状态管理和数据流协调</li>
+    <li><strong>三栏组件</strong>：逐组件阅读，理解 Props 传递和回调模式</li>
+    <li><strong>SSE 消费</strong>：理解 <code>handleSendMessage()</code> 中 ReadableStream 读取 SSE 的实现</li>
+    <li><strong>工具结果渲染</strong>：理解 Markdown→React 组件的自定义渲染逻辑</li>
+  </ol>
+</div>
+
+<div class="path-card">
+  <h4>第四阶段：关键模式学习（按需）</h4>
+  <p class="meta">目标：提取可复用的技术模式</p>
+  <ol style="padding-left:20px;color:var(--text2);">
+    <li><strong>RAG 模式</strong>：ChromaDB 搜索 → 上下文拼接 → LLM 回答 → 来源标注</li>
+    <li><strong>流式输出</strong>：AsyncGenerator + SSE + ReadableStream 三端配合</li>
+    <li><strong>单例模式</strong>：LLM 和 ChromaDB 客户端的延迟初始化</li>
+    <li><strong>双轨降级</strong>：AI 优先 + 规则引擎保底的设计模式</li>
+    <li><strong>无构建前端</strong>：Babel Standalone + CDN 的零配置方案</li>
+    <li><strong>JSON 持久化</strong>：去 content 的轻量索引 + ChromaDB 全量存储</li>
+  </ol>
+</div>
+
+<div class="path-card">
+  <h4>第五阶段：深入扩展（按兴趣）</h4>
+  <p class="meta">目标：在理解现有代码基础上进行改进</p>
+  <ol style="padding-left:20px;color:var(--text2);">
+    <li>阅读 LangChain ChatOpenAI 源码 — 理解 OpenAI 兼容协议的封装</li>
+    <li>阅读 ChromaDB PersistentClient 文档 — 理解索引结构和查询性能</li>
+    <li>尝试为项目添加一个新 AI 工具（如「金句提取」）— 端到端实践</li>
+    <li>尝试将旧版 API 清理合并 — 理解重构思路</li>
+    <li>研究 Railway 部署日志 — 理解容器化生产环境</li>
+  </ol>
+</div>
+
+<p style="margin-top:40px;padding:20px;background:var(--tag-bg);border-radius:12px;text-align:center;color:var(--text3);font-size:13px;">
+  💡 <strong>学习建议</strong>：重点理解 <code>book_processor.py</code> 的流程控制和 <code>analysis.py</code> 的 SSE 流式对话，这两个模块是整个系统的核心。
+  每读完一个模块，在页首的检查清单中勾选对应项以追踪进度。
+</p>
+
+</main>
+
+<script>
+// 学习进度检查清单
+const items = [
+  'PRD.md', 'README.md', '技术栈', '目录结构',
+  '路由层-上传', '路由层-分析', '路由层-工具', '路由层-搜索',
+  'BookProcessor', 'AnalysisService', 'AIService', 'DocumentService',
+  '数据模型', '配置管理',
+  '组件树', '全局状态', '设计语言',
+  '上传异步三阶段', '三模式对话', 'AI工具流程(7个)',
+  '关键决策', '部署架构',
+  '前端SSE消费', 'ChromaDB', 'Prompt工程', 'RAG模式',
+  '知识图谱HTML', '思维导图六级', '全文搜索', '层级TOC'
+];
+
+const checklistEl = document.getElementById('checklist');
+items.forEach((item, i) => {
+  const key = 'learn_' + i;
+  const done = localStorage.getItem(key) === '1';
+  const el = document.createElement('span');
+  el.textContent = item;
+  if (done) el.classList.add('done');
+  el.addEventListener('click', () => {
+    const isDone = el.classList.toggle('done');
+    localStorage.setItem(key, isDone ? '1' : '0');
+  });
+  checklistEl.appendChild(el);
+});
+</script>
+
+</body>
+</html>

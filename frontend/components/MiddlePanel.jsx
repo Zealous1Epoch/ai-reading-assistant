@@ -12,7 +12,7 @@ function cleanMarkdown(text) {
         .trim();
 }
 
-function MiddlePanel({ currentBook, currentChapter, chapters, chatMessages, isStreaming, onSendMessage, chatMode, onToggleMode, sources, selectedBookIds, books, onToggleFavorite, onNavigateToSource, favorites }) {
+function MiddlePanel({ currentBook, currentChapter, chatMessages, isStreaming, onSendMessage, chatMode, onToggleMode, sources, selectedBookIds, books, onToggleFavorite, onNavigateToSource, favorites }) {
     const [input, setInput] = useState('');
     const [chapterSummary, setChapterSummary] = useState(null);
     const [summaryLoading, setSummaryLoading] = useState(false);
@@ -34,6 +34,88 @@ function MiddlePanel({ currentBook, currentChapter, chapters, chatMessages, isSt
             }
             return part;
         });
+    }
+
+    // 清洗章节正文：移除PDF噪声、乱码行
+    function cleanChapterContent(text) {
+        return text
+            .replace(/\[PAGE\s*\d+\]/gi, '')
+            .split('\n')
+            .filter(line => {
+                const s = line.trim();
+                if (!s) return true;
+                // 纯数字/符号行跳过
+                if (/^[\d\s\.\,\-\+\=\(\)\[\]\{\}\/\\\|\&\*\%\$\#\@\!]+$/.test(s)) return false;
+                // 统计正常字符：字母数字、中文、常用标点
+                const garbage = s.replace(/[a-zA-Z0-9一-鿿　-〿＀-￯\s.,;:!?()《》、，。；：？！—…·\t\-]/g, '');
+                return garbage.length / s.length < 0.4;
+            })
+            .join('\n')
+            .replace(/\n{4,}/g, '\n\n\n')
+            .replace(/ {3,}/g, '  ')
+            .trim();
+    }
+
+    // 渲染章节正文段落：B+C风格（左侧竖线 + 卡片包裹 + 首行缩进）
+    function renderChapterParagraphs(text) {
+        const cleaned = cleanChapterContent(text);
+        const blocks = cleaned.split(/\n\n+/).filter(p => p.trim());
+        return blocks.map((block, i) => {
+            const lines = block.split('\n').filter(l => l.trim());
+            if (lines.length === 0) return null;
+
+            const firstLine = lines[0];
+            const isHeading = /^(\d+[\.\、\)]\s*|第[一二三四五六七八九十\d]+[章节])\s*/.test(firstLine)
+                           || (firstLine.length <= 25 && !/[。，；]$/.test(firstLine));
+
+            if (isHeading) {
+                // 标题行：加粗、大字号、无缩进
+                const headingEl = React.createElement('p', {
+                    key: i + '-h',
+                    className: 'text-base font-bold text-zinc-900 mt-5 mb-1'
+                }, firstLine);
+                const bodyLines = lines.slice(1).filter(l => l.trim());
+                const bodyEls = bodyLines.length > 0
+                    ? React.createElement('div', {
+                        key: i + '-b',
+                        className: 'border-l-2 border-zinc-200 pl-4 py-1 bg-zinc-50/50 rounded-r-lg'
+                    }, bodyLines.map((l, j) =>
+                        React.createElement('p', {
+                            key: j,
+                            className: 'text-sm text-zinc-700 leading-relaxed',
+                            style: { textIndent: '2em' }
+                        }, l.trim())
+                    ))
+                    : null;
+                return React.createElement('div', { key: i }, [headingEl, bodyEls].filter(Boolean));
+            }
+
+            // 普通段落：左侧竖线 + 卡片
+            return React.createElement('div', {
+                key: i,
+                className: 'border-l-2 border-zinc-200 pl-4 py-2 my-2 bg-zinc-50/50 rounded-r-lg'
+            },
+                React.createElement('p', {
+                    className: 'text-sm text-zinc-700 leading-relaxed',
+                    style: { textIndent: '2em' }
+                }, block.trim())
+            );
+        });
+    }
+    function renderMessageParagraphs(text) {
+        const cleaned = cleanMarkdown(text);
+        const paragraphs = cleaned.split(/\n\n+/).filter(p => p.trim());
+        if (paragraphs.length <= 1) {
+            return React.createElement('p', { className: 'text-sm text-zinc-700 leading-relaxed', style: { textIndent: '2em' } },
+                renderWithCitations(cleaned));
+        }
+        return paragraphs.map((para, i) =>
+            React.createElement('p', {
+                key: i,
+                className: 'text-sm text-zinc-700 leading-relaxed mt-1.5',
+                style: { textIndent: '2em' }
+            }, renderWithCitations(para))
+        );
     }
 
     // 选中章节时加载摘要
@@ -240,8 +322,8 @@ function MiddlePanel({ currentBook, currentChapter, chapters, chatMessages, isSt
                                                 </svg>
                                             </button>
                                             {expandedChapter && (
-                                                <div className="mt-4 pt-4 border-t border-zinc-100 text-[15px] text-zinc-700 leading-[1.8] whitespace-pre-wrap">
-                                                    {currentChapter.content.replace(/\n{3,}/g, '\n\n')}
+                                                <div className="mt-4 pt-4 border-t border-zinc-100 space-y-1">
+                                                    {renderChapterParagraphs(currentChapter.content)}
                                                 </div>
                                             )}
                                         </>
@@ -274,7 +356,10 @@ function MiddlePanel({ currentBook, currentChapter, chapters, chatMessages, isSt
                                         ? 'bg-zinc-100 text-zinc-700 rounded-2xl rounded-br-md'
                                         : 'bg-white text-zinc-700 rounded-2xl rounded-bl-md border border-zinc-100'
                                 }`}>
-                                    <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.role === 'user' ? msg.content : renderWithCitations(cleanMarkdown(msg.content))}</p>
+                                    {msg.role === 'user'
+                                        ? React.createElement('p', { className: 'text-sm whitespace-pre-wrap leading-relaxed' }, msg.content)
+                                        : renderMessageParagraphs(msg.content)
+                                    }
                                 </div>
                             {msg.role === 'assistant' && chatMessages[i - 1]?.role === 'user' && (
                                     (() => {
@@ -282,6 +367,7 @@ function MiddlePanel({ currentBook, currentChapter, chapters, chatMessages, isSt
                                         return (
                                             <button
                                                 onClick={() => onToggleFavorite({
+                                                    type: 'qa',
                                                     question: chatMessages[i - 1].content,
                                                     answer: msg.content
                                                 })}
@@ -348,9 +434,8 @@ function MiddlePanel({ currentBook, currentChapter, chapters, chatMessages, isSt
                     {currentBook && (
                         <div className="flex bg-zinc-100 rounded-full p-0.5 gap-0.5 flex-shrink-0">
                             {[
-                                { id: 'chapter', icon: '📖', label: '当前章', title: '仅基于当前章节回答' },
-                                { id: 'book', icon: '🌐', label: '整本书', title: '基于当前整本书回答' },
-                                { id: 'cross', icon: '📚', label: '综合阅读', title: '基于多本书对比回答' },
+                                { id: 'book', icon: '📖', label: '当前书籍', title: '基于当前整本书回答' },
+                                { id: 'cross', icon: '📚', label: '对比阅读', title: '基于多本书对比回答' },
                             ].map(mode => (
                                 <button
                                     key={mode.id}

@@ -88,6 +88,7 @@ async def analyze_book(book_id: str, background_tasks: BackgroundTasks):
 
             processing_status[book_id] = {"status": "completed", "progress": 100}
             analysis_results[book_id] = result
+            _save_books_index()
 
         except Exception as e:
             processing_status[book_id] = {"status": "failed", "error": str(e)}
@@ -121,10 +122,16 @@ async def analyze_book_sync(book_id: str):
 
 @router.get("/status/{book_id}")
 async def get_processing_status(book_id: str):
-    """获取书籍处理状态"""
+    """获取书籍处理状态（含OCR进度）"""
+    ocr_progress = book_processor._ocr_progress.get(book_id)
     if book_id not in processing_status:
+        if ocr_progress:
+            return {"status": "ocr_processing", "progress": 0, "ocr_progress": ocr_progress}
         return {"status": "not_started", "progress": 0}
-    return processing_status[book_id]
+    result = dict(processing_status[book_id])
+    if ocr_progress:
+        result["ocr_progress"] = ocr_progress
+    return result
 
 
 @router.get("/analysis/{book_id}", response_model=BookAnalysisResult)
@@ -154,10 +161,9 @@ async def get_chapter(chapter_id: str):
     return chapter
 
 
-@router.post("/upload-and-analyze", response_model=BookAnalysisResult)
-async def upload_and_analyze(file: UploadFile = File(...)):
-    """上传并立即分析书籍"""
-    # 检查文件格式
+@router.post("/upload")
+async def upload_book(file: UploadFile = File(...)):
+    """仅上传文件，返回 book_id（不阻塞等待分析）"""
     if not file.filename:
         raise HTTPException(status_code=400, detail="文件名不能为空")
 
@@ -165,7 +171,28 @@ async def upload_and_analyze(file: UploadFile = File(...)):
     if suffix not in ["pdf", "epub", "txt"]:
         raise HTTPException(status_code=400, detail="仅支持PDF、EPUB、TXT格式")
 
-    # 保存文件
+    book_id = str(uuid.uuid4())
+    upload_dir = "uploads"
+    os.makedirs(upload_dir, exist_ok=True)
+
+    file_path = os.path.join(upload_dir, f"{book_id}.{suffix}")
+    with open(file_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+
+    return {"book_id": book_id, "filename": file.filename, "format": suffix}
+
+
+@router.post("/upload-and-analyze", response_model=BookAnalysisResult)
+async def upload_and_analyze(file: UploadFile = File(...)):
+    """上传并立即分析书籍（同步等待，适合小文件）"""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="文件名不能为空")
+
+    suffix = file.filename.split(".")[-1].lower()
+    if suffix not in ["pdf", "epub", "txt"]:
+        raise HTTPException(status_code=400, detail="仅支持PDF、EPUB、TXT格式")
+
     book_id = str(uuid.uuid4())
     upload_dir = "uploads"
     os.makedirs(upload_dir, exist_ok=True)
@@ -182,7 +209,6 @@ async def upload_and_analyze(file: UploadFile = File(...)):
         _save_books_index()
         return result
     except Exception as e:
-        # 清理文件
         if os.path.exists(file_path):
             os.remove(file_path)
         raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")

@@ -1,7 +1,13 @@
+const API_BASE = '';
+
 function LeftPanel({ books, currentBook, currentChapter, selectedBookIds, onToggleBook, onSelectBook, onSelectChapter, onUploadBook, onUploadMultiple, onDeleteBook, uploading, chatMode }) {
     const [isDragging, setIsDragging] = useState(false);
     const [leftView, setLeftView] = useState('files');
+    const [searchKeyword, setSearchKeyword] = useState('');
+    const [searchResults, setSearchResults] = useState(null);
+    const [searchLoading, setSearchLoading] = useState(false);
     const fileInputRef = useRef(null);
+    const searchTimerRef = useRef(null);
 
     const handleBookClick = (book) => {
         onSelectBook(book);
@@ -87,11 +93,26 @@ function LeftPanel({ books, currentBook, currentChapter, selectedBookIds, onTogg
                             {books.length > 0 ? `已上传 (${books.length})` : ''}
                         </div>
                         {uploading && (
-                            <div className="flex items-center justify-center py-8">
-                                <div className="flex items-center gap-2 text-zinc-400 text-sm">
+                            <div className="flex flex-col items-center justify-center py-4 px-3">
+                                <div className="flex items-center gap-2 text-zinc-400 text-sm mb-2">
                                     <div className="animate-spin h-4 w-4 border-2 border-zinc-300 border-t-transparent rounded-full"></div>
-                                    {typeof uploading === 'object' ? `上传中 (${uploading.current}/${uploading.total})` : '上传中...'}
+                                    {uploading.phase === 'uploading'
+                                        ? `上传中 (${uploading.current}/${uploading.total})`
+                                        : `分析中 (${uploading.current}/${uploading.total})`}
                                 </div>
+                                {uploading.ocrProgress && (
+                                    <div className="w-full bg-zinc-100 rounded-full h-1.5 overflow-hidden">
+                                        <div
+                                            className="h-full bg-zinc-400 rounded-full transition-all duration-500"
+                                            style={{ width: `${Math.round((uploading.ocrProgress.current / uploading.ocrProgress.total) * 100)}%` }}
+                                        ></div>
+                                    </div>
+                                )}
+                                {uploading.ocrProgress && (
+                                    <p className="text-[10px] text-zinc-400 mt-1">
+                                        OCR {uploading.ocrFilename || ''}: {uploading.ocrProgress.current}/{uploading.ocrProgress.total} 页
+                                    </p>
+                                )}
                             </div>
                         )}
                         {!uploading && books.length === 0 && (
@@ -183,6 +204,58 @@ function LeftPanel({ books, currentBook, currentChapter, selectedBookIds, onTogg
                         </div>
                     )}
 
+                    {/* 关键词搜索 */}
+                    <div className="px-4 pb-2">
+                        <div className="relative">
+                            <input
+                                type="text"
+                                value={searchKeyword}
+                                onChange={(e) => {
+                                    setSearchKeyword(e.target.value);
+                                    clearTimeout(searchTimerRef.current);
+                                    const val = e.target.value.trim();
+                                    if (val.length < 2) { setSearchResults(null); return; }
+                                    setSearchLoading(true);
+                                    searchTimerRef.current = setTimeout(async () => {
+                                        try {
+                                            const res = await fetch(`${API_BASE}/search/fulltext?keyword=${encodeURIComponent(val)}&book_id=${currentBook.book_id}&limit=10`);
+                                            const data = await res.json();
+                                            setSearchResults(data.matches || []);
+                                        } catch { setSearchResults([]); }
+                                        finally { setSearchLoading(false); }
+                                    }, 300);
+                                }}
+                                placeholder="搜索关键词..."
+                                className="w-full px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-zinc-400 placeholder:text-zinc-400"
+                            />
+                            {searchLoading && (
+                                <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                                    <div className="animate-spin h-3 w-3 border-2 border-zinc-300 border-t-transparent rounded-full"></div>
+                                </div>
+                            )}
+                        </div>
+                        {searchResults && searchResults.length > 0 && (
+                            <div className="mt-1.5 max-h-40 overflow-y-auto bg-white border border-zinc-200 rounded-lg divide-y divide-zinc-50">
+                                {searchResults.slice(0, 8).map((m, i) => (
+                                    <div
+                                        key={i}
+                                        onClick={() => {
+                                            const ch = currentBook?.chapters?.find(c => c.chapter_id === m.chapter_id);
+                                            if (ch) { onSelectChapter(ch); setSearchKeyword(''); setSearchResults(null); }
+                                        }}
+                                        className="px-2.5 py-1.5 cursor-pointer hover:bg-zinc-50 transition-colors"
+                                    >
+                                        <p className="text-[11px] font-medium text-zinc-700 truncate">{m.chapter_title}</p>
+                                        <p className="text-[10px] text-zinc-400 leading-relaxed line-clamp-1">{m.snippet}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        {searchResults && searchResults.length === 0 && searchKeyword.trim().length >= 2 && (
+                            <p className="text-[11px] text-zinc-400 px-1 mt-1">未找到匹配结果</p>
+                        )}
+                    </div>
+
                     {/* 章节列表 */}
                     <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-3">
                         <div className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider px-2 py-2">
@@ -190,21 +263,49 @@ function LeftPanel({ books, currentBook, currentChapter, selectedBookIds, onTogg
                         </div>
                         {currentBook?.chapters?.length > 0 ? (
                             <div className="space-y-0.5">
-                                {currentBook.chapters.map((ch, idx) => (
-                                    <div
-                                        key={ch.chapter_id}
-                                        onClick={() => onSelectChapter(ch)}
-                                        className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all text-sm
-                                            ${currentChapter?.chapter_id === ch.chapter_id
-                                                ? 'bg-zinc-50 text-zinc-800 font-medium'
-                                                : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50'}`}
-                                    >
-                                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0
-                                            ${currentChapter?.chapter_id === ch.chapter_id ? 'bg-zinc-800' : 'bg-zinc-300'}`}>
-                                        </span>
-                                        <span className="truncate">{idx + 1}. {ch.title}</span>
-                                    </div>
-                                ))}
+                                {(() => {
+                                    const toc = currentBook.toc || [];
+                                    // 如果无toc，退化为章节平铺
+                                    if (toc.length === 0) {
+                                        return currentBook.chapters.map(ch => (
+                                            <div
+                                                key={ch.chapter_id}
+                                                onClick={() => onSelectChapter(ch)}
+                                                className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all text-sm
+                                                    ${currentChapter?.chapter_id === ch.chapter_id
+                                                        ? 'bg-zinc-50 text-zinc-800 font-medium'
+                                                        : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50'}`}
+                                            >
+                                                <span className="truncate">{ch.title}</span>
+                                            </div>
+                                        ));
+                                    }
+                                    // 用toc渲染层级目录，按顺序编号
+                                    let chapterNum = 0;
+                                    return toc.map((item, i) => {
+                                        const isL1 = (item.level || 1) === 1;
+                                        if (isL1) chapterNum++;
+                                        const ch = currentBook.chapters?.find(c => c.title === item.title);
+                                        const isSelected = ch && currentChapter?.chapter_id === ch.chapter_id;
+                                        return (
+                                            <div
+                                                key={i}
+                                                onClick={() => { if (ch) onSelectChapter(ch); }}
+                                                className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all text-sm
+                                                    ${isSelected ? 'bg-zinc-50 text-zinc-800 font-medium' : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50'}
+                                                    ${!isL1 ? 'pl-8' : ''}`}
+                                            >
+                                                {isL1 ? (
+                                                    <span className="text-zinc-400 text-xs min-w-[1.2em]">{chapterNum}.</span>
+                                                ) : (
+                                                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ml-0.5
+                                                        ${isSelected ? 'bg-zinc-800' : 'bg-zinc-300'}`}></span>
+                                                )}
+                                                <span className="truncate">{item.title}</span>
+                                            </div>
+                                        );
+                                    });
+                                })()}
                             </div>
                         ) : (
                             <div className="text-center text-zinc-300 text-sm py-8">

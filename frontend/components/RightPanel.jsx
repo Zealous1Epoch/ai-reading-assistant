@@ -1,10 +1,11 @@
-function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackToTools, favorites, onRemoveFavorite }) {
+function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackToTools, favorites, onToggleFavorite, onRemoveFavorite }) {
     const [selectedFavs, setSelectedFavs] = useState([]);
     const [toolView, setToolView] = useState('cards');
     const [toolInput, setToolInput] = useState('');
     const [pendingToolId, setPendingToolId] = useState(null);
+    const [mindmapExpanded, setMindmapExpanded] = useState(false);
 
-    const needsInput = { summarize: true, debate: true };
+    const needsInput = { summarize: true, debate: true, mindmap: true };
 
     const tools = [
         { id: 'summarize', label: '总结', desc: '整本书或指定章节的详细总结', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
@@ -13,6 +14,7 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
         { id: 'mindmap', label: '思维导图', desc: '可视化的知识框架与逻辑脉络', icon: 'M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4' },
         { id: 'recommend', label: '书籍推荐', desc: '推荐同主题的好书', icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253' },
         { id: 'debate', label: '芒格辩论', desc: '跨学科视角正反辩论看清观点', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
+        { id: 'knowledge-graph', label: '知识图谱', desc: '导出精读笔记HTML卡片页', icon: 'M4 6h16M4 12h16M4 18h16M8 2v4m8-4v4M8 16v4m8-4v4' },
     ];
 
     const cardStyles = {
@@ -21,7 +23,8 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
         questions: 'hover:border-zinc-300',
         mindmap: 'hover:border-zinc-300',
         recommend: 'hover:border-zinc-300',
-        debate: 'hover:border-zinc-300'
+        debate: 'hover:border-zinc-300',
+        'knowledge-graph': 'hover:border-zinc-300'
     };
 
     const iconStyles = {
@@ -30,7 +33,8 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
         questions: 'bg-zinc-50 text-zinc-500',
         mindmap: 'bg-zinc-50 text-zinc-500',
         recommend: 'bg-zinc-50 text-zinc-500',
-        debate: 'bg-zinc-50 text-zinc-500'
+        debate: 'bg-zinc-50 text-zinc-500',
+        'knowledge-graph': 'bg-zinc-50 text-zinc-500'
     };
 
     const toggleFavSelect = (id) => {
@@ -42,9 +46,10 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
     const exportFavorites = () => {
         const toExport = favorites.filter(f => selectedFavs.includes(f.id));
         if (toExport.length === 0) { alert('请先勾选要导出的收藏'); return; }
-        const content = toExport.map(f =>
-            `=== 收藏问答 ===\n保存时间: ${f.savedAt || '未知'}\n\n问: ${f.question}\n\n答: ${f.answer}\n\n---\n`
-        ).join('\n');
+        const content = toExport.map(f => {
+            const header = f.type === 'tool' ? `=== AI工具 · ${f.toolLabel || '未知'} ===` : '=== 收藏问答 ===';
+            return `${header}\n保存时间: ${f.savedAt || '未知'}\n\n问: ${f.question}\n\n答: ${f.answer}\n\n---\n`;
+        }).join('\n');
         const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -86,34 +91,60 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
 
     const toolLabel = {
         summarize: '总结', background: '背景调研', questions: '读书十问',
-        mindmap: '思维导图', recommend: '书籍推荐', debate: '芒格辩论'
+        mindmap: '思维导图', recommend: '书籍推荐', debate: '芒格辩论',
+        'knowledge-graph': '知识图谱'
     };
 
     const inputPlaceholder = {
         summarize: '输入总结范围（如：整本书、第3章、第1-5章）',
-        debate: '输入你书中想辩论的观点'
+        debate: '输入你书中想辩论的观点',
+        mindmap: '输入思维导图范围（如：整本书、第3-5章、某个主题）'
     };
 
     const mindmapRef = useRef(null);
+    const overlayMindmapRef = useRef(null);
+
+    const cleanMindmapData = (raw) => {
+        const idx = raw.indexOf('\n# ');
+        return idx >= 0 ? raw.slice(idx + 1).trim() : raw.trim();
+    };
+
     useEffect(() => {
         if (toolState?.toolId === 'mindmap' && toolState?.result?.data && !toolState?.loading) {
             const timer = setTimeout(() => {
                 if (mindmapRef.current && window.markmap) {
-                    const { Transformer } = window.markmap;
-                    const { Markmap } = window.markmap;
                     try {
-                        const transformer = new Transformer();
-                        const { root } = transformer.transform(toolState.result.data);
+                        const { Transformer, Markmap } = window.markmap;
+                        const t = new Transformer();
+                        const { root } = t.transform(cleanMindmapData(toolState.result.data));
                         mindmapRef.current.innerHTML = '';
-                        Markmap.create(mindmapRef.current, { maxWidth: 300 }, root);
+                        Markmap.create(mindmapRef.current, { maxWidth: 300, color: function(n) { return ['#18181b', '#3f3f46', '#52525b', '#71717a', '#a1a1aa'][Math.min(n.d || 0, 4)]; } }, root);
                     } catch (e) {
                         console.error('markmap 渲染失败:', e);
+                        mindmapRef.current.innerHTML = '<text x="10" y="20" fill="red">渲染失败: ' + e.message + '</text>';
                     }
+                }
+            }, 200);
+            return () => clearTimeout(timer);
+        }
+    }, [toolState?.result, toolState?.loading, toolState?.toolId]);
+
+    useEffect(() => {
+        if (mindmapExpanded && overlayMindmapRef.current && toolState?.result?.data && window.markmap) {
+            const timer = setTimeout(() => {
+                try {
+                    const { Transformer, Markmap } = window.markmap;
+                    const t = new Transformer();
+                    const { root } = t.transform(cleanMindmapData(toolState.result.data));
+                    overlayMindmapRef.current.innerHTML = '';
+                    Markmap.create(overlayMindmapRef.current, { maxWidth: 400, color: function(n) { return ['#18181b', '#3f3f46', '#52525b', '#71717a', '#a1a1aa'][Math.min(n.d || 0, 4)]; } }, root);
+                } catch (e) {
+                    console.error('overlay markmap 渲染失败:', e);
                 }
             }, 100);
             return () => clearTimeout(timer);
         }
-    }, [toolState?.result, toolState?.loading, toolState?.toolId]);
+    }, [mindmapExpanded, toolState?.result?.data]);
 
     const activeToolId = toolState?.toolId || pendingToolId;
 
@@ -123,7 +154,7 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
         setPendingToolId(null);
     };
 
-    return (
+    return (React.createElement(React.Fragment, null,
         <div className="w-80 bg-white rounded-3xl border border-zinc-200 flex flex-col h-full flex-shrink-0 overflow-hidden">
             {/* 头部 */}
             <div className="px-5 pt-5 pb-3 border-b border-zinc-100 flex items-center justify-between">
@@ -139,6 +170,25 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
                             返回
                         </button>
                         <span className="text-sm font-medium text-zinc-700">{toolLabel[activeToolId] || activeToolId}</span>
+                        {toolState?.result && !toolState?.loading && !toolState.result.error && activeToolId !== 'mindmap' && activeToolId !== 'knowledge-graph' && (
+                            (() => {
+                                const label = toolLabel[activeToolId] || activeToolId;
+                                const scope = toolInput || label;
+                                const content = typeof toolState.result.data === 'string' ? toolState.result.data : '';
+                                const alreadyFav = favorites?.some(f => f.type === 'tool' && f.toolId === activeToolId && f.answer === content);
+                                return (
+                                    <button
+                                        onClick={() => onToggleFavorite({ type: 'tool', toolId: activeToolId, toolLabel: label, question: scope, answer: content })}
+                                        className={`p-1.5 rounded-lg transition-all flex-shrink-0 ${alreadyFav ? 'text-zinc-500 bg-zinc-50' : 'text-zinc-300 hover:text-zinc-500 hover:bg-zinc-50'}`}
+                                        title={alreadyFav ? '取消收藏' : '收藏结果'}
+                                    >
+                                        <svg className="w-4 h-4" fill={alreadyFav ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                                        </svg>
+                                    </button>
+                                );
+                            })()
+                        )}
                     </>
                 ) : (
                     <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-widest">AI 工具</h2>
@@ -194,9 +244,52 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
                                 </div>
                                 <p className="text-xs text-zinc-500">{toolState.result.error}</p>
                             </div>
+                        ) : toolState.result.type === 'html' ? (
+                            <div className="bg-white border border-zinc-100 rounded-xl shadow-sm overflow-hidden">
+                                <div className="px-4 pt-4 pb-2 border-b border-zinc-50">
+                                    <p className="text-base font-bold text-zinc-900">精读笔记已生成</p>
+                                </div>
+                                <div className="px-4 pt-3 pb-4 space-y-3">
+                                    <p className="text-sm text-zinc-500">已为你生成精读笔记 HTML 页面，包含章节摘要、关键词、原文摘录与AI批注。可直接保存或打印。</p>
+                                    <button
+                                        onClick={() => {
+                                            const html = toolState.result.data;
+                                            const filename = toolState.result.filename || '精读笔记.html';
+                                            const blob = new Blob(['﻿' + html], { type: 'text/html;charset=utf-8' });
+                                            const url = URL.createObjectURL(blob);
+                                            const a = document.createElement('a');
+                                            a.href = url;
+                                            a.download = filename;
+                                            a.click();
+                                            URL.revokeObjectURL(url);
+                                        }}
+                                        className="w-full py-2.5 bg-zinc-800 text-white rounded-full text-sm font-medium hover:bg-zinc-900 transition-all"
+                                    >
+                                        下载 HTML 文件
+                                    </button>
+                                    <details className="mt-2">
+                                        <summary className="text-xs text-zinc-400 cursor-pointer hover:text-zinc-600">预览 HTML</summary>
+                                        <div className="mt-2 border border-zinc-100 rounded-lg overflow-hidden" style={{ height: '400px' }}>
+                                            <iframe srcDoc={toolState.result.data} className="w-full h-full border-0"></iframe>
+                                        </div>
+                                    </details>
+                                </div>
+                            </div>
                         ) : activeToolId === 'mindmap' ? (
                             <div>
-                                <svg ref={mindmapRef} className="w-full" style={{ height: '400px' }}></svg>
+                                <div className="flex items-center justify-between mb-3">
+                                    <span className="text-xs text-zinc-400">可缩放、折叠的交互式思维导图</span>
+                                    <button
+                                        onClick={() => setMindmapExpanded(true)}
+                                        className="text-xs font-medium text-zinc-500 hover:text-zinc-700 bg-zinc-50 hover:bg-zinc-100 px-3 py-1 rounded-full transition-all flex items-center gap-1"
+                                    >
+                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                                        </svg>
+                                        放大
+                                    </button>
+                                </div>
+                                <svg ref={mindmapRef} className="w-full" style={{ height: '500px' }}></svg>
                                 <details className="mt-2">
                                     <summary className="text-xs text-zinc-400 cursor-pointer hover:text-zinc-600">查看原文</summary>
                                     <pre className="mt-2 text-xs text-zinc-500 whitespace-pre-wrap leading-relaxed">{toolState.result.data}</pre>
@@ -266,7 +359,7 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
                                         const nm = t.match(/^(\d+[\.\、])\s*(.*)/);
                                         if (nm) return React.createElement('p', { key: idx, className: 'text-sm text-zinc-700 leading-relaxed pl-5 mt-1.5' }, nm[1] + ' ', ...processText(nm[2]));
 
-                                        if (isBody) return React.createElement('p', { key: idx, className: 'text-sm text-zinc-700 leading-relaxed mt-1.5 text-indent-2' }, ...processText(afterH));
+                                        if (isBody) return React.createElement('p', { key: idx, className: 'text-sm text-zinc-700 leading-relaxed mt-1.5', style: { textIndent: '2em' } }, ...processText(afterH));
 
                                         return React.createElement('p', { key: idx, className: 'text-sm text-zinc-700 leading-relaxed mt-1.5' }, ...processText(afterH));
                                     };
@@ -277,16 +370,55 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
                                         const paragraphs = cleaned.split(/\n\n+/).filter(b => b.trim());
                                         return paragraphs.map((para, i) => {
                                             const lines = para.split('\n').filter(l => l.trim());
-                                            return React.createElement('div', { key: i, className: 'bg-white border border-zinc-100 rounded-xl p-4 shadow-sm' },
-                                                lines.map((line, j) => renderLine(line, j, { isTitle: j === 0, isBody: j > 0 })));
+                                            const firstLine = lines[0] || '';
+                                            // 单行且过长时，尝试在第一个冒号或句号处拆分标题与正文
+                                            if (lines.length === 1 && firstLine.length > 50) {
+                                                const idx = firstLine.search(/[：。？]/);
+                                                if (idx > 10 && idx < firstLine.length - 5) {
+                                                    const titleText = firstLine.substring(0, idx + 1);
+                                                    const bodyText = firstLine.substring(idx + 1).trim();
+                                                    const titleEl = renderLine(titleText, 0, { isTitle: true });
+                                                    const bodyLines = bodyText.split('\n').filter(l => l.trim());
+                                                    const body = bodyLines.map((line, j) => renderLine(line, j + 1, { isBody: true }));
+                                                    return React.createElement('div', { key: i, className: 'bg-white border border-zinc-100 rounded-xl shadow-sm overflow-hidden' },
+                                                        React.createElement('div', { className: 'px-4 pt-4 pb-2 border-b border-zinc-50' }, titleEl),
+                                                        React.createElement('div', { className: 'px-4 pt-3 pb-4' }, body));
+                                                }
+                                            }
+                                            const titleEl = renderLine(firstLine, 0, { isTitle: true });
+                                            if (lines.length === 1) {
+                                                return React.createElement('div', { key: i, className: 'bg-white border border-zinc-100 rounded-xl shadow-sm overflow-hidden' },
+                                                    React.createElement('div', { className: 'px-4 pt-4 pb-2' }, titleEl));
+                                            }
+                                            const body = lines.slice(1).map((line, j) => renderLine(line, j + 1, { isBody: true }));
+                                            return React.createElement('div', { key: i, className: 'bg-white border border-zinc-100 rounded-xl shadow-sm overflow-hidden' },
+                                                React.createElement('div', { className: 'px-4 pt-4 pb-2 border-b border-zinc-50' }, titleEl),
+                                                React.createElement('div', { className: 'px-4 pt-3 pb-4' }, body));
                                         });
                                     }
 
                                     return blocks.map((block, i) => {
                                         const lines = block.split('\n').filter(l => l.trim());
-                                        const title = renderLine(lines[0], 0, { isTitle: true });
+                                        const firstLine = lines[0] || '';
+                                        // 单行且过长时，尝试在第一个冒号或句号处拆分标题与正文
+                                        if (lines.length === 1 && firstLine.length > 50) {
+                                            const idx = firstLine.search(/[：。？]/);
+                                            if (idx > 10 && idx < firstLine.length - 5) {
+                                                const titleText = firstLine.substring(0, idx + 1);
+                                                const bodyText = firstLine.substring(idx + 1).trim();
+                                                const titleEl = renderLine(titleText, 0, { isTitle: true });
+                                                const bodyLines = bodyText.split('\n').filter(l => l.trim());
+                                                const body = bodyLines.map((line, j) => renderLine(line, j + 1, { isBody: true }));
+                                                return React.createElement('div', { key: i, className: 'bg-white border border-zinc-100 rounded-xl shadow-sm overflow-hidden' }, [
+                                                    React.createElement('div', { key: 'h', className: 'px-4 pt-4 pb-2 border-b border-zinc-50' }, titleEl),
+                                                    React.createElement('div', { key: 'b', className: 'px-4 pt-3 pb-4' }, body),
+                                                ]);
+                                            }
+                                        }
+                                        const title = renderLine(firstLine, 0, { isTitle: true });
                                         if (lines.length === 1) {
-                                            return React.createElement('div', { key: i, className: 'bg-white border border-zinc-100 rounded-xl p-4 shadow-sm' }, title);
+                                            return React.createElement('div', { key: i, className: 'bg-white border border-zinc-100 rounded-xl shadow-sm overflow-hidden' },
+                                                React.createElement('div', { className: 'px-4 pt-4 pb-2' }, title));
                                         }
                                         const body = lines.slice(1).map((line, j) => renderLine(line, j + 1, { isBody: true }));
                                         return React.createElement('div', { key: i, className: 'bg-white border border-zinc-100 rounded-xl shadow-sm overflow-hidden' }, [
@@ -348,7 +480,7 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
                             </svg>
                             <p className="text-xs text-zinc-300">暂无收藏</p>
-                            <p className="text-[11px] text-zinc-200 mt-1">在对话中点击☆按钮收藏</p>
+                            <p className="text-[11px] text-zinc-200 mt-1">在对话或AI工具结果中点击☆按钮收藏</p>
                         </div>
                     ) : (
                         <div className="space-y-2 max-h-64 overflow-y-auto scrollbar-thin">
@@ -368,7 +500,12 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
                                             )}
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-xs font-medium text-zinc-700 truncate">{fav.question}</p>
+                                            <div className="flex items-center gap-1.5 mb-0.5">
+                                                {fav.type === 'tool' && fav.toolLabel && (
+                                                    <span className="text-[10px] px-1.5 py-0.5 bg-zinc-100 text-zinc-500 rounded-full flex-shrink-0">{fav.toolLabel}</span>
+                                                )}
+                                                <p className="text-xs font-medium text-zinc-700 truncate">{fav.question}</p>
+                                            </div>
                                             <p className="text-[11px] text-zinc-400 mt-0.5 line-clamp-2">{fav.answer}</p>
                                             {fav.savedAt && (
                                                 <p className="text-[10px] text-zinc-300 mt-1">{fav.savedAt}</p>
@@ -390,5 +527,34 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
                 </div>
             </div>
         </div>
-    );
+        ,
+        mindmapExpanded && React.createElement('div', {
+            onClick: () => setMindmapExpanded(false),
+            className: 'fixed inset-0 z-50 flex items-center justify-center',
+            style: { background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', animation: 'fade-in 0.2s ease-out' }
+        },
+            React.createElement('div', {
+                onClick: (e) => e.stopPropagation(),
+                className: 'bg-white rounded-3xl shadow-2xl border border-zinc-200 flex flex-col overflow-hidden',
+                style: { width: '92vw', height: '90vh' }
+            },
+                React.createElement('div', { className: 'px-6 py-4 border-b border-zinc-100 flex items-center justify-between flex-shrink-0' },
+                    React.createElement('h2', { className: 'text-base font-serif-heading font-semibold text-zinc-800 truncate' },
+                        (cleanMindmapData(toolState.result.data || '')).split('\n')[0]?.replace(/^#\s*/, '') || '思维导图'
+                    ),
+                    React.createElement('button', {
+                        onClick: () => setMindmapExpanded(false),
+                        className: 'p-2 rounded-full hover:bg-zinc-100 text-zinc-400 hover:text-zinc-600 transition-all'
+                    },
+                        React.createElement('svg', { className: 'w-5 h-5', fill: 'none', stroke: 'currentColor', viewBox: '0 0 24 24' },
+                            React.createElement('path', { strokeLinecap: 'round', strokeLinejoin: 'round', strokeWidth: 2, d: 'M6 18L18 6M6 6l12 12' })
+                        )
+                    )
+                ),
+                React.createElement('div', { className: 'flex-1 overflow-auto p-4' },
+                    React.createElement('svg', { ref: overlayMindmapRef, className: 'w-full h-full' })
+                )
+            )
+        )
+    ));
 }

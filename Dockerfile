@@ -19,4 +19,4 @@ COPY frontend/ ./frontend/
 WORKDIR /app/backend
 
 # Railway 注入 PORT；本地 docker run 未设 PORT 时用 8000
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}

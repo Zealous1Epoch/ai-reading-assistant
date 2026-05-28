@@ -44,6 +44,18 @@
 └── requirements.txt      # Python 依赖
 ```
 
+## 快速体验 Demo
+
+无需启动服务，一行命令运行完整流水线：
+
+```bash
+python demo.py                              # 使用内置 AI 科普样书
+python demo.py your_book.pdf                # 使用你自己的 PDF/EPUB/TXT
+```
+
+Demo 会依次演示：文本提取 → AI 目录识别 → 置信度打分切分 → ChromaDB 存储 → 语义搜索。
+输出 12 个章节和 3 组搜索示例。
+
 ## 快速开始
 
 ### 1. 配置环境

@@ -288,69 +288,183 @@ class BookProcessor:
 
         return toc_items[:30]
 
+    @staticmethod
+    def _heading_score(text: str, match_start: int, match_end: int,
+                       match_priority: int) -> float:
+        """计算匹配位置是真实章节标题的置信度 (0~1)。
+
+        综合考虑：行长度、前后空白隔离、距页首标记距离、匹配精度、行末标点。
+        match_priority: 0=精确行首锚定, 1=子串匹配, 2=宽松前缀匹配（越小越准）。
+        """
+        score = 0.0
+        line = text[match_start:match_end]
+
+        # 1. 标题通常短小精悍
+        line_len = len(line)
+        if line_len <= 30:
+            score += 0.25
+        elif line_len <= 50:
+            score += 0.12
+
+        # 2. 前后空白隔离（真正标题前后常有空行）
+        before = text[max(0, match_start - 15):match_start]
+        after = text[match_end:match_end + 15]
+        if '\n\n' in before or match_start == 0:
+            score += 0.18
+        if after.startswith('\n') or match_end >= len(text) - 5:
+            score += 0.18
+
+        # 3. 距 [PAGE X] 标记近 → 大概率是新页首行标题
+        page_marker = re.search(
+            r'\[PAGE\s*\d+\](?!.*\[PAGE\s*\d+\])',
+            text[max(0, match_start - 120):match_start]
+        )
+        if page_marker:
+            dist = match_start - (max(0, match_start - 120) + page_marker.start())
+            if dist < 100:
+                score += 0.15
+
+        # 4. 匹配精度：精确锚定比模糊匹配可靠
+        if match_priority == 0:
+            score += 0.15
+        elif match_priority == 1:
+            score += 0.05
+
+        # 5. 行末无句末标点（标题通常不以句号/逗号收尾）
+        if not re.search(r'[。，；：！？,\.:!?]$', line.rstrip()):
+            score += 0.09
+
+        return score
+
+    @staticmethod
+    def _deduplicate_nearby(positions: list, min_gap: int = 150) -> list:
+        """合并同一 TOC item 间距过近的重复匹配，保留置信度最高的。
+
+        positions: [(start, end, score, toc_item), ...]，已按 start 排序。
+        min_gap: 同一标题两次匹配之间的最小间距（字符数）。
+        """
+        if len(positions) <= 1:
+            return positions
+
+        merged = []
+        # 按标题分组，组内合并近邻匹配（不会误伤不同的章节标题）
+        groups = {}
+        for p in positions:
+            key = p[3].title if p[3] else "__leading__"
+            groups.setdefault(key, []).append(p)
+
+        for key, group in groups.items():
+            group.sort(key=lambda x: x[0])
+            cluster_start = group[0]
+            cluster_best = group[0]
+            for cur in group[1:]:
+                if cur[0] - cluster_start[0] < min_gap:
+                    if cur[2] > cluster_best[2]:
+                        cluster_best = cur
+                else:
+                    merged.append(cluster_best)
+                    cluster_start = cur
+                    cluster_best = cur
+            merged.append(cluster_best)
+
+        merged.sort(key=lambda x: x[0])
+        return merged
+
     def split_by_toc(self, full_text: str, toc_items: List[TocItem]) -> List[Chapter]:
-        """根据目录切分章节"""
+        """根据目录切分章节。
+
+        优化点（相比旧实现）：
+        1. 三级匹配按优先级分层合并，每级只扫一次全文（3 次 vs 旧版 3n 次）
+        2. 标题置信度打分替代盲目的 matches[-1]
+        3. 邻近去重，消除同一标题的重复低置信匹配
+        """
         if not toc_items:
-            # 没有目录，按段落平均切分
             return self._split_by_paragraphs(full_text)
 
-        chapters = []
-        # 构建章节定位点
-        positions = []
+        # ---- 构建三级模式列表 ----
+        # 每级: [(toc_item, index_in_level, regex_string)]
+        levels = {0: [], 1: [], 2: []}
         for item in toc_items:
-            if item.pattern:
-                pattern = item.pattern.strip()
-                # 使用行首匹配，避免短关键词（如"序言"）匹配到正文句子
-                # 匹配模式：行首 + 标题 + 至多20个非句末标点字符 + 行尾
-                heading_regex = rf'(?m)^\s*{re.escape(pattern)}[^\n。？！]{{0,20}}$'
-                matches = list(re.finditer(heading_regex, full_text))
-                # 取最后一个匹配（优先取正文位置而非目录区）
-                match = matches[-1] if matches else None
-                if not match:
-                    # 降级：子串匹配
-                    matches = list(re.finditer(re.escape(pattern), full_text))
-                    match = matches[-1] if matches else None
-                if not match:
-                    # 降级：宽松匹配（允许标题前后有空白）
-                    pattern_regex = r'\b' + re.escape(pattern[:20]) + r'.*?(?=\n|$)'
-                    matches = list(re.finditer(pattern_regex, full_text))
-                    match = matches[-1] if matches else None
+            if not item.pattern:
+                continue
+            pattern = item.pattern.strip()
+            escaped = re.escape(pattern)
+            # 级别 0：精确行首锚定（^ $ 依赖 re.MULTILINE）
+            levels[0].append((item, rf'^\s*{escaped}[^\n。？！]{{0,30}}$'))
+            # 级别 1：子串匹配
+            levels[1].append((item, escaped))
+            # 级别 2：宽松前缀匹配
+            if len(pattern) >= 3:
+                prefix = re.escape(pattern[:15])
+                levels[2].append((item, rf'^.*{prefix}.{{0,30}}$'))
 
-                if match:
-                    positions.append((match.start(), item))
+        matched_items = set()   # 已找到高置信匹配的 TOC 标题
+        all_scored = []         # [(start, end, score, toc_item)]
 
-        # 按位置排序并去重
-        positions.sort(key=lambda x: x[0])
+        # ---- 逐级扫描：高级别命中后跳过低级别 ----
+        for priority in (0, 1, 2):
+            pending = [(it, rx) for it, rx in levels[priority]
+                       if it.title not in matched_items]
+            if not pending:
+                continue
 
-        # 正文区域判断：
-        # matches[-1]已经处理了"目录区vs正文"的歧义（同一标题在目录区和正文各出现一次时取正文位置），
-        # 所以无需跳过开头的密集集群。直接使用所有匹配位置作为章节边界。
-        body_positions = positions
+            # 每个 pending item 包进一个捕获组，用 | 合并为单次扫描
+            groups = [rx for _, rx in pending]          # 第 i 个正则
+            group_owner = [it for it, _ in pending]     # 第 i 个正则归属的 TOC item
+            combined = '|'.join(f'({rx})' for rx in groups)
 
-        # 如果正文第一个章节不是从位置0开始，插入一个前置章节承接首页/目录等内容
-        if body_positions and body_positions[0][0] > 0:
-            body_positions.insert(0, (0, None))
+            for m in re.finditer(combined, full_text, flags=re.MULTILINE):
+                # 定位是哪个捕获组命中了（交替中只有一个非 None）
+                for gid in range(len(groups)):
+                    if m.group(gid + 1) is not None:
+                        toc_item = group_owner[gid]
+                        break
+                else:
+                    continue
 
-        # 切分章节
-        for i, (start_pos, toc_item) in enumerate(body_positions):
-            # 章节结束位置：下一个章节开始，或文本结束
-            if i + 1 < len(body_positions):
-                end_pos = body_positions[i + 1][0]
-            else:
-                end_pos = len(full_text)
+                score = self._heading_score(full_text, m.start(), m.end(), priority)
+                all_scored.append((m.start(), m.end(), score, toc_item))
+
+            # 本级别结束后，标记已获高置信匹配的 item（≥0.50 不再降级匹配）
+            for start, end, score, it in all_scored:
+                if score >= 0.50:
+                    matched_items.add(it.title)
+
+        if not all_scored:
+            return self._split_by_paragraphs(full_text)
+
+        # ---- 每个 TOC item 只保留置信度最高的那个匹配 ----
+        best_per_item = {}
+        for start, end, score, toc_item in all_scored:
+            key = toc_item.title
+            if key not in best_per_item or score > best_per_item[key][2]:
+                best_per_item[key] = (start, end, score, toc_item)
+
+        # ---- 按位置排序 + 邻近去重 ----
+        positions = sorted(best_per_item.values(), key=lambda x: x[0])
+        positions = self._deduplicate_nearby(positions, min_gap=150)
+
+        # 首页/目录前置章节
+        if positions and positions[0][0] > 0:
+            positions.insert(0, (0, 0, 1.0, None))
+
+        # ---- 切分 ----
+        chapters = []
+        for i, (start_pos, _, _, toc_item) in enumerate(positions):
+            end_pos = positions[i + 1][0] if i + 1 < len(positions) else len(full_text)
 
             content = full_text[start_pos:end_pos].strip()
             word_count = len(content)
 
-            if word_count > 50:  # 忽略太短的章节
+            if word_count > 50:
                 title = toc_item.title if toc_item else "序言/引言"
                 chapters.append(Chapter(
                     chapter_id=str(uuid.uuid4()),
-                    book_id="",  # 后续填充
+                    book_id="",
                     title=title,
                     content=content,
                     word_count=word_count,
-                    chapter_index=len(chapters),  # 使用实际索引
+                    chapter_index=len(chapters),
                     start_position=start_pos,
                     end_position=end_pos
                 ))

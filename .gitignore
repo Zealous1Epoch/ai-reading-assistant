@@ -36,6 +36,7 @@ logs/
 
 # 例外放行
 !requirements.txt
+!demo_data/*.txt
 
 # OS
 .DS_Store

@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能读书助手 — Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #faf8f5;
+  --surface: #ffffff;
+  --border: #e8e4dd;
+  --text: #2c2a26;
+  --text-muted: #78756e;
+  --accent: #b1743b;
+  --accent-dim: #f5ede4;
+  --step-0: #e8f0fe;
+  --step-1: #e6f4ea;
+  --step-2: #fef7e0;
+  --step-3: #fce8e6;
+  --step-4: #f3e8fd;
+  --step-5: #e8f5f9;
+  --font-serif: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body { font-family:var(--font-serif); background:var(--bg); color:var(--text); line-height:1.7; }
+
+/* ─── Nav ─── */
+nav { position:sticky; top:0; z-index:100; background:rgba(250,248,245,0.85); backdrop-filter:blur(12px); border-bottom:1px solid var(--border); }
+nav .inner { max-width:1120px; margin:0 auto; padding:0 24px; display:flex; align-items:center; justify-content:space-between; height:56px; }
+nav .logo { font-weight:900; font-size:18px; letter-spacing:-0.3px; }
+nav .links { display:flex; gap:24px; }
+nav .links a { color:var(--text-muted); text-decoration:none; font-size:14px; transition:color .2s; }
+nav .links a:hover { color:var(--accent); }
+
+/* ─── Hero ─── */
+.hero { max-width:1120px; margin:0 auto; padding:100px 24px 72px; text-align:center; }
+.hero .badge { display:inline-block; background:var(--accent-dim); color:var(--accent); padding:4px 14px; border-radius:20px; font-size:13px; font-weight:600; letter-spacing:0.5px; margin-bottom:24px; }
+.hero h1 { font-size:52px; font-weight:900; letter-spacing:-1px; line-height:1.15; margin-bottom:20px; }
+.hero .desc { color:var(--text-muted); font-size:18px; max-width:520px; margin:0 auto 36px; }
+.hero .btns { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+.btn { display:inline-flex; align-items:center; gap:8px; padding:10px 24px; border-radius:8px; font-size:15px; font-weight:600; text-decoration:none; transition:all .2s; cursor:pointer; border:none; font-family:var(--font-serif); }
+.btn-primary { background:var(--text); color:#fff; }
+.btn-primary:hover { background:var(--accent); }
+.btn-ghost { background:transparent; color:var(--text); border:1px solid var(--border); }
+.btn-ghost:hover { border-color:var(--accent); color:var(--accent); }
+
+/* ─── Section Titles ─── */
+.section { max-width:1120px; margin:0 auto; padding:64px 24px; }
+.section-label { font-size:12px; font-weight:600; letter-spacing:1.5px; color:var(--accent); text-transform:uppercase; margin-bottom:8px; }
+.section-title { font-size:32px; font-weight:900; letter-spacing:-0.5px; margin-bottom:12px; }
+.section-desc { color:var(--text-muted); font-size:16px; max-width:600px; margin-bottom:48px; }
+
+/* ─── Pipeline Steps ─── */
+.pipeline { display:grid; grid-template-columns:repeat(3, 1fr); gap:16px; }
+.step-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:28px; position:relative; transition:transform .2s,box-shadow .2s; }
+.step-card:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(0,0,0,0.06); }
+.step-num { font-family:var(--font-mono); font-size:11px; font-weight:500; color:var(--text-muted); margin-bottom:12px; }
+.step-icon { width:40px; height:40px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:20px; margin-bottom:16px; }
+.step-card h3 { font-size:17px; font-weight:700; margin-bottom:6px; }
+.step-card p { color:var(--text-muted); font-size:14px; line-height:1.6; }
+
+/* ─── Reader Demo ─── */
+.reader-wrap { display:flex; gap:0; background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; min-height:520px; }
+.reader-sidebar { width:280px; flex-shrink:0; border-right:1px solid var(--border); background:#fcfbf9; overflow-y:auto; max-height:520px; }
+.reader-sidebar .toc-header { padding:16px 20px; font-size:13px; font-weight:700; color:var(--text-muted); border-bottom:1px solid var(--border); letter-spacing:0.5px; }
+.toc-item { display:block; width:100%; text-align:left; padding:10px 20px; border:none; background:transparent; cursor:pointer; font-family:var(--font-serif); font-size:14px; color:var(--text); border-left:3px solid transparent; transition:all .15s; }
+.toc-item:hover { background:var(--accent-dim); }
+.toc-item.active { background:var(--accent-dim); color:var(--accent); border-left-color:var(--accent); font-weight:600; }
+.toc-item .lvl2 { padding-left:12px; font-size:13px; }
+.reader-content { flex:1; padding:32px 40px; overflow-y:auto; max-height:520px; }
+.reader-content h2 { font-size:24px; font-weight:900; margin-bottom:20px; letter-spacing:-0.3px; }
+.reader-content p { margin-bottom:16px; line-height:1.85; text-indent:2em; }
+.reader-content .placeholder { color:var(--text-muted); font-style:italic; }
+
+/* ─── Search Demo ─── */
+.search-section { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:32px; }
+.search-chips { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:28px; }
+.search-chip { padding:8px 18px; border-radius:20px; border:1px solid var(--border); background:transparent; cursor:pointer; font-family:var(--font-serif); font-size:14px; transition:all .2s; }
+.search-chip:hover { border-color:var(--accent); color:var(--accent); }
+.search-chip.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+.search-results { min-height:120px; }
+.search-result { padding:16px 0; border-bottom:1px solid var(--border); animation:fadeIn .3s ease; }
+.search-result:last-child { border-bottom:none; }
+.search-result .result-title { font-weight:700; font-size:15px; margin-bottom:4px; }
+.search-result .result-meta { font-size:12px; color:var(--text-muted); margin-bottom:6px; }
+.search-result .result-snippet { font-size:14px; color:var(--text-muted); line-height:1.6; }
+.search-placeholder { color:var(--text-muted); font-size:14px; }
+
+/* ─── Tech Stack ─── */
+.tech-grid { display:flex; flex-wrap:wrap; gap:10px; }
+.tech-tag { padding:8px 18px; background:var(--surface); border:1px solid var(--border); border-radius:8px; font-size:14px; font-family:var(--font-mono); font-size:13px; transition:all .2s; }
+.tech-tag:hover { border-color:var(--accent); }
+
+/* ─── Footer ─── */
+footer { border-top:1px solid var(--border); padding:32px 24px; text-align:center; }
+footer p { color:var(--text-muted); font-size:13px; }
+footer a { color:var(--accent); text-decoration:none; }
+
+/* ─── Animations ─── */
+@keyframes fadeIn { from{opacity:0;transform:translateY(8px);} to{opacity:1;transform:translateY(0);} }
+.stagger { opacity:0; animation:fadeIn .5s ease forwards; }
+
+/* ─── Responsive ─── */
+@media (max-width:768px) {
+  .pipeline { grid-template-columns:1fr; }
+  .reader-wrap { flex-direction:column; }
+  .reader-sidebar { width:100%; max-height:240px; border-right:none; border-bottom:1px solid var(--border); }
+  .reader-content { max-height:none; }
+  .hero h1 { font-size:36px; }
+  .section-title { font-size:24px; }
+  nav .links { display:none; }
+}
+</style>
+</head>
+<body>
+
+<!-- ─── Nav ─── -->
+<nav>
+  <div class="inner">
+    <div class="logo">智能读书助手</div>
+    <div class="links">
+      <a href="#pipeline">核心流程</a>
+      <a href="#reader">样书演示</a>
+      <a href="#search">语义搜索</a>
+      <a href="#stack">技术栈</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ─── Hero ─── -->
+<section class="hero">
+  <div class="badge">开源项目 Demo</div>
+  <h1>AI 驱动的智能读书助手</h1>
+  <p class="desc">上传 PDF/EPUB，AI 自动识别目录结构并完成章节切分，语义搜索让知识检索更精准。</p>
+  <div class="btns">
+    <a href="https://github.com/Zealous1Epoch/ai-reading-assistant" class="btn btn-primary" target="_blank" rel="noopener">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+      查看源码
+    </a>
+    <a href="#reader" class="btn btn-ghost">在线体验 ↓</a>
+  </div>
+</section>
+
+<!-- ─── Steps ─── -->
+<section class="section" id="pipeline">
+  <div class="section-label">Pipeline</div>
+  <h2 class="section-title">核心处理流水线</h2>
+  <p class="section-desc">从原始文件到可检索知识库，6 步自动完成。</p>
+  <div class="pipeline">
+    <div class="step-card stagger" style="animation-delay:0s">
+      <div class="step-num">01</div>
+      <div class="step-icon" style="background:var(--step-0)">📄</div>
+      <h3>文件上传</h3>
+      <p>支持 PDF、EPUB、TXT 三种格式，自动检测文件类型并路由到对应解析器。</p>
+    </div>
+    <div class="step-card stagger" style="animation-delay:0.1s">
+      <div class="step-num">02</div>
+      <div class="step-icon" style="background:var(--step-1)">📝</div>
+      <h3>文本提取</h3>
+      <p>PyMuPDF 提取 PDF 文本层，扫描版自动降级到 Tesseract OCR 并行识别。</p>
+    </div>
+    <div class="step-card stagger" style="animation-delay:0.2s">
+      <div class="step-num">03</div>
+      <div class="step-icon" style="background:var(--step-2)">🤖</div>
+      <h3>AI 目录识别</h3>
+      <p>DeepSeek 分析前 5000 字符识别章节结构，失败时正则扫描全文作为保底。</p>
+    </div>
+    <div class="step-card stagger" style="animation-delay:0.3s">
+      <div class="step-num">04</div>
+      <div class="step-icon" style="background:var(--step-3)">✂️</div>
+      <h3>置信度打分切分</h3>
+      <p>5 维度标题置信度模型（行长度、空行隔离、页标记、匹配精度、标点），取最优位置切分。</p>
+    </div>
+    <div class="step-card stagger" style="animation-delay:0.4s">
+      <div class="step-num">05</div>
+      <div class="step-icon" style="background:var(--step-4)">🗄️</div>
+      <h3>向量化存储</h3>
+      <p>每个章节独立存入 ChromaDB，生成语义向量索引，支持相似度检索。</p>
+    </div>
+    <div class="step-card stagger" style="animation-delay:0.5s">
+      <div class="step-num">06</div>
+      <div class="step-icon" style="background:var(--step-5)">🔍</div>
+      <h3>语义搜索 + RAG 问答</h3>
+      <p>自然语言查询匹配最相关章节，DeepSeek 基于检索结果流式生成回答并标注来源。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Reader ─── -->
+<section class="section" id="reader">
+  <div class="section-label">Live Demo</div>
+  <h2 class="section-title">样书阅览</h2>
+  <p class="section-desc">《人工智能简史》— 点击左侧章节树，体验 AI 自动切分的 12 个章节。</p>
+  <div class="reader-wrap">
+    <aside class="reader-sidebar" id="sidebar"></aside>
+    <main class="reader-content" id="reader-main">
+      <p class="placeholder">← 点击左侧章节开始阅读</p>
+    </main>
+  </div>
+</section>
+
+<!-- ─── Search ─── -->
+<section class="section" id="search">
+  <div class="section-label">Semantic Search</div>
+  <h2 class="section-title">语义搜索演示</h2>
+  <p class="section-desc">点击预设查询，查看 ChromaDB 向量相似度检索结果。</p>
+  <div class="search-section">
+    <div class="search-chips">
+      <button class="search-chip active" data-q="turing">图灵测试是什么</button>
+      <button class="search-chip" data-q="deep-learning">深度学习的重要突破</button>
+      <button class="search-chip" data-q="transformer">Transformer 架构</button>
+    </div>
+    <div class="search-results" id="search-results">
+      <p class="search-placeholder">点击上方查询词开始搜索</p>
+    </div>
+  </div>
+</section>
+
+<!-- ─── Tech Stack ─── -->
+<section class="section" id="stack">
+  <div class="section-label">Tech Stack</div>
+  <h2 class="section-title">技术栈</h2>
+  <p class="section-desc">后端 Python 生态 + 前端 React，部署于 Railway。</p>
+  <div class="tech-grid">
+    <span class="tech-tag">FastAPI</span><span class="tech-tag">Uvicorn</span>
+    <span class="tech-tag">PyMuPDF</span><span class="tech-tag">EbookLib</span>
+    <span class="tech-tag">Tesseract OCR</span><span class="tech-tag">LangChain</span>
+    <span class="tech-tag">DeepSeek API</span><span class="tech-tag">ChromaDB</span>
+    <span class="tech-tag">React 18</span><span class="tech-tag">Tailwind CSS</span>
+    <span class="tech-tag">Pydantic</span><span class="tech-tag">Railway</span>
+  </div>
+</section>
+
+<!-- ─── Footer ─── -->
+<footer>
+  <p>智能读书助手 · <a href="https://github.com/Zealous1Epoch/ai-reading-assistant" target="_blank" rel="noopener">GitHub</a> · MIT License</p>
+</footer>
+
+<script>
+// ── 样书章节数据（Demo 实际输出） ──
+const CHAPTERS = [
+  { idx:0,  title:"序言/引言",   lvl:1, words:426, content:"<h2>序言/引言</h2><p>本书为人工智能科普读物，涵盖从图灵测试到大语言模型的完整发展脉络。目录结构由 AI 自动识别，章节边界由置信度打分模型精确定位。</p><p>以下为《人工智能简史》的完整章节内容，点击左侧目录树可逐章阅读。每个章节均由系统的 split_by_toc 算法自动切分生成，未经人工调整。</p>" },
+  { idx:1,  title:"前言",        lvl:1, words:170, content:"<h2>前言</h2><p>人工智能是计算机科学中最激动人心的领域之一。从图灵在1950年提出"机器能思考吗"这个问题开始，人类就踏上了创造智能机器的征程。本书将带你回顾人工智能的发展历程，理解核心技术原理，并展望未来发展方向。</p><p>无论你是技术从业者还是对AI感兴趣的普通读者，都能在本书中找到有价值的内容。本书力求用通俗易懂的语言，将复杂的技术概念讲清楚。</p>" },
+  { idx:2,  title:"第一章 人工智能的起源", lvl:1, words:87, content:"<h2>第一章 人工智能的起源</h2><p>人工智能并非一夜之间出现的。它的思想根源可以追溯到古希腊时期的自动机设想，但真正作为一门学科诞生，是在20世纪50年代。本章将介绍AI的早期历史。</p>" },
+  { idx:3,  title:"1.1 图灵测试", lvl:2, words:239, content:"<h2>1.1 图灵测试</h2><p>1950年，艾伦·图灵在《计算机器与智能》这篇开创性论文中提出了一个著名的问题："机器能思考吗？"为了避免对"思考"一词的哲学争议，图灵设计了一个可操作的测试方法，后来被称为"图灵测试"。</p><p>测试的基本设定是：一个人类评判者通过文本界面与两个实体对话，其中一个实体是人类，另一个是机器。如果评判者在经过充分交流后无法可靠地区分哪一个是机器，那么这个机器就可以被认为是具有智能的。图灵测试至今仍然是衡量机器智能的重要参考标准，尽管它也有不少争议和局限性。</p>" },
+  { idx:4,  title:"1.2 达特茅斯会议", lvl:2, words:248, content:"<h2>1.2 达特茅斯会议</h2><p>1956年夏天，约翰·麦卡锡、马文·明斯基、克劳德·香农等一群年轻的科学家聚集在美国新罕布什尔州的达特茅斯学院，召开了历史上第一次人工智能研讨会。这次会议被公认为人工智能学科的诞生标志。</p><p>"人工智能"（Artificial Intelligence）这个术语就是在这次会议上正式提出的。与会者们相信，学习的每个方面或智能的任何特征原则上都可以被精确描述，使得机器可以模拟它。虽然这次会议并没有产生立竿见影的技术突破，但它确立了AI作为一个独立研究领域的方向和愿景。</p>" },
+  { idx:5,  title:"第二章 机器学习的崛起", lvl:1, words:91, content:"<h2>第二章 机器学习的崛起</h2><p>如果说早期人工智能是靠手工编写规则来模拟智能，那么机器学习的出现则彻底改变了这一范式。机器学习让计算机从数据中自动学习规律，而不是依赖人类专家的显式编程。</p>" },
+  { idx:6,  title:"2.1 从规则到数据", lvl:2, words:222, content:"<h2>2.1 从规则到数据</h2><p>传统的符号主义AI试图用逻辑规则来表示人类知识，这种方法在特定领域取得了一定成功，但面对现实世界的复杂性和不确定性时显得力不从心。机器学习的核心思想是：与其手工编写成千上万条规则，不如让算法从大量数据中自动发现模式和规律。</p><p>1997年，IBM的深蓝计算机击败国际象棋世界冠军卡斯帕罗夫，靠的主要还是暴力搜索和手工评估函数。但到了2016年，AlphaGo击败围棋世界冠军李世石时，深度学习已经在其中发挥了关键作用。</p>" },
+  { idx:7,  title:"2.2 深度学习的突破", lvl:2, words:212, content:"<h2>2.2 深度学习的突破</h2><p>2012年是深度学习的重要转折点。在当年的ImageNet图像识别竞赛中，使用卷积神经网络的AlexNet以巨大优势夺冠，将错误率从26%降到了15%。这一成果震惊了整个计算机视觉领域，标志着深度学习革命的开始。</p><p>此后，深度学习在语音识别、自然语言处理、自动驾驶等领域接连取得突破。三个关键因素共同推动了这次革命：大规模数据集的出现、GPU等并行计算硬件的发展、以及算法和网络架构的持续创新。</p>" },
+  { idx:8,  title:"第三章 大语言模型时代", lvl:1, words:85, content:"<h2>第三章 大语言模型时代</h2><p>如果说深度学习是AI的引擎，那么大语言模型就是这台引擎驱动的旗舰。近年来，以GPT系列为代表的大语言模型展现出了令人惊叹的语言理解和生成能力。</p>" },
+  { idx:9,  title:"3.1 Transformer 架构", lvl:2, words:259, content:"<h2>3.1 Transformer 架构</h2><p>2017年，Google的研究团队发表了《Attention Is All You Need》这篇里程碑式的论文，提出了Transformer架构。与之前的循环神经网络和卷积神经网络不同，Transformer完全基于自注意力机制，能够高效地捕捉文本中长距离的依赖关系。</p><p>这个架构不仅在机器翻译任务上取得了当时最好的效果，更重要的是，它的并行化特性和可扩展性为后来训练超大规模语言模型奠定了基础。可以说，Transformer是迄今为止自然语言处理领域最重要的架构创新。</p>" },
+  { idx:10, title:"3.2 GPT 系列的发展", lvl:2, words:222, content:"<h2>3.2 GPT 系列的发展</h2><p>OpenAI从2018年开始推出GPT系列模型。GPT-1证明了在大量无标注文本上预训练然后再在下游任务上微调的有效性。GPT-2展示了模型规模扩大带来的能力飞跃。GPT-3则通过1750亿参数和海量训练数据，展示了令人惊叹的少样本学习能力——只需给出几个示例，模型就能完成翻译、写作、编程等多种任务。</p><p>后续的GPT-4进一步提升了推理能力、多模态理解和安全性。这些模型的成功让人们看到了通用人工智能的雏形。</p>" },
+  { idx:11, title:"第四章 未来展望", lvl:1, words:225, content:"<h2>第四章 未来展望</h2><p>站在当前的时间节点上展望未来，人工智能的发展方向既有令人兴奋的可能性，也有需要认真对待的挑战。在技术层面，多模态AI、具身智能、AI与科学发现的结合将是重要的前沿方向。</p><p>在社会层面，AI治理、就业影响、教育变革等问题需要政府、企业和社会各界的共同努力。无论如何，人工智能的发展最终应该服务于人类的福祉，让技术真正成为改善生活的工具。正如AI领域的先驱们所期望的那样，我们要确保人工智能的发展方向是正确的、负责任的、包容的。</p>" }
+];
+
+// ── 预置搜索结果 ──
+const SEARCH_DATA = {
+  'turing': [
+    { title:'1.1 图灵测试', words:239, score:0.89, snippet:'1950年，艾伦·图灵在《计算机器与智能》这篇开创性论文中提出了一个著名的问题："机器能思考吗？"为了避免对"思考"一词的哲学争议，图灵设计了一个可操作的测试方法，后来被称为"图灵测试"...' },
+    { title:'第一章 人工智能的起源', words:87, score:0.72, snippet:'人工智能并非一夜之间出现的。它的思想根源可以追溯到古希腊时期的自动机设想，但真正作为一门学科诞生，是在20世纪50年代。本章将介绍AI的早期历史...' }
+  ],
+  'deep-learning': [
+    { title:'2.2 深度学习的突破', words:212, score:0.91, snippet:'2012年是深度学习的重要转折点。在当年的ImageNet图像识别竞赛中，使用卷积神经网络的AlexNet以巨大优势夺冠，将错误率从26%降到了15%。这一成果震惊了整个计算机视觉领域...' },
+    { title:'第二章 机器学习的崛起', words:91, score:0.78, snippet:'如果说早期人工智能是靠手工编写规则来模拟智能，那么机器学习的出现则彻底改变了这一范式。机器学习让计算机从数据中自动学习规律，而不是依赖人类专家的显式编程...' }
+  ],
+  'transformer': [
+    { title:'3.1 Transformer 架构', words:259, score:0.94, snippet:'2017年，Google的研究团队发表了《Attention Is All You Need》这篇里程碑式的论文，提出了Transformer架构。与之前的循环神经网络和卷积神经网络不同，Transformer完全基于自注意力机制...' },
+    { title:'第三章 大语言模型时代', words:85, score:0.68, snippet:'如果说深度学习是AI的引擎，那么大语言模型就是这台引擎驱动的旗舰。近年来，以GPT系列为代表的大语言模型展现出了令人惊叹的语言理解和生成能力...' }
+  ]
+};
+
+// ── 渲染章节树 ──
+function renderSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  sidebar.innerHTML = '<div class="toc-header">目录 (12 章)</div>';
+  CHAPTERS.forEach(ch => {
+    const btn = document.createElement('button');
+    btn.className = 'toc-item';
+    btn.innerHTML = ch.lvl === 2
+      ? `<span class="lvl2">${ch.title}</span>`
+      : `<strong>${ch.title}</strong>`;
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.toc-item').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('reader-main').innerHTML = ch.content;
+    });
+    sidebar.appendChild(btn);
+  });
+}
+
+// ── 搜索交互 ──
+function renderSearch(queryKey) {
+  const container = document.getElementById('search-results');
+  const data = SEARCH_DATA[queryKey];
+  if (!data) return;
+  container.innerHTML = data.map(r => `
+    <div class="search-result">
+      <div class="result-title">${r.title}</div>
+      <div class="result-meta">字数 ${r.words} · 相关度 ${(r.score*100).toFixed(0)}%</div>
+      <div class="result-snippet">${r.snippet}</div>
+    </div>
+  `).join('');
+}
+
+// ── 初始化 ──
+renderSidebar();
+
+// 默认选中第一章
+const firstBtn = document.querySelector('.toc-item');
+if (firstBtn) firstBtn.click();
+
+// 搜索词条点击
+document.querySelectorAll('.search-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.search-chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    renderSearch(chip.dataset.q);
+  });
+});
+
+// 默认展示第一个搜索词
+renderSearch('turing');
+</script>
+</body>
+</html>

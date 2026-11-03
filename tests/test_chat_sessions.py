@@ -82,7 +82,7 @@ class TestStreamPersistence:
         import asyncio
         import app.routers.analysis as analysis_mod
 
-        async def fake_stream(message=None, chapter_context=None, chat_history=None):
+        async def fake_stream(message=None, chapter_context=None, chat_history=None, system_prompt_override=None):
             for c in chunks:
                 yield c
 

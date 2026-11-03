@@ -60,12 +60,14 @@ def _now() -> str:
     return ts
 
 
-def create_session(book_id: Optional[str] = None, scope: str = "book") -> dict:
+def create_session(book_id: Optional[str] = None, scope: str = "book",
+                   expert_id: Optional[str] = None, title: Optional[str] = None) -> dict:
     session = {
         "session_id": str(uuid.uuid4()),
         "scope": scope if scope in ("book", "cross") else "book",
         "book_id": book_id if scope == "book" else None,
-        "title": "新对话",
+        "expert_id": expert_id,
+        "title": title or "新对话",
         "messages": [],
         "created_at": _now(),
         "updated_at": _now(),
@@ -91,6 +93,7 @@ def list_sessions(book_id: Optional[str] = None, scope: Optional[str] = None) ->
             "session_id": s["session_id"],
             "scope": s.get("scope", "book"),
             "book_id": s.get("book_id"),
+            "expert_id": s.get("expert_id"),
             "title": s.get("title", "新对话"),
             "message_count": len(s.get("messages", [])),
             "created_at": s.get("created_at"),
@@ -139,6 +142,8 @@ def append_messages(session_id: str, messages: List[Dict[str, Any]]) -> Optional
             entry = {"role": m.get("role", "user"), "content": m.get("content", ""), "time": _now()}
             if m.get("sources"):
                 entry["sources"] = m["sources"]
+            if m.get("kind"):
+                entry["kind"] = m["kind"]
             session.setdefault("messages", []).append(entry)
         if session.get("title") in (None, "新对话"):
             first_user = next((m for m in session["messages"] if m.get("role") == "user"), None)

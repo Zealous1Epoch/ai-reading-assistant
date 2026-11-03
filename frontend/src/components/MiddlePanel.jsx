@@ -32,13 +32,24 @@ function fmtTime(iso) {
     return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
 }
 
-function MiddlePanel({ currentBook, currentChapter, chatMessages, isStreaming, onSendMessage, chatMode, onToggleMode, sources, selectedBookIds, books, onToggleFavorite, onNavigateToSource, favorites, sessions = [], currentSessionId, onNewSession, onSelectSession, onDeleteSession }) {
+function MiddlePanel({ currentBook, currentChapter, chatMessages, isStreaming, onSendMessage, chatMode, onToggleMode, sources, selectedBookIds, books, onToggleFavorite, onNavigateToSource, favorites, sessions = [], currentSessionId, onNewSession, onSelectSession, onDeleteSession, experts = [], activeExpert, expertOpening = false, onOpenExpert, onGenerateReport }) {
     const [input, setInput] = useState('');
     const [historyOpen, setHistoryOpen] = useState(false);
+    const [plusOpen, setPlusOpen] = useState(false);
+    const [plusGroup, setPlusGroup] = useState(null);
     const [chapterSummary, setChapterSummary] = useState(null);
     const [summaryLoading, setSummaryLoading] = useState(false);
     const [expandedChapter, setExpandedChapter] = useState(false);
     const chatEndRef = useRef(null);
+
+    // "+" 一级菜单分组（后续功能在此追加分组，二级面板按 group 渲染）
+    const MENU_GROUPS = [
+        { id: 'experts', label: '专家模式' },
+    ];
+    // 专家建议条只放对话开场；"收束：…"类指令由收束报告按钮承担
+    const expertStarters = (activeExpert?.quickPrompts || []).filter(q => !q.startsWith('收束'));
+    const hasUserMsg = chatMessages.some(m => m.role === 'user');
+    const expertNameOf = (id) => experts.find(e => e.expert_id === id)?.name;
 
     function renderWithCitations(text) {
         const parts = text.split(/(「[^」]+」)/g);
@@ -320,33 +331,50 @@ function MiddlePanel({ currentBook, currentChapter, chatMessages, isStreaming, o
                 {/* 对话消息 */}
                 {chatMessages.length > 0 && (
                     <div className="mt-8 max-w-3xl border-t border-zinc-100 pt-6 space-y-4">
-                        {chatMessages.map((msg, i) => (
-                            <div key={i} className={`message-enter flex gap-2 items-start ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                <div className={`max-w-[80%] px-4 py-2.5 ${msg.role === 'user' ? 'bg-zinc-100 text-zinc-700 rounded-2xl rounded-br-md' : 'bg-white text-zinc-700 rounded-2xl rounded-bl-md border border-zinc-100'}`}>
-                                    {msg.role === 'user' ? (
-                                        <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
-                                    ) : (
-                                        renderMessageParagraphs(msg.content)
+                        {chatMessages.map((msg, i) => {
+                            if (msg.kind === 'report') {
+                                return (
+                                    <div key={i} className="message-enter">
+                                        <div className="rounded-2xl border border-zinc-300 bg-zinc-50/80 px-5 py-4">
+                                            <div className="flex items-center gap-1.5 mb-2">
+                                                <svg className="w-3.5 h-3.5 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                </svg>
+                                                <span className="text-xs font-semibold text-zinc-600">收束报告{activeExpert ? ` · ${activeExpert.name}` : ''}</span>
+                                            </div>
+                                            {renderMessageParagraphs(msg.content)}
+                                        </div>
+                                    </div>
+                                );
+                            }
+                            return (
+                                <div key={i} className={`message-enter flex gap-2 items-start ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-[80%] px-4 py-2.5 ${msg.role === 'user' ? 'bg-zinc-100 text-zinc-700 rounded-2xl rounded-br-md' : 'bg-white text-zinc-700 rounded-2xl rounded-bl-md border border-zinc-100'}`}>
+                                        {msg.role === 'user' ? (
+                                            <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                                        ) : (
+                                            renderMessageParagraphs(msg.content)
+                                        )}
+                                    </div>
+                                    {msg.role === 'assistant' && !msg.kind && chatMessages[i - 1]?.role === 'user' && (
+                                        (() => {
+                                            const alreadyFav = favorites?.some(f => f.question === chatMessages[i - 1].content && f.answer === msg.content);
+                                            return (
+                                                <button
+                                                    onClick={() => onToggleFavorite({ type: 'qa', question: chatMessages[i - 1].content, answer: msg.content })}
+                                                    className={`p-1.5 rounded-lg transition-all flex-shrink-0 mt-1 ${alreadyFav ? 'text-zinc-500 bg-zinc-50' : 'text-zinc-300 hover:text-zinc-500 hover:bg-zinc-50'}`}
+                                                    title={alreadyFav ? '取消收藏' : '收藏此问答'}
+                                                >
+                                                    <svg className="w-4 h-4" fill={alreadyFav ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                                                    </svg>
+                                                </button>
+                                            );
+                                        })()
                                     )}
                                 </div>
-                                {msg.role === 'assistant' && chatMessages[i - 1]?.role === 'user' && (
-                                    (() => {
-                                        const alreadyFav = favorites?.some(f => f.question === chatMessages[i - 1].content && f.answer === msg.content);
-                                        return (
-                                            <button
-                                                onClick={() => onToggleFavorite({ type: 'qa', question: chatMessages[i - 1].content, answer: msg.content })}
-                                                className={`p-1.5 rounded-lg transition-all flex-shrink-0 mt-1 ${alreadyFav ? 'text-zinc-500 bg-zinc-50' : 'text-zinc-300 hover:text-zinc-500 hover:bg-zinc-50'}`}
-                                                title={alreadyFav ? '取消收藏' : '收藏此问答'}
-                                            >
-                                                <svg className="w-4 h-4" fill={alreadyFav ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-                                                </svg>
-                                            </button>
-                                        );
-                                    })()
-                                )}
-                            </div>
-                        ))}
+                            );
+                        })}
                         {isStreaming && (
                             <div className="flex justify-start">
                                 <div className="bg-zinc-100 rounded-2xl rounded-bl-md px-4 py-3">
@@ -417,7 +445,12 @@ function MiddlePanel({ currentBook, currentChapter, chatMessages, isStreaming, o
                                     >
                                         <div className="flex-1 min-w-0">
                                             <div className="truncate text-[13px]">{s.title}</div>
-                                            <div className="text-[11px] text-zinc-400">{fmtTime(s.updated_at)} · {s.message_count} 条</div>
+                                            <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
+                                                <span>{fmtTime(s.updated_at)} · {s.message_count} 条</span>
+                                                {s.expert_id && expertNameOf(s.expert_id) && (
+                                                    <span className="px-1.5 py-px rounded bg-zinc-100 text-zinc-500 border border-zinc-200 flex-shrink-0">{expertNameOf(s.expert_id)}</span>
+                                                )}
+                                            </div>
                                         </div>
                                         <button
                                             onClick={(e) => { e.stopPropagation(); onDeleteSession(s.session_id); }}
@@ -432,7 +465,110 @@ function MiddlePanel({ currentBook, currentChapter, chatMessages, isStreaming, o
                         )}
                     </div>
                 </div>
+                {/* 专家模式状态条 */}
+                {activeExpert && (
+                    <div className="max-w-3xl mx-auto mb-2">
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-50 border border-zinc-200 min-w-0">
+                            <span className="w-1.5 h-1.5 rounded-full bg-zinc-700 flex-shrink-0"></span>
+                            <span className="text-xs font-semibold text-zinc-800 flex-shrink-0">{activeExpert.name}</span>
+                            <span className="text-[11px] text-zinc-400 truncate">{activeExpert.method}</span>
+                            <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
+                                <button
+                                    onClick={onGenerateReport}
+                                    disabled={isStreaming || !currentSessionId || !hasUserMsg}
+                                    className="px-2.5 py-1 rounded-full text-xs font-medium bg-zinc-800 text-white hover:bg-zinc-900 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                                >
+                                    收束报告
+                                </button>
+                                <button
+                                    onClick={onNewSession}
+                                    disabled={isStreaming}
+                                    className="px-2.5 py-1 rounded-full text-xs text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 disabled:opacity-40 transition-all"
+                                >
+                                    退出
+                                </button>
+                            </div>
+                        </div>
+                        {expertStarters.length > 0 && !isStreaming && (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                                {expertStarters.map((q, i) => (
+                                    <button
+                                        key={i}
+                                        onClick={() => onSendMessage(q)}
+                                        className="text-[11px] px-2.5 py-1 rounded-full bg-white border border-zinc-200 text-zinc-500 hover:text-zinc-800 hover:border-zinc-400 transition-all"
+                                    >
+                                        {q}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
                 <div className="max-w-3xl mx-auto flex gap-2 items-end">
+                    {/* ＋ 二级级联菜单 */}
+                    <div className="relative flex-shrink-0">
+                        <button
+                            onClick={() => { setPlusOpen(o => !o); setPlusGroup(null); }}
+                            disabled={isStreaming}
+                            className={`w-10 h-10 flex items-center justify-center rounded-full border transition-all disabled:opacity-50 disabled:cursor-not-allowed ${plusOpen ? 'bg-zinc-800 text-white border-zinc-800' : 'bg-white text-zinc-500 border-zinc-200 hover:border-zinc-400 hover:text-zinc-800'}`}
+                        >
+                            <svg className={`w-5 h-5 transition-transform ${plusOpen ? 'rotate-45' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                            </svg>
+                        </button>
+                        {plusOpen && (
+                            <>
+                                <div className="fixed inset-0 z-30" onClick={() => { setPlusOpen(false); setPlusGroup(null); }} />
+                                <div className="absolute bottom-full left-0 mb-2 z-40 flex items-end gap-1.5">
+                                    <div className="w-40 bg-white border border-zinc-200 rounded-xl shadow-lg py-1">
+                                        {MENU_GROUPS.map(g => (
+                                            <button
+                                                key={g.id}
+                                                onMouseEnter={() => setPlusGroup(g.id)}
+                                                onClick={() => setPlusGroup(g.id)}
+                                                className={`w-full flex items-center justify-between px-3 py-2 text-sm transition-colors ${plusGroup === g.id ? 'bg-zinc-50 text-zinc-800' : 'text-zinc-600 hover:bg-zinc-50'}`}
+                                            >
+                                                <span className="flex items-center gap-2">
+                                                    <svg className="w-4 h-4 text-zinc-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                                    </svg>
+                                                    {g.label}
+                                                </span>
+                                                <svg className="w-3.5 h-3.5 text-zinc-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                                </svg>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {plusGroup === 'experts' && (
+                                        <div className="w-80 bg-white border border-zinc-200 rounded-xl shadow-lg p-1.5 max-h-96 overflow-y-auto scrollbar-thin">
+                                            {experts.length === 0 ? (
+                                                <div className="px-4 py-3 text-xs text-zinc-400 text-center">暂无可用专家</div>
+                                            ) : experts.map(e => (
+                                                <button
+                                                    key={e.expert_id}
+                                                    onClick={() => { setPlusOpen(false); setPlusGroup(null); onOpenExpert?.(e.expert_id); }}
+                                                    disabled={!currentBook || expertOpening}
+                                                    className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-zinc-50 transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+                                                >
+                                                    <div className="flex items-baseline gap-2 min-w-0">
+                                                        <span className="text-sm font-semibold text-zinc-800 flex-shrink-0">{e.name}</span>
+                                                        <span className="text-[11px] text-zinc-400 truncate">{e.profession}</span>
+                                                    </div>
+                                                    <p className="mt-1 text-xs text-zinc-500 leading-relaxed">{e.displayDescription}</p>
+                                                    <div className="mt-1.5 flex flex-wrap gap-1">
+                                                        {(e.tags || []).map(t => (
+                                                            <span key={t} className="text-[10px] px-1.5 py-0.5 bg-zinc-100 text-zinc-500 rounded">{t}</span>
+                                                        ))}
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </div>
                     {currentBook && (
                         <div className="flex bg-zinc-100 rounded-full p-0.5 gap-0.5 flex-shrink-0">
                             {[

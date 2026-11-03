@@ -7,6 +7,7 @@ import json
 from app.services.analysis_service import analysis_service
 from app.services.book_processor import book_processor
 from app.services import chat_store
+from app.services import experts as experts_svc
 
 router = APIRouter(prefix="/analysis", tags=["AI分析"])
 
@@ -19,6 +20,7 @@ class ChatRequest(BaseModel):
     selected_book_ids: Optional[List[str]] = None
     chat_history: Optional[List[dict]] = None
     session_id: Optional[str] = None  # 传入则本次问答自动持久化到该会话
+    expert_id: Optional[str] = None   # 专家模式：用该方法论 playbook 替换默认人格
 
 
 class QuickAnalysisRequest(BaseModel):
@@ -133,18 +135,29 @@ async def stream_chat(request: ChatRequest):
     chapter_context = "\n\n---\n\n".join(context_parts) if context_parts else None
 
     # 会话持久化：用户消息先落盘（中途刷新/断流也不丢提问），回答完成后补写
+    session = None
     if request.session_id:
-        if chat_store.get_session(request.session_id):
+        session = chat_store.get_session(request.session_id)
+        if session:
             chat_store.append_messages(request.session_id, [{"role": "user", "content": request.message}])
         else:
             request.session_id = None
+
+    # 专家模式换轨：请求显式指定优先，其次沿会话上绑定的专家
+    expert_id = request.expert_id or (session or {}).get("expert_id")
+    system_override = None
+    if expert_id and experts_svc.get_expert(expert_id):
+        system_override = experts_svc.build_system(
+            expert_id, request.book_id or (session or {}).get("book_id")
+        )
 
     async def generate():
         full_reply = ""
         async for chunk in analysis_service.stream_chat(
             message=request.message,
             chapter_context=chapter_context,
-            chat_history=request.chat_history
+            chat_history=request.chat_history,
+            system_prompt_override=system_override
         ):
             full_reply += chunk
             yield f"data: {json.dumps({'content': chunk}, ensure_ascii=False)}\n\n"

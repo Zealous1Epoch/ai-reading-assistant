@@ -25,6 +25,10 @@ function App() {
         try { return JSON.parse(localStorage.getItem('reading_favorites') || '[]'); }
         catch { return []; }
     });
+    // 专家模式：专家包列表 / 当前会话绑定的专家 / 起手式生成中
+    const [experts, setExperts] = useState([]);
+    const [activeExpertId, setActiveExpertId] = useState(null);
+    const [expertOpening, setExpertOpening] = useState(false);
 
     // 收藏持久化
     useEffect(() => {
@@ -55,6 +59,14 @@ function App() {
             .catch(err => console.log('获取书籍列表失败（首次加载无数据是正常的）:', err));
     }, []);
 
+    // 加载专家包（展示元数据，落文件即生效）
+    useEffect(() => {
+        fetch(`${API_BASE}/experts`)
+            .then(res => res.json())
+            .then(data => setExperts(data.experts || []))
+            .catch(() => {});
+    }, []);
+
     // 当前会话作用域：单书模式按书隔离，对比阅读全局一个桶
     const scopeKey = chatMode === 'cross' ? 'cross' : (currentBook?.book_id || '');
     const scopeRef = useRef(scopeKey);
@@ -75,7 +87,7 @@ function App() {
     useEffect(() => {
         scopeRef.current = scopeKey;
         setSources(null);
-        if (!scopeKey) { setSessionId(null); setMessages([]); return; }
+        if (!scopeKey) { setSessionId(null); setMessages([]); setActiveExpertId(null); return; }
         let alive = true;
         (async () => {
             const list = await fetchSessions(scopeKey);
@@ -87,10 +99,11 @@ function App() {
                     if (!alive) return;
                     setSessionId(full.session_id);
                     setMessages(full.messages || []);
+                    setActiveExpertId(full.expert_id || null);
                     return;
                 } catch { /* 落到空会话 */ }
             }
-            if (alive) { setSessionId(null); setMessages([]); }
+            if (alive) { setSessionId(null); setMessages([]); setActiveExpertId(null); }
         })();
         return () => { alive = false; };
     }, [scopeKey, fetchSessions]);
@@ -333,6 +346,7 @@ function App() {
         } else {
             body.selected_book_ids = selectedBookIds.length > 0 ? selectedBookIds : null;
         }
+        if (activeExpertId) body.expert_id = activeExpertId;
 
         setMessages(prev => [...prev, { role: 'user', content: message }, { role: 'assistant', content: '' }]);
 
@@ -399,6 +413,7 @@ function App() {
         setSessionId(null);
         setMessages([]);
         setSources(null);
+        setActiveExpertId(null);
     };
 
     const handleSelectSession = async (id) => {
@@ -409,6 +424,7 @@ function App() {
             setSessionId(full.session_id);
             setMessages(full.messages || []);
             setSources(null);
+            setActiveExpertId(full.expert_id || null);
         } catch (err) {
             console.error('加载会话失败:', err);
         }
@@ -417,10 +433,97 @@ function App() {
     const handleDeleteSession = async (id) => {
         try {
             await fetch(`${API_BASE}/sessions/${id}`, { method: 'DELETE' });
-            if (id === sessionId) { setSessionId(null); setMessages([]); setSources(null); }
+            if (id === sessionId) { setSessionId(null); setMessages([]); setSources(null); setActiveExpertId(null); }
             fetchSessions(scopeKey);
         } catch (err) {
             console.error('删除会话失败:', err);
+        }
+    };
+
+    // 专家模式：进入 = 生成起手式并建会话（范围 = 左栏当前选中章，未选中则整本书）
+    const handleOpenExpert = async (expertId) => {
+        if (!currentBook || expertOpening) return;
+        setExpertOpening(true);
+        try {
+            const res = await fetch(`${API_BASE}/experts/${expertId}/opening`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    book_id: currentBook.book_id,
+                    chapter_id: currentChapter?.chapter_id
+                })
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.detail || `启动失败 (${res.status})`);
+            }
+            const data = await res.json();
+            setChatMode('book');
+            setContentMode('book');
+            setSessionId(data.session_id);
+            setMessages([{ role: 'assistant', content: data.content, kind: 'opening' }]);
+            setActiveExpertId(expertId);
+            setSources(null);
+            fetchSessions(scopeKey);
+        } catch (err) {
+            console.error('专家模式启动失败:', err);
+            alert(`专家模式启动失败: ${err.message}`);
+        } finally {
+            setExpertOpening(false);
+        }
+    };
+
+    // 收束报告：基于会话全程流式生成专家诊断（后端完成后落盘 kind=report）
+    const handleGenerateReport = async () => {
+        if (!activeExpertId || !sessionId || isStreaming) return;
+        setIsStreaming(true);
+        setMessages(prev => [...prev, { role: 'assistant', content: '', kind: 'report' }]);
+        let text = '';
+        try {
+            const res = await fetch(`${API_BASE}/experts/${activeExpertId}/report`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: sessionId })
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.detail || `生成失败 (${res.status})`);
+            }
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    const payload = line.slice(6);
+                    if (payload === '[DONE]') continue;
+                    let f = null;
+                    try { f = JSON.parse(payload); } catch { /* 半截 JSON 丢弃 */ }
+                    if (f && f.content !== undefined) {
+                        text += f.content;
+                        setMessages(prev => {
+                            const next = [...prev];
+                            next[next.length - 1] = { ...next[next.length - 1], content: text };
+                            return next;
+                        });
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('收束报告生成失败:', err);
+            setMessages(prev => {
+                const next = [...prev];
+                next[next.length - 1] = { ...next[next.length - 1], content: `收束报告生成失败: ${err.message}` };
+                return next;
+            });
+        } finally {
+            setIsStreaming(false);
+            fetchSessions(scopeKey);
         }
     };
 
@@ -523,6 +626,8 @@ function App() {
 
     const getActiveMessages = () => messages;
 
+    const activeExpert = experts.find(e => e.expert_id === activeExpertId) || null;
+
     return (
         <div className="h-screen flex overflow-hidden bg-zinc-50 p-3 gap-3">
             <LeftPanel
@@ -558,6 +663,11 @@ function App() {
                 onToggleFavorite={handleToggleFavorite}
                 onNavigateToSource={handleNavigateToSource}
                 favorites={favorites}
+                experts={experts}
+                activeExpert={activeExpert}
+                expertOpening={expertOpening}
+                onOpenExpert={handleOpenExpert}
+                onGenerateReport={handleGenerateReport}
             />
             <RightPanel
                 currentBook={currentBook}

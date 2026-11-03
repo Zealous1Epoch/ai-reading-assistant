@@ -138,23 +138,6 @@ async def _summarize(request, chapters, scope_desc):
         yield frame
 
 
-async def _background(request, chapters, scope_desc):
-    """背景调研"""
-    context = _context(chapters)
-    prompt = f"""请为以下书籍内容提供详细的背景调研分析：
-
-{context}
-
-请从以下角度分析：
-1. 时代背景：这本书创作的历史和社会背景
-2. 作者背景：作者的身份、立场及其对内容的影响
-3. 学术脉络：这本书在相关学术领域中的位置
-4. 核心争论：书中涉及的主要学术或思想争论
-5. 影响力：这本书发布后产生的影响和回响"""
-    async for frame in _stream_prompt(prompt):
-        yield frame
-
-
 async def _questions(request, chapters, scope_desc):
     """读书十问"""
     context = _context(chapters)
@@ -215,26 +198,6 @@ async def _mindmap(request, chapters, scope_desc):
 {context}
 
 请直接输出 Markdown 格式的思维导图结构，不要输出任何前言、说明、结尾语或客套话。第一行必须是 # 开头的标题。"""
-    async for frame in _stream_prompt(prompt):
-        yield frame
-
-
-async def _recommend(request, chapters, scope_desc):
-    """书籍推荐 - 推荐同主题书籍"""
-    context = _context(chapters)
-    prompt = f"""请根据以下书籍内容，推荐 3-5 本相同主题或相似内容的书籍。
-
-书籍内容：
-{context}
-
-请按以下格式推荐：
-
-1. 《书名》- 作者
-   - 推荐理由：（1-2句话，说明为什么推荐）
-   - 与本书的关联：（与当前书籍的异同或互补关系）
-   - 适合读者：（什么样的读者适合读这本）
-
-请确保推荐真实存在的书籍，推荐理由要具体。"""
     async for frame in _stream_prompt(prompt):
         yield frame
 
@@ -626,10 +589,8 @@ async def _knowledge_graph(request, chapters, scope_desc):
 
 _STREAM_TOOLS = {
     "summarize": _summarize,
-    "background": _background,
     "questions": _questions,
     "mindmap": _mindmap,
-    "recommend": _recommend,
     "author-talk": _author_talk,
     "knowledge-graph": _knowledge_graph,
 }

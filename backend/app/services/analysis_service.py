@@ -123,7 +123,8 @@ class AnalysisService:
         self,
         message: str,
         chapter_context: Optional[str] = None,
-        chat_history: Optional[list] = None
+        chat_history: Optional[list] = None,
+        system_prompt_override: Optional[str] = None
     ) -> AsyncGenerator[str, None]:
         """
         流式对话
@@ -131,9 +132,10 @@ class AnalysisService:
         :param message: 用户消息
         :param chapter_context: 当前章节上下文
         :param chat_history: 历史对话记录
+        :param system_prompt_override: 专家模式方法论系统提示词；传入则替换默认读书助手人格
         """
 
-        system_prompt = """你是一个专业的智能读书助手，擅长深度分析和清晰表达。
+        system_prompt = system_prompt_override or """你是一个专业的智能读书助手，擅长深度分析和清晰表达。
 
 你的回答风格会根据内容自动调整：
 - 面对神学、护教学、学术论证类内容 → 采用严谨的学术风格，引用具体章节、论据和出处

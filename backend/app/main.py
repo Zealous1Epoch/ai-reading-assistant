@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from app.config import get_settings
-from app.routers import chat, book_processor, search, analysis, tools, sessions
+from app.routers import chat, book_processor, search, analysis, tools, sessions, experts
 import os
 
 settings = get_settings()
@@ -31,6 +31,7 @@ app.include_router(search.router)
 app.include_router(analysis.router)
 app.include_router(tools.router)
 app.include_router(sessions.router)
+app.include_router(experts.router)
 
 
 # 前端页面路由

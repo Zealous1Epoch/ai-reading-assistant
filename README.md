@@ -114,7 +114,7 @@ python -m app.main
 
 ### 聊天
 - `POST /chat/` - 与 AI 助手对话
-- `POST /analysis/chat/stream` - 流式对话（SSE；带 `session_id` 时问答自动持久化到会话）
+- `POST /analysis/chat/stream` - 流式对话（SSE；带 `session_id` 时问答自动持久化到会话；`expert_id` 指定专家人格换轨，会话已绑定专家时可省略）
 
 ### 对话历史
 - `GET /sessions?scope=book&book_id=` - 会话列表（按更新时间倒序）
@@ -125,7 +125,17 @@ python -m app.main
 ### AI 工具（SSE 流式）
 - `POST /api/tools/{tool_id}/stream` - 运行工具，SSE 帧协议：`{"status"}` 进度 / `{"content"}` 正文增量 / `{"sources"}` 引用章节 / `{"artifact"}` HTML 产物 / `[DONE]`
 - 请求体：`book_id` 必填；`chapter_id` 传了则作用范围为该章，否则整本书（范围不再由用户打字描述）；`user_input` 仅 `author-talk` 使用（读者的问题）
-- 工具：`summarize` 总结（全书走 map-reduce 全章覆盖）、`background` 背景调研、`questions` 读书十问、`mindmap` 思维导图（章节锚定用真实标题）、`recommend` 书籍推荐、`author-talk` 与作者对谈（语义检索书中论点 grounding）、`knowledge-graph` 精读笔记（HTML 产物）
+- 工具：`summarize` 总结（全书走 map-reduce 全章覆盖）、`questions` 读书十问、`mindmap` 思维导图（章节锚定用真实标题）、`author-talk` 与作者对谈（语义检索书中论点 grounding）、`knowledge-graph` 精读笔记（HTML 产物）
+- 背景调研 / 书籍推荐已下线（泛化搜索类，不基于馆藏内容，与读书助手定位弱相关）
+
+### 专家模式
+专家 = 有完整读书方法论的角色（起手式 + 回合规则 + 收束报告三要素），区别于一次性工具：方法论主导多轮回路，读者做认知工作。
+
+- `GET /experts` - 专家列表（展示元数据：花名/职业/方法论/标签/试试这样问；提示词不外发）
+- `POST /experts/{expert_id}/opening` - 进入专家模式：按当前范围（`book_id` + 可选 `chapter_id`）生成第一回合并建会话（返回 `session_id`、`content`、`quick_prompts`；消息落盘 `kind:"opening"`）
+- `POST /experts/{expert_id}/report` - 收束报告：读取会话全程，SSE 流式生成该专家方法论的认知诊断，完成后落盘 `kind:"report"`（会话无读者回答时 400）
+- 专家包为文件化注册：`backend/app/experts/<expert_id>.json`，落文件即生效（每次读取热扫描），缺方法论字段拒绝加载
+- 内置三位：`socrates` 苏格拉底（产婆术·只问不答）、`feynman` 费曼（学习检验·你讲他挑）、`munger` 芒格（反过来想·跨学科压力测试）
 
 ## 使用示例
 

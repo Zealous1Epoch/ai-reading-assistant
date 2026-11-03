@@ -188,3 +188,48 @@ async def serve_app_jsx():
 - level=1 章节显示编号序号（1. 2. 3.）
 - level=2 小节缩进 pl-8 + 圆点标记
 - 无 TOC 数据时退化为章节平铺
+---
+
+## 16. uploads 重复文件与"源文件丢失"假象
+
+**问题**：`backend/uploads/` 积累大量重复文件；同时 books_index 中 4 本书与磁盘文件全部断链（11 个 EPUB 成孤儿），看似"源文件丢失"。
+
+**根因**：① 旧版 `/upload` 无内容查重，同书反复上传各存一份；② 历史上 uvicorn 曾在 `backend/` 目录下启动，相对路径把一部分真源写进了 `backend/uploads/`（旧 CWD 遗留目录），主 uploads 自然找不到。
+
+**解决**：`scripts/cleanup_data.py`（先 `--dry-run` 再执行）按序治理——孤儿 EPUB 按 DC 标题认领回归丢源书籍 → 按 hash/指纹去重 → 孤儿进废纸篓（`/usr/bin/trash`，可恢复）→ 清 ChromaDB 无主章节（删了 35 条，含 12 条 demo_sample_book）→ 回填 content_hash。`backend/uploads/` 里的真源回迁主 uploads 后目录删除。最终馆藏 3 本全部带 hash。同时新链路以 SHA-256 内容去重从源头杜绝再犯。
+
+**教训**：清理脚本第一步必须先"认领"再"删除"——首次 dry-run 时若不认领，会差点删掉仅存的真源。
+
+---
+
+## 17. 本机缺 libmagic，伪装文件拦截静默失效
+
+**问题**：用 PDF 内容伪装成 `.txt` 上传，预期被 python-magic 拦截，实际直接入库。
+
+**根因**：本机 macOS 没有 libmagic 动态库，`import magic` 抛 ImportError 被 `try/except` 静默吞掉，魔数校验整段变成死代码。
+
+**解决**：加零依赖文件头兜底——`.pdf` 必须 `%PDF` 开头、`.epub` 必须 `PK`、`.txt` 内容若嗅探出 PDF/zip 魔数直接拒绝并提示改扩展名。实测两个方向（txt 装 PDF、pdf 装 epub）均拦截。
+
+**教训**：可选依赖的失败路径必须实测，"有则更好"的校验等于没有校验。
+
+---
+
+## 18. fallback 目录去重把 Chapter 1/2 合并成同章（真实 bug）
+
+**问题**：新写的 EPUB 无目录测试暴露：`_fallback_toc_detection` 去重 key 取标题"前 4 个有效字符"，`Chapter 1` 与 `Chapter 2` 都变成 `Chap`，相邻章节被误合并。
+
+**解决**：去重 key 改为提取编号——依次尝试 `第X章`、`chapter|part|section\s+数字`、`\d+(\.\d+)*`，实在无编号才退回前 4 字。
+
+**教训**：这个 bug 只有在 pytest 真正跑起来后才暴露——此前 `venv` 里根本没装 pytest，tests/ 目录从未执行过，"有测试文件"≠"测试在跑"。
+
+---
+
+## 19. 去重验证被自身短路干扰
+
+**问题**：验证 TXT 书名回填修复时，重传同名同内容文件返回了旧 book_id 且状态瞬间 completed，看似修复无效。
+
+**根因**：内容去重先命中，直接复用了旧书索引，根本没走新的解析路径。
+
+**解决**：先 DELETE 旧测试书再重传，书名"我的试验小品"正确回填。
+
+**教训**：验证解析类改动时，若上传内容与馆藏重复，被去重短路属正常——测试前先清同内容旧书，或换内容指纹。

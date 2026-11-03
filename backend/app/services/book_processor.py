@@ -38,14 +38,17 @@ settings = get_settings()
 class BookProcessor:
     """书籍处理器 - 智能章节切分"""
 
-    def __init__(self, persist_directory: str = "./data/chroma_db"):
+    def __init__(self, persist_directory: str = None):
         self._llm = None  # 延迟初始化
-        self.persist_directory = persist_directory
+        # 绝对锚定到 backend/data/chroma_db，与进程启动目录解耦
+        self.persist_directory = persist_directory or os.path.join(
+            settings.data_dir, "chroma_db"
+        )
         self._ocr_progress = {}  # {book_id: {"current": N, "total": M}}
-        os.makedirs(persist_directory, exist_ok=True)
+        os.makedirs(self.persist_directory, exist_ok=True)
 
         # 初始化 ChromaDB
-        self.chroma_client = chromadb.PersistentClient(path=persist_directory)
+        self.chroma_client = chromadb.PersistentClient(path=self.persist_directory)
         self.collection = self.chroma_client.get_or_create_collection(
             name="book_chapters",
             metadata={"description": "书籍章节向量化存储"}
@@ -130,16 +133,25 @@ class BookProcessor:
 
         return "\n\n".join(result)
 
+    @staticmethod
+    def _epub_doc_text(item) -> str:
+        """提取单个 EPUB 文档项的纯文本（保留段落结构）"""
+        content = item.get_content().decode('utf-8', errors='ignore')
+        # 保留段落结构：块级标签替换为换行
+        text = re.sub(r'</?(?:p|div|h[1-6]|li|ul|ol|tr|td|th|br|section|article|blockquote|dl|dt|dd)[^>]*>', '\n', content, flags=re.IGNORECASE)
+        # 剩余行内标签替换为空格
+        text = re.sub(r'<[^>]+>', ' ', text)
+        # 折叠空白
+        text = re.sub(r'[ \t]+', ' ', text)
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        return text.strip()
+
     def extract_text_from_epub(self, file_path: str) -> Tuple[str, dict]:
         """从EPUB提取文本和元数据（按spine阅读顺序）"""
         book = epub.read_epub(file_path)
         full_text = ""
 
-        metadata = {
-            "title": book.get_metadata('DC', 'title')[0][0] if book.get_metadata('DC', 'title') else Path(file_path).stem,
-            "author": book.get_metadata('DC', 'creator')[0][0] if book.get_metadata('DC', 'creator') else "未知作者",
-            "format": "EPUB"
-        }
+        metadata = self._epub_metadata(book, file_path)
 
         # 建立 id -> item 索引
         items_by_id = {item.get_id(): item for item in book.get_items()}
@@ -149,20 +161,141 @@ class BookProcessor:
             item = items_by_id.get(idref)
             if item is None or item.get_type() != 9:  # 跳过非文档项
                 continue
-
-            content = item.get_content().decode('utf-8', errors='ignore')
-            # 保留段落结构：块级标签替换为换行
-            text = re.sub(r'</?(?:p|div|h[1-6]|li|ul|ol|tr|td|th|br|section|article|blockquote|dl|dt|dd)[^>]*>', '\n', content, flags=re.IGNORECASE)
-            # 剩余行内标签替换为空格
-            text = re.sub(r'<[^>]+>', ' ', text)
-            # 折叠空白
-            text = re.sub(r'[ \t]+', ' ', text)
-            text = re.sub(r'\n{3,}', '\n\n', text)
-            text = text.strip()
+            text = self._epub_doc_text(item)
             if text:
                 full_text += text + "\n\n"
 
         return full_text, metadata
+
+    @staticmethod
+    def _epub_metadata(book, file_path: str) -> dict:
+        """读取 EPUB 元数据（标题/作者）"""
+        return {
+            "title": book.get_metadata('DC', 'title')[0][0] if book.get_metadata('DC', 'title') else Path(file_path).stem,
+            "author": book.get_metadata('DC', 'creator')[0][0] if book.get_metadata('DC', 'creator') else "未知作者",
+            "format": "EPUB"
+        }
+
+    def _extract_epub_native(self, file_path: str) -> Optional[Tuple[dict, List[Chapter], List[TocItem]]]:
+        """EPUB 原生目录切分（零 AI 成本、边界精确）。
+
+        思路：EPUB 规范自带 TOC（NCX/nav），多数正规书籍直接给出了
+        章节标题 → spine 文档的映射。命中且可用时，比"AI 看前 5000 字猜目录"
+        准得多。返回 (metadata, chapters, toc_items)，不可用时返回 None，
+        由调用方降级到 AI/正则路径。
+        """
+        from urllib.parse import unquote
+
+        book = epub.read_epub(file_path)
+        metadata = self._epub_metadata(book, file_path)
+
+        # 1. 按 spine 顺序抽取每个文档的文本，同时建立 名称 -> 文档序号 索引
+        items_by_id = {item.get_id(): item for item in book.get_items()}
+        docs: List[str] = []
+        doc_index_by_name: dict = {}
+
+        for idref, _ in book.spine:
+            item = items_by_id.get(idref)
+            if item is None or item.get_type() != 9:  # ITEM_DOCUMENT
+                continue
+            pos = len(docs)
+            text = self._epub_doc_text(item)
+            docs.append(text)
+            name = item.get_name().lstrip('/_').lower()
+            doc_index_by_name.setdefault(name, pos)
+            doc_index_by_name.setdefault(os.path.basename(name), pos)
+
+        # 2. 递归遍历原生 TOC，把每个条目的 href 映射到文档序号
+        entries: List[Tuple[int, str, int]] = []  # (doc_idx, title, level)
+
+        def walk(toc_nodes, level: int):
+            for link in toc_nodes:
+                href = unquote(getattr(link, 'href', '') or '').split('#')[0].lstrip('/_')
+                title = re.sub(r'\s+', ' ', (getattr(link, 'title', '') or '').strip())
+                idx = None
+                if href:
+                    idx = doc_index_by_name.get(href.lower())
+                    if idx is None:
+                        idx = doc_index_by_name.get(os.path.basename(href).lower())
+                if idx is not None and title:
+                    entries.append((idx, title, level))
+                children = getattr(link, 'children', None)
+                if children:
+                    walk(children, level + 1)
+
+        try:
+            walk(book.toc, 1)
+        except Exception as e:
+            print(f"EPUB 原生目录解析异常: {e}")
+            return None
+
+        # 3. 按文档序号排序；多个 TOC 条目指向同一文档时保留第一个（更高层级）
+        entries.sort(key=lambda e: (e[0], e[2]))
+        uniq: List[Tuple[int, str, int]] = []
+        for idx, title, level in entries:
+            if uniq and uniq[-1][0] == idx:
+                continue
+            uniq.append((idx, title, level))
+
+        # 少于 2 个可用锚点说明这本书的原生目录不可信（缺失/全是无标题项）
+        if len(uniq) < 2:
+            return None
+
+        # 4. 以锚点文档为边界切分章节
+        chapters: List[Chapter] = []
+
+        # 第一个锚点之前的封面/声明等前置内容
+        if uniq[0][0] > 0:
+            lead = "\n\n".join(d for d in docs[0:uniq[0][0]] if d).strip()
+            if len(lead) > 50:
+                chapters.append(Chapter(
+                    chapter_id=str(uuid.uuid4()), book_id="",
+                    title="前置内容", content=lead,
+                    word_count=len(lead), chapter_index=0
+                ))
+
+        for i, (idx, title, level) in enumerate(uniq):
+            end = uniq[i + 1][0] if i + 1 < len(uniq) else len(docs)
+            content = "\n\n".join(d for d in docs[idx:end] if d).strip()
+            if len(content) <= 50:
+                continue
+            chapters.append(Chapter(
+                chapter_id=str(uuid.uuid4()), book_id="",
+                title=title, content=content,
+                word_count=len(content), chapter_index=len(chapters)
+            ))
+
+        if len(chapters) < 2:
+            return None
+
+        toc_items = [TocItem(title=t, level=l, pattern=t) for (_, t, l) in uniq]
+        return metadata, chapters, toc_items
+
+    @staticmethod
+    def _read_text_file(file_path: str) -> str:
+        """读取文本文件，自动探测编码（中文 TXT 常见 GBK/GB18030/Big5）"""
+        with open(file_path, "rb") as f:
+            raw = f.read()
+
+        # BOM 优先
+        if raw.startswith(b'\xef\xbb\xbf'):
+            return raw.decode("utf-8-sig")
+
+        # 按可靠性顺序尝试：UTF-8 最严格，先试；GB18030 几乎不会失败，放后面兜底
+        for enc in ("utf-8", "gb18030", "big5", "shift_jis"):
+            try:
+                text = raw.decode(enc)
+                # gb18030 会把 UTF-8 字节流"成功"解成乱码，
+                # 用替换符/私用区字符占比做启发式校验
+                suspicious = sum(1 for c in text if '\ue000' <= c <= '\uf8ff')
+                if enc != "utf-8" and suspicious > len(text) * 0.01:
+                    continue
+                return text
+            except (UnicodeDecodeError, LookupError):
+                continue
+
+        # 全部失败：UTF-8 宽松解码，坏字节替换为占位符而不是整个文件报错
+        return raw.decode("utf-8", errors="replace")
 
     def extract_text(self, file_path: str, book_id: str = "") -> Tuple[str, dict]:
         """自动检测格式并提取文本"""
@@ -173,8 +306,7 @@ class BookProcessor:
         elif suffix == ".epub":
             return self.extract_text_from_epub(file_path)
         elif suffix == ".txt":
-            with open(file_path, "r", encoding="utf-8") as f:
-                text = f.read()
+            text = self._read_text_file(file_path)
             return text, {"title": Path(file_path).stem, "author": "未知作者", "format": "TXT"}
         else:
             raise ValueError(f"不支持的文件格式: {suffix}")
@@ -263,13 +395,25 @@ class BookProcessor:
         # 目录区（TOC）的标题位置靠前，正文标题位置靠后
         chapter_groups = {}
         for pos, title in raw_matches:
-            # 提取章节号作为分组key（如"第1章"、"引言"）
+            # 提取章节号作为分组 key——必须保留编号，否则 Chapter 1/Chapter 2
+            # 会因前 4 字符相同（"Chap"）被误合并成同一组
             m = re.search(r'第[一二三四五六七八九十百千万零\d]+[章回节卷]', title)
             if m:
                 key = m.group()
             else:
-                # 非编号标题，取前4个有效中文字作key（去除标点、序号、空白）
-                key = re.sub(r'[\s\d.　。，、：；!！?？、]+', '', title)[:4]
+                m2 = re.match(
+                    r'^\s*(?:chapter|part|section)\s+[\dIVXLCDM]+',
+                    title, re.IGNORECASE
+                )
+                if m2:
+                    key = re.sub(r'\s+', ' ', m2.group()).strip().lower()
+                else:
+                    m3 = re.match(r'^\s*\d+(?:\.\d+)*', title)
+                    if m3:
+                        key = m3.group().strip()
+                    else:
+                        # 无编号标题（序言/附录等），取前 4 个有效中文字作 key
+                        key = re.sub(r'[\s\d.　。，、：；!！?？、]+', '', title)[:4]
             # 保留最靠后的位置（正文标题通常出现得更晚）
             if key not in chapter_groups or pos > chapter_groups[key][0]:
                 chapter_groups[key] = (pos, title)
@@ -506,30 +650,46 @@ class BookProcessor:
 
         return chapters
 
-    async def process_book(self, file_path: str, book_id: str) -> BookAnalysisResult:
+    async def process_book(self, file_path: str, book_id: str, content_hash: str = "") -> BookAnalysisResult:
         """处理书籍：提取文本、识别目录、切分章节、向量化存储"""
 
-        # 1. 提取文本
-        full_text, metadata = self.extract_text(file_path, book_id)
+        suffix = Path(file_path).suffix.lower()
 
-        # 2. 先用AI识别目录（仅看前5000字，省成本）
-        toc_items = await self.detect_toc_by_ai(full_text[:5000])
+        # EPUB 优先走原生目录（零 AI 成本、边界精确），不可用再降级通用链路
+        native = self._extract_epub_native(file_path) if suffix == ".epub" else None
 
-        # 3. AI失败时的保底方案：正则扫描全文找章节（零成本）
-        if not toc_items:
-            toc_items = self._fallback_toc_detection(full_text)
+        if native:
+            metadata, chapters, toc_items = native
+            print(f"EPUB 原生目录命中：切出 {len(chapters)} 章（未调用 AI）")
+        else:
+            # 1. 提取文本
+            full_text, metadata = self.extract_text(file_path, book_id)
 
-        # 4. 根据目录切分章节
-        chapters = self.split_by_toc(full_text, toc_items)
+            # 2. 先用AI识别目录（仅看前5000字，省成本）
+            toc_items = await self.detect_toc_by_ai(full_text[:5000])
 
-        # 4. 填充book_id
+            # 3. AI失败时的保底方案：正则扫描全文找章节（零成本）
+            if not toc_items:
+                toc_items = self._fallback_toc_detection(full_text)
+
+            # 4. 根据目录切分章节
+            chapters = self.split_by_toc(full_text, toc_items)
+
+        # 5. 空章节保护：加密 PDF、空白文件、缺 OCR 的扫描版都会走到这里
+        if not chapters:
+            raise ValueError(
+                "未能提取到有效正文：文件可能已加密、内容为空，"
+                "或是扫描版且缺少 OCR 支持"
+            )
+
+        # 6. 填充book_id
         for chapter in chapters:
             chapter.book_id = book_id
 
-        # 5. 存储到ChromaDB
+        # 7. 存储到ChromaDB
         await self.store_chapters_to_chroma(book_id, chapters, book_title=metadata.get("title", ""))
 
-        # 6. 返回分析结果
+        # 8. 返回分析结果
         total_words = sum(ch.word_count for ch in chapters)
 
         return BookAnalysisResult(
@@ -540,7 +700,8 @@ class BookProcessor:
             total_words=total_words,
             chapters=chapters,
             toc=toc_items,
-            file_format=metadata.get("format", "Unknown")
+            file_format=metadata.get("format", "Unknown"),
+            content_hash=content_hash or None
         )
 
     def _clean_chapter_content(self, text: str) -> str:
@@ -584,10 +745,13 @@ class BookProcessor:
         return '\n'.join(lines).strip()
 
     async def store_chapters_to_chroma(self, book_id: str, chapters: List[Chapter], book_title: str = ""):
-        """将章节存储到ChromaDB"""
+        """将章节存储到ChromaDB（先清旧数据，重复解析不残留）"""
 
         if not chapters:
             return
+
+        # 幂等：同一 book_id 重新解析时，先删掉它自己的旧章节
+        self.delete_book_chapters(book_id)
 
         # 批量添加
         ids = []

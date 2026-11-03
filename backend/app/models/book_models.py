@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 
@@ -13,7 +13,7 @@ class Chapter(BaseModel):
     chapter_index: int
     start_position: Optional[int] = None
     end_position: Optional[int] = None
-    created_at: datetime = datetime.now()
+    created_at: datetime = Field(default_factory=datetime.now)
 
 
 class TocItem(BaseModel):
@@ -35,7 +35,9 @@ class BookAnalysisResult(BaseModel):
     chapters: List[Chapter]
     toc: List[TocItem]
     file_format: str
-    created_at: datetime = datetime.now()
+    content_hash: Optional[str] = None       # 文件内容 SHA-256，用于重复上传检测
+    original_filename: Optional[str] = None  # 上传时的原始文件名
+    created_at: datetime = Field(default_factory=datetime.now)
 
 
 class ChapterSearchResult(BaseModel):

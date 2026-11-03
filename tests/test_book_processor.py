@@ -98,14 +98,15 @@ This chapter reviews prior work.
 
     def test_split_by_toc_with_items(self, processor):
         """根据目录切分章节（标题在行末，内容在后续行）"""
-        text = """第一章 引言
-这是引言部分的正文内容，有很多文字。
+        filler = "这一部分包含大量正文内容，用于说明研究方法与背景知识等主题。字数必须明显超过切分引擎对短碎片的噪声过滤阈值，以保证章节不会被误丢弃。"
+        text = f"""第一章 引言
+{filler}
 
 第二章 文献综述
-这是第二章的正文内容。
+{filler}{filler}
 
 第三章 研究方法
-这是第三章的正文内容。
+{filler}{filler}{filler}
 """
         toc_items = [
             TocItem(title="第一章 引言", level=1, pattern="第一章 引言"),
@@ -129,11 +130,12 @@ This chapter reviews prior work.
 
     def test_split_by_toc_preserves_chapter_content(self, processor):
         """切分后章节内容完整"""
-        text = """第一章 引言
-这是引言部分的唯一内容。
+        filler = "这里的内容必须足够长，才能通过切分引擎对碎片章节的噪声过滤，否则整章会被当成非正文噪声而丢弃掉，这是符合真实书籍场景的设计。"
+        text = f"""第一章 引言
+{filler}
 
 第二章 正文
-这是正文部分的唯一内容。
+{filler}{filler}
 """
         toc_items = [
             TocItem(title="第一章 引言", level=1, pattern="第一章 引言"),
@@ -265,3 +267,92 @@ This chapter reviews prior work.
         text = "这是第一章 引言。"  # 以句号结尾，通常不是标题
         score = BookProcessor._heading_score(text, 0, 10, match_priority=0)
         assert isinstance(score, float)
+
+    # ── TXT 编码探测 ────────────────────────────────────────
+
+    def test_read_txt_gbk_encoded(self, processor, tmp_path):
+        """GBK 编码的中文 TXT 能正确读取（旧实现直接 utf-8 解码会崩溃）"""
+        content = "第一章 测试\n\n这是一段用GBK编码的中文小说正文，包含汉字与标点，应该被完整识别。\n\n第二章 结束\n\n又是一段足够长的正文内容，验证多章节都能被读取到没有乱码。"
+        gbk_file = tmp_path / "gbk_book.txt"
+        gbk_file.write_bytes(content.encode("gbk"))
+
+        text, meta = processor.extract_text(str(gbk_file), "gbk_test")
+
+        assert "GBK编码" in text
+        assert "正文内容" in text
+        assert "\ufffd" not in text  # 不应有替换符乱码
+
+    def test_read_txt_utf8_with_bom(self, processor, tmp_path):
+        """带 BOM 的 UTF-8 文件不应把 BOM 留在正文里"""
+        f = tmp_path / "bom.txt"
+        f.write_bytes("第一章 标题\n\n正文内容要超过五十个字符才能通过切分引擎的噪声过滤机制，这里需要凑够足够的字数才行。".encode("utf-8-sig"))
+
+        text, _ = processor.extract_text(str(f), "bom_test")
+
+        assert not text.startswith("\ufeff")
+        assert "正文内容" in text
+
+    def test_read_txt_plain_utf8(self, processor, tmp_path):
+        """普通 UTF-8 仍走首选路径，不受编码探测干扰"""
+        f = tmp_path / "utf8.txt"
+        f.write_text("第一章 标题\n\n这段UTF-8正文同样需要超过五十个字符来通过切分引擎的短章节噪声过滤，因此这里多写一些内容来凑够长度要求。", encoding="utf-8")
+
+        text, _ = processor.extract_text(str(f), "utf8_test")
+
+        assert "这段UTF-8正文" in text
+
+    # ── EPUB 原生目录 ───────────────────────────────────────
+
+    def _make_epub(self, tmp_path, with_toc: bool):
+        """构造一本带/不带原生目录的测试 EPUB"""
+        from ebooklib import epub
+
+        book = epub.EpubBook()
+        book.set_identifier("test-book")
+        book.set_title("测试书目")
+        book.set_language("zh")
+        book.add_author("测试作者")
+
+        chapters = []
+        for i, name in enumerate(["第一章 起点", "第二章 途中", "第三章 终点"]):
+            ch = epub.EpubHtml(
+                title=name, file_name=f"chap{i+1}.xhtml", lang="zh"
+            )
+            body = f"<h1>{name}</h1>" + "".join(
+                f"<p>第{i+1}章的正文内容，这里需要足够多的汉字来保证章节长度超过切分引擎的噪声过滤阈值，多写几句以增加总字数。第{i}句。</p>"
+                for _ in range(3)
+            )
+            ch.set_content(f"<html><body>{body}</body></html>")
+            book.add_item(ch)
+            chapters.append(ch)
+
+        book.add_item(epub.EpubNcx())
+        book.add_item(epub.EpubNav())
+        if with_toc:
+            book.toc = [epub.Link(c.file_name, c.title, c.title) for c in chapters]
+            book.spine = ["nav"] + chapters
+        else:
+            book.spine = ["nav"] + chapters
+
+        epub.write_epub(str(tmp_path / ("toc.epub" if with_toc else "notoc.epub")), book)
+        return str(tmp_path / ("toc.epub" if with_toc else "notoc.epub"))
+
+    def test_epub_native_toc_chapters(self, processor, tmp_path):
+        """带原生目录的 EPUB：按 TOC 精确切分，不调用 AI"""
+        path = self._make_epub(tmp_path, with_toc=True)
+
+        result = processor._extract_epub_native(path)
+
+        assert result is not None
+        metadata, chapters, toc_items = result
+        assert metadata["title"] == "测试书目"
+        titles = [c.title for c in chapters]
+        assert "第一章 起点" in titles
+        assert "第三章 终点" in titles
+        assert len([c for c in chapters if c.title.startswith("第")]) == 3
+
+    def test_epub_without_toc_returns_none(self, processor, tmp_path):
+        """无原生目录的 EPUB：返回 None，由上层降级到 AI/正则链路"""
+        path = self._make_epub(tmp_path, with_toc=False)
+
+        assert processor._extract_epub_native(path) is None

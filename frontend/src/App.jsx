@@ -107,8 +107,9 @@ function App() {
         const total = files.length;
         setUploadProgress({ phase: 'uploading', current: 0, total });
 
-        // Phase 1: 上传所有文件（快速）
+        // Phase 1: 上传所有文件（快速）；后端按内容指纹去重，重复书不再进入分析队列
         const uploaded = [];
+        const duplicates = [];
         for (let i = 0; i < files.length; i++) {
             setUploadProgress({ phase: 'uploading', current: i + 1, total });
             const file = files[i];
@@ -118,11 +119,22 @@ function App() {
                 const res = await fetch(`${API_BASE}/books/upload`, { method: 'POST', body: formData });
                 if (res.ok) {
                     const data = await res.json();
-                    uploaded.push(data);
+                    if (data.duplicate) {
+                        duplicates.push(`《${data.existing_title || file.name}》`);
+                    } else {
+                        uploaded.push(data);
+                    }
+                } else {
+                    const err = await res.json().catch(() => ({}));
+                    alert(`上传 ${file.name} 失败: ${err.detail || res.status}`);
                 }
             } catch (err) {
                 alert(`上传 ${file.name} 失败: ${err.message}`);
             }
+        }
+
+        if (duplicates.length > 0) {
+            alert(`以下书籍已存在于书库（按内容识别），自动跳过：\n${duplicates.join('\n')}`);
         }
 
         if (uploaded.length === 0) { setUploadProgress(null); return; }
@@ -162,6 +174,16 @@ function App() {
                                 setCurrentChapter(result.chapters?.[0] || null);
                             }
                         }
+                    } else if (status.status === 'failed') {
+                        // 后端已明确失败，不必再等 10 分钟超时
+                        completed++;
+                        item._done = true;
+                        item._failed = true;
+                        setToolResult({ error: `《${item.filename}》解析失败: ${status.error || '未知原因'}` });
+                    } else if (status.status === 'duplicate') {
+                        // 分析阶段才发现内容重复（并发上传同本书的窄窗口）
+                        completed++;
+                        item._done = true;
                     } else if (status.ocr_progress) {
                         setUploadProgress(prev => ({
                             ...prev,

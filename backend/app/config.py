@@ -17,6 +17,10 @@ def find_env_file() -> str:
     return ".env"
 
 
+# 项目根目录（backend/app/config.py → 上溯两级到项目根）
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
 class Settings(BaseSettings):
     """应用配置"""
     app_name: str = "智能读书助手"
@@ -28,15 +32,18 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-chat"
 
-    # 数据库
-    database_url: str = "sqlite:///./data/books.db"
+    # 路径（绝对锚定，与进程启动目录解耦）
+    upload_dir: str = str(PROJECT_ROOT / "uploads")
+    data_dir: str = str(PROJECT_ROOT / "backend" / "data")
 
-    # Redis
-    redis_url: str = "redis://localhost:6379/0"
+    # 上传限制（MB）
+    max_upload_size_mb: int = 200
 
     class Config:
         env_file = find_env_file()
         env_file_encoding = "utf-8"
+        # .env 里出现未知键（如历史遗留的 DATABASE_URL）时忽略而不是报错
+        extra = "ignore"
 
 
 @lru_cache()

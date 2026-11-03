@@ -293,9 +293,14 @@ function LeftPanel({ books, currentBook, currentChapter, selectedBookIds, onTogg
                                             </div>
                                         ));
                                     }
-                                    // 用toc渲染层级目录，按顺序编号
+                                    // 用toc渲染层级目录：toc 是 AI 生成顺序（可能乱序，如前言排最后），
+                                    // 按 chapters 真实顺序重排；没有对应章节的 toc 条目本就点不动，过滤掉
+                                    const orderOfTitle = new Map(chapters.map((c, i) => [c.title, i]));
+                                    const sortedToc = toc
+                                        .filter(item => orderOfTitle.has(item.title))
+                                        .sort((a, b) => orderOfTitle.get(a.title) - orderOfTitle.get(b.title));
                                     let chapterNum = 0;
-                                    return toc.map((item, i) => {
+                                    return sortedToc.map((item, i) => {
                                         const isL1 = (item.level || 1) === 1;
                                         if (isL1) chapterNum++;
                                         const ch = chapters.find(c => c.title === item.title);

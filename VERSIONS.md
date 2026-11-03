@@ -6,6 +6,7 @@
 - **父子标题合并**：`_merge_nested_anchors` 处理锚点相邻（<60 字）——章标题行下紧接小节标题（如"第一章 让爱融入生活"+"引言"仅隔 11 字）时删层级更深者，父章吸收其内容，父章不再被 50 字过滤整章丢弃
 - **存量重建**：`scripts/resplit_book.py` 用索引已存 TOC 重切分 + 本地 bge 重建向量，零 LLM 成本；EPUB 原生目录书自动跳过；旧索引自动备份
 - 三本书顺序全部对齐原书；游子吟目录页切出的假"简介"章（内容为目录行）顺带清除；全量 35 passed
+- **前端目录渲染修复**：LeftPanel 走 toc 层级渲染时按的是 AI 生成顺序（译序/前言被排在第十三章之后）——toc 按 chapters 真实顺序重排后渲染，无对应章节的 toc 项（已并入父章的"引言"等）过滤；dist 已重建
 
 ## v1.6 — 2026-11-03（存档点：RAG 检索质量升级）
 - **中文 embedding 上线**：废弃 ChromaDB 默认英文 MiniLM，接入本地 ONNX 版 `bge-small-zh-v1.5`（onnxruntime + tokenizers，CLS pooling + L2 归一化），数据不出机器、零调用费；模型经 `scripts/download_embedding_model.py` 一次性下载（不入库）

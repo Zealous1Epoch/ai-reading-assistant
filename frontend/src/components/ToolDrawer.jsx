@@ -1,0 +1,109 @@
+import { useState, useRef, useEffect } from 'react';
+import { TOOLS, TOOL_NEEDS_INPUT } from '../tools.js';
+
+// 工具抽屉：顶栏「工具」唤出（右侧满高，与目录抽屉镜像），带标题、工具名与说明；
+// 点击工具即运行（产出落进对话流并自动展开 AI 区），作者对谈先内联输入问题
+function ToolDrawer({ disabled, busyToolId, onRunTool, scopeLabel, onClose }) {
+    const [talkOpen, setTalkOpen] = useState(false);
+    const [talkInput, setTalkInput] = useState('');
+    const inputRef = useRef(null);
+
+    useEffect(() => {
+        if (talkOpen) setTimeout(() => inputRef.current?.focus(), 50);
+    }, [talkOpen]);
+
+    const handleToolClick = (tool) => {
+        if (disabled) return;
+        if (TOOL_NEEDS_INPUT[tool.id]) {
+            setTalkOpen(o => !o);
+        } else {
+            onRunTool(tool.id, null);
+            onClose();
+        }
+    };
+
+    const submitTalk = () => {
+        if (!talkInput.trim()) return;
+        onRunTool('author-talk', talkInput.trim());
+        setTalkInput('');
+        setTalkOpen(false);
+        onClose();
+    };
+
+    return (
+        <>
+            <div className="fixed inset-0 z-40" onClick={onClose} />
+            <div className="fixed right-0 top-0 bottom-0 z-50 w-72 bg-white border-l border-zinc-200 shadow-2xl flex flex-col" style={{ animation: 'fade-in 0.2s ease-out' }}>
+                {/* 标题栏 */}
+                <div className="px-4 pt-4 pb-3 flex-shrink-0 border-b border-zinc-100">
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-serif-heading font-semibold text-zinc-800">AI 工具</h3>
+                        <button onClick={onClose} className="p-1 rounded-lg text-zinc-300 hover:text-zinc-600 hover:bg-zinc-50 transition-all">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                    <p className="text-[11px] text-zinc-400 mt-1 truncate">范围：{scopeLabel}</p>
+                </div>
+
+                {/* 工具列表：图标 + 名称 + 说明 */}
+                <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-1">
+                    {TOOLS.map(tool => {
+                        const busy = busyToolId === tool.id;
+                        return (
+                            <div key={tool.id}>
+                                <button
+                                    onClick={() => handleToolClick(tool)}
+                                    disabled={disabled}
+                                    title={`${tool.label} · ${scopeLabel}`}
+                                    className={`w-full flex items-center gap-3 px-2.5 py-2.5 rounded-xl text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed ${busy ? 'bg-zinc-100' : 'hover:bg-zinc-50'} ${TOOL_NEEDS_INPUT[tool.id] && talkOpen ? 'bg-zinc-50' : ''}`}
+                                >
+                                    <span className={`w-8 h-8 rounded-lg border flex items-center justify-center flex-shrink-0 ${busy ? 'bg-zinc-800 border-zinc-800 text-white' : 'border-zinc-200 text-zinc-500'}`}>
+                                        <svg className={`w-4 h-4 ${busy ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={tool.icon} />
+                                        </svg>
+                                    </span>
+                                    <span className="flex-1 min-w-0">
+                                        <span className="block text-[13px] font-medium text-zinc-700">{tool.label}</span>
+                                        <span className="block text-[11px] text-zinc-400 mt-0.5 truncate">
+                                            {busy ? '生成中，产出见对话流…' : tool.desc}
+                                        </span>
+                                    </span>
+                                    {TOOL_NEEDS_INPUT[tool.id] && (
+                                        <svg className={`w-3.5 h-3.5 text-zinc-300 flex-shrink-0 transition-transform ${talkOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                        </svg>
+                                    )}
+                                </button>
+                                {/* 与作者对谈：内联提问输入 */}
+                                {TOOL_NEEDS_INPUT[tool.id] && talkOpen && (
+                                    <div className="flex gap-2 px-2.5 pb-1 pt-0.5">
+                                        <input
+                                            ref={inputRef}
+                                            type="text"
+                                            value={talkInput}
+                                            onChange={e => setTalkInput(e.target.value)}
+                                            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitTalk(); } }}
+                                            placeholder="向作者提问"
+                                            className="flex-1 min-w-0 px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-full text-xs focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:border-transparent placeholder:text-zinc-400"
+                                        />
+                                        <button
+                                            onClick={submitTalk}
+                                            disabled={!talkInput.trim() || disabled}
+                                            className="px-3 py-1.5 bg-zinc-800 text-white rounded-full text-xs font-medium hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex-shrink-0"
+                                        >
+                                            提问
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        </>
+    );
+}
+
+export default ToolDrawer;

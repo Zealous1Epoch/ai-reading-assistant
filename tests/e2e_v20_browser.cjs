@@ -24,8 +24,9 @@ function api(method, path) {
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+let browser = null;
 (async () => {
-    const browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({ headless: true });
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     const errors = [];
     page.on('pageerror', e => errors.push(String(e)));
@@ -113,14 +114,28 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await sleep(400);
     say('目录抽屉可关闭', await page.evaluate(() => !document.querySelector('input[placeholder="搜索本书"]')));
 
-    // ---- 6 工具运行 → 对话流卡片 → 后端落盘 ----
+    // ---- 6 工具抽屉 → 运行 → 对话流卡片 → 后端落盘 ----
+    // 基线：之前崩溃轮残留的会话一律无视，只认本轮新增（否则残留会话会让落盘断言秒假绿、
+    // 且刷新时本轮流式还没结束会被 reload 掐断产生 network error）
+    const baseline = new Set(JSON.parse(await api('GET', '/sessions?scope=book&book_id=' + encodeURIComponent(bookId))).sessions.map(s => s.session_id));
+    await page.locator('button[title="工具"]').click();
+    let toolDrawerOpen = false;
+    for (let i = 0; i < 10 && !toolDrawerOpen; i++) {
+        await sleep(300);
+        toolDrawerOpen = await page.evaluate(() => Array.from(document.querySelectorAll('h3')).some(h => h.textContent.trim() === 'AI 工具'));
+    }
+    say('工具抽屉打开（带标题）', toolDrawerOpen);
+    await page.screenshot({ path: '/tmp/v20_tools.png' });
     await page.locator('button[title^="总结"]').first().click();
+    // 运行后抽屉自动收起，产出进对话流
+    say('运行后抽屉自动关闭', await page.evaluate(() => !Array.from(document.querySelectorAll('h3')).some(h => h.textContent.trim() === 'AI 工具')));
     // 落盘信号：该书会话出现 kind=tool 且 content 非空
     let toolMsg = null;
     for (let i = 0; i < 240 && !toolMsg; i++) {
         await sleep(1000);
         const list = JSON.parse(await api('GET', '/sessions?scope=book&book_id=' + encodeURIComponent(bookId)));
         for (const s of list.sessions) {
+            if (baseline.has(s.session_id)) continue;
             const full = JSON.parse(await api('GET', '/sessions/' + s.session_id));
             const t = (full.messages || []).find(m => m.kind === 'tool' && (m.content || '').length > 30);
             if (t) { toolMsg = t; }
@@ -134,8 +149,21 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     say('对话流中存在工具卡片头', cardInFlow);
     await page.screenshot({ path: '/tmp/v20_toolcard.png' });
 
-    // ---- 7 刷新恢复 ----
-    await page.reload({ waitUntil: 'networkidle' });
+    // ---- 6.5 收藏抽屉（顶栏「收藏」，与工具并排） ----
+    await page.locator('button[title="收藏"]').click();
+    let favDrawer = false;
+    for (let i = 0; i < 10 && !favDrawer; i++) {
+        await sleep(300);
+        favDrawer = await page.evaluate(() => Array.from(document.querySelectorAll('h3')).some(h => h.textContent.trim() === '收藏'));
+    }
+    say('收藏抽屉打开（带标题）', favDrawer);
+    await page.screenshot({ path: '/tmp/v20_fav.png' });
+    await page.mouse.click(300, 450); // 背板关闭
+    await sleep(400);
+    say('收藏抽屉可关闭', await page.evaluate(() => !Array.from(document.querySelectorAll('h3')).some(h => h.textContent.trim() === '收藏')));
+
+    // ---- 7 刷新恢复（networkidle 在有并发 LLM 流时不收敛，用 load + 轮询兜底） ----
+    await page.reload({ waitUntil: 'load' });
     let restored = false;
     for (let i = 0; i < 30 && !restored; i++) {
         await sleep(1000);
@@ -157,6 +185,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         await sleep(1000);
         const list = JSON.parse(await api('GET', '/sessions?scope=book&book_id=' + encodeURIComponent(bookId)));
         for (const s of list.sessions) {
+            if (baseline.has(s.session_id)) continue;
             const full = JSON.parse(await api('GET', '/sessions/' + s.session_id));
             const assistants = (full.messages || []).filter(m => m.role === 'assistant' && !m.kind && (m.content || '').length > 3);
             if (assistants.length >= 1 && (full.messages || []).some(m => m.role === 'user' && m.content.includes('核心结论'))) {
@@ -167,19 +196,20 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     say('追问完成且落盘', answered);
     await page.screenshot({ path: '/tmp/v20_followup.png' });
 
-    // ---- 清理 ----
+    // ---- 清理（只删本轮新增的测试会话，基线内一律不动） ----
     const list = JSON.parse(await api('GET', '/sessions?scope=book&book_id=' + encodeURIComponent(bookId)));
     for (const s of list.sessions) {
-        const full = JSON.parse(await api('GET', '/sessions/' + s.session_id));
-        const hasTool = (full.messages || []).some(m => m.kind === 'tool');
-        if (hasTool && s.message_count <= 4) {
-            await api('DELETE', '/sessions/' + s.session_id);
-            console.log('  (清理会话', s.session_id.slice(0, 8), ')');
-        }
+        if (baseline.has(s.session_id)) continue;
+        await api('DELETE', '/sessions/' + s.session_id);
+        console.log('  (清理会话', s.session_id.slice(0, 8), ')');
     }
 
     say('无 JS 报错', errors.length === 0, errors.slice(0, 2).join(' | '));
     await browser.close();
     console.log('\nPASS ' + PASS + '  FAIL ' + FAIL);
     if (FAIL) process.exitCode = 1;
-})().catch(e => { console.log('CRASH', e); process.exitCode = 2; });
+})().catch(async e => {
+    console.log('CRASH', e);
+    process.exitCode = 2;
+    try { if (browser) await browser.close(); } catch { /* 已退出 */ }
+});

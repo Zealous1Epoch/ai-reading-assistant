@@ -2,11 +2,12 @@ import { useState, useEffect, useRef } from 'react';
 import SessionRail from './SessionRail.jsx';
 import ReadingPane from './ReadingPane.jsx';
 import AiPanel from './AiPanel.jsx';
-import ToolRail from './ToolRail.jsx';
+import ToolDrawer from './ToolDrawer.jsx';
+import FavoritesDrawer from './FavoritesDrawer.jsx';
 
 const API_BASE = '';
 
-function ToggleButton({ active, onClick, label, children }) {
+function ToggleButton({ active, onClick, label, badge, children }) {
     return (
         <button
             onClick={onClick}
@@ -15,6 +16,11 @@ function ToggleButton({ active, onClick, label, children }) {
         >
             {children}
             <span>{label}</span>
+            {badge > 0 && (
+                <span className="min-w-[15px] h-[15px] px-1 rounded-full bg-zinc-200 text-zinc-500 text-[9px] leading-[15px] text-center tabular-nums">
+                    {badge > 99 ? '99+' : badge}
+                </span>
+            )}
         </button>
     );
 }
@@ -156,7 +162,7 @@ function TocDrawer({ book, currentChapter, onSelectChapter, onClose }) {
     );
 }
 
-// 书内四区布局：[会话侧栏 | 阅读区 | AI区 | 工具侧栏]
+// 书内三区布局：[会话侧栏 | 阅读区 | AI区]；目录/工具/收藏均为顶栏唤出的满高抽屉
 function BookReader({
     currentBook, currentChapter, onSelectChapter, onBackToShelf,
     // 会话
@@ -173,7 +179,8 @@ function BookReader({
         try { return JSON.parse(localStorage.getItem('reader_ui') || '{}').railOpen ?? window.innerWidth >= 1440; }
         catch { return window.innerWidth >= 1440; }
     });
-    const [toolRailOpen, setToolRailOpen] = useState(true);
+    const [toolOpen, setToolOpen] = useState(false);
+    const [favOpen, setFavOpen] = useState(false);
     const [tocOpen, setTocOpen] = useState(false);
 
     useEffect(() => {
@@ -223,16 +230,21 @@ function BookReader({
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                         </svg>
                     </ToggleButton>
-                    <ToggleButton active={toolRailOpen} onClick={() => setToolRailOpen(o => !o)} label="工具">
+                    <ToggleButton active={toolOpen} onClick={() => setToolOpen(o => !o)} label="工具">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                         </svg>
                     </ToggleButton>
+                    <ToggleButton active={favOpen} onClick={() => setFavOpen(o => !o)} label="收藏" badge={favorites.length}>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                        </svg>
+                    </ToggleButton>
                 </div>
             </div>
 
-            {/* 四区主体 */}
+            {/* 三区主体 */}
             <div className="flex-1 flex overflow-hidden px-3 pb-3 gap-2.5 min-h-0">
                 <SessionRail
                     open={railOpen}
@@ -268,18 +280,24 @@ function BookReader({
                     currentSessionId={currentSessionId}
                     onNewSession={onNewSession}
                 />
-                {toolRailOpen && (
-                    <ToolRail
-                        disabled={streamBusy || !currentBook}
-                        busyToolId={busyToolId}
-                        favorites={favorites}
-                        onRemoveFavorite={onRemoveFavorite}
-                        onRunTool={onRunTool}
-                        scopeLabel={scopeLabel}
-                    />
-                )}
             </div>
 
+            {toolOpen && currentBook && (
+                <ToolDrawer
+                    disabled={streamBusy || !currentBook}
+                    busyToolId={busyToolId}
+                    onRunTool={onRunTool}
+                    scopeLabel={scopeLabel}
+                    onClose={() => setToolOpen(false)}
+                />
+            )}
+            {favOpen && (
+                <FavoritesDrawer
+                    favorites={favorites}
+                    onRemoveFavorite={onRemoveFavorite}
+                    onClose={() => setFavOpen(false)}
+                />
+            )}
             {tocOpen && currentBook && (
                 <TocDrawer
                     book={currentBook}

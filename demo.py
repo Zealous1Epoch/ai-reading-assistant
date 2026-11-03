@@ -10,12 +10,25 @@
   python demo.py <your_book.pdf>    # 使用你自己的 PDF/EPUB/TXT 文件
 """
 
+#!/usr/bin/env python3
+"""
+智能读书助手 — 端到端 Demo
+
+演示核心流水线：
+  上传书籍 → 文本提取 → AI/正则目录识别 → 置信度打分切分 → ChromaDB 存储 → 语义搜索
+
+用法（需设置 PYTHONPATH）：
+  PYTHONPATH=backend python demo.py                              # 使用内置 AI 科普样书
+  PYTHONPATH=backend python demo.py your_book.pdf                # 使用你自己的 PDF/EPUB/TXT
+
+注意：不要直接运行 python demo.py，sys.path 会被污染导致 lxml 等包冲突。
+请使用 PYTHONPATH=backend python demo.py ... 的方式。
+"""
+
 import sys
 import os
 import asyncio
 from pathlib import Path
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "backend"))
 
 from app.services.book_processor import BookProcessor
 from app.config import get_settings

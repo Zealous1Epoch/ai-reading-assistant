@@ -22,7 +22,7 @@ async def search_chapters(
 
     results = await book_processor.search_chapters(
         query=query,
-        book_id=book_id,
+        book_ids=[book_id] if book_id else None,
         n_results=n_results
     )
 
@@ -70,6 +70,7 @@ async def fulltext_search(
 @router.get("/semantic", response_model=list[ChapterSearchResult])
 async def semantic_search(
     query: str = Query(..., description="语义搜索查询"),
+    book_id: Optional[str] = Query(None, description="限定书籍ID"),
     n_results: int = Query(5, ge=1, le=20, description="返回结果数量")
 ):
     """语义搜索 - 理解查询意图而非关键词匹配
@@ -81,6 +82,7 @@ async def semantic_search(
     """
     results = await book_processor.search_chapters(
         query=query,
+        book_ids=[book_id] if book_id else None,
         n_results=n_results
     )
 

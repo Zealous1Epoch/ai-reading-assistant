@@ -10,9 +10,6 @@ def find_env_file() -> str:
         ".env",
         "backend/.env",
         "../.env",
-        # 绝对路径
-        "/Users/pp/Python（Ai）/智能读书助手/.env",
-        "/Users/pp/Python（Ai）/智能读书助手/backend/.env",
     ]
     for path in possible_paths:
         if os.path.exists(path):

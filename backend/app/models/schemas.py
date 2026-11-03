@@ -7,7 +7,7 @@ class ChatRequest(BaseModel):
     """聊天请求"""
     message: str
     context: Optional[str] = None
-    book_id: Optional[str] = None
+    book_ids: Optional[List[str]] = None  # 指定检索范围的书ID列表
 
 
 class ChatResponse(BaseModel):

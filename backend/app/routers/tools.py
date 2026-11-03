@@ -106,7 +106,7 @@ async def _summarize(request, chapters):
 3. 重要的概念和结论
 
 格式要求：每个部分用编号作为标题行（如"1. 核心内容概述"），标题行后换行写正文。请用纯文本，不要使用 Markdown 符号。"""
-    from langchain.schema import HumanMessage
+    from langchain_core.messages import HumanMessage
 
     response = await analysis_service.llm.ainvoke([HumanMessage(content=prompt)])
     return {"data": response.content}
@@ -126,7 +126,7 @@ async def _background(request, chapters):
 3. 学术脉络：这本书在相关学术领域中的位置
 4. 核心争论：书中涉及的主要学术或思想争论
 5. 影响力：这本书发布后产生的影响和回响"""
-    from langchain.schema import HumanMessage
+    from langchain_core.messages import HumanMessage
 
     response = await analysis_service.llm.ainvoke([HumanMessage(content=prompt)])
     return {"data": response.content}
@@ -155,7 +155,7 @@ async def _questions(request, chapters):
 10. 读完这本书后，最值得记住或落实的一个行动建议是什么？
 
 格式要求：每个问题用一行作为标题（如"1. 核心问题是什么？"），然后换行用一段或多段回答。问题之间用空行分隔。请用纯文本，不要使用 Markdown 符号。"""
-    from langchain.schema import HumanMessage
+    from langchain_core.messages import HumanMessage
 
     response = await analysis_service.llm.ainvoke([HumanMessage(content=prompt)])
     return {"data": response.content}
@@ -205,7 +205,7 @@ async def _mindmap(request, chapters):
 {context[:12000]}
 
 请直接输出 Markdown 格式的思维导图结构，不要输出任何前言、说明、结尾语或客套话。第一行必须是 # 开头的标题。第五级和第六级是关键。"""
-    from langchain.schema import HumanMessage
+    from langchain_core.messages import HumanMessage
 
     response = await analysis_service.llm.ainvoke([HumanMessage(content=prompt)])
     return {"data": response.content}
@@ -228,7 +228,7 @@ async def _recommend(request, chapters):
    - 适合读者：（什么样的读者适合读这本）
 
 请确保推荐真实存在的书籍，推荐理由要具体。"""
-    from langchain.schema import HumanMessage
+    from langchain_core.messages import HumanMessage
 
     response = await analysis_service.llm.ainvoke([HumanMessage(content=prompt)])
     return {"data": response.content}
@@ -265,7 +265,7 @@ async def _debate(request, chapters):
 - 综合四个角度，你的最终评估是什么？
 
 请用纯文本格式，每个专家的回答要具体、有深度，避免泛泛而谈。"""
-    from langchain.schema import HumanMessage
+    from langchain_core.messages import HumanMessage
 
     response = await analysis_service.llm.ainvoke([HumanMessage(content=prompt)])
     return {"data": response.content}
@@ -437,7 +437,7 @@ def _build_knowledge_html(book_title: str, author: str, chapters_data: list, key
 
 async def _knowledge_graph(request, chapters):
     """知识图谱 HTML 导出 - 生成精读笔记卡片页"""
-    from langchain.schema import HumanMessage
+    from langchain_core.messages import HumanMessage
 
     # 限制章节数量，控制 token 消耗
     selected = chapters[:20]

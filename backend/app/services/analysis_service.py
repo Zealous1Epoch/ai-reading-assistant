@@ -6,7 +6,7 @@ AI分析服务 - 深度分析书籍内容
 import json
 from typing import AsyncGenerator, Optional
 from langchain_openai import ChatOpenAI
-from langchain.schema import HumanMessage, SystemMessage, AIMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 from app.config import get_settings
 

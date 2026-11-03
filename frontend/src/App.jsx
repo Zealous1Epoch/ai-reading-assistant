@@ -1,4 +1,7 @@
-const { useState, useEffect, useRef, useCallback } = React;
+import { useState, useEffect, useRef, useCallback } from 'react';
+import LeftPanel from './components/LeftPanel.jsx';
+import MiddlePanel from './components/MiddlePanel.jsx';
+import RightPanel from './components/RightPanel.jsx';
 
 const API_BASE = '';
 
@@ -80,11 +83,18 @@ function App() {
         try {
             const res = await fetch(`${API_BASE}/books/${bookId}`, { method: 'DELETE' });
             if (!res.ok) throw new Error('删除失败');
-            setBooks(prev => prev.filter(b => b.book_id !== bookId));
-            setBookChats(prev => { const next = { ...prev }; delete next[bookId]; return next; });
+            // 使用函数式更新，确保基于最新状态计算
             if (currentBook?.book_id === bookId) {
-                setCurrentBook(books.find(b => b.book_id !== bookId) || null);
-                setCurrentChapter(null);
+                setBooks(prev => {
+                    const remaining = prev.filter(b => b.book_id !== bookId);
+                    setCurrentBook(remaining[0] || null);
+                    setCurrentChapter(null);
+                    return remaining;
+                });
+                setBookChats(prev => { const next = { ...prev }; delete next[bookId]; return next; });
+            } else {
+                setBooks(prev => prev.filter(b => b.book_id !== bookId));
+                setBookChats(prev => { const next = { ...prev }; delete next[bookId]; return next; });
             }
         } catch (err) {
             console.error('删除失败:', err);
@@ -165,6 +175,12 @@ function App() {
         }
 
         setUploadProgress(null);
+
+        // 检查是否有未完成的文件
+        const failed = uploaded.filter(item => !item._done);
+        if (failed.length > 0) {
+            setToolResult({ error: `${failed.length} 本书分析超时，请稍后重试` });
+        }
     };
 
     // 上传书籍（单文件，兼容旧接口）
@@ -182,12 +198,20 @@ function App() {
         }
     };
 
-    // 加载章节内容
+    // 用于处理竞态条件：追踪当前正在加载的章节 ID
+    const loadingChapterRef = useRef(null);
+
+    // 加载章节内容（处理竞态条件）
     const loadChapterContent = async (chapter) => {
+        const chapterId = chapter.chapter_id;
+        loadingChapterRef.current = chapterId;
         try {
-            const res = await fetch(`${API_BASE}/books/chapters/${chapter.chapter_id}`);
+            const res = await fetch(`${API_BASE}/books/chapters/${chapterId}`);
             const data = await res.json();
-            setCurrentChapter(data);
+            // 仅当返回的章节仍是当前选中的章节时更新状态（防止竞态）
+            if (loadingChapterRef.current === chapterId) {
+                setCurrentChapter(data);
+            }
         } catch (err) {
             console.error('获取章节失败:', err);
         }
@@ -199,8 +223,9 @@ function App() {
         } else {
             setCurrentChapter(chapter);
         }
-        if (currentBook?.book_id) {
-            localStorage.setItem('reading_progress', JSON.stringify({ bookId: currentBook.book_id, chapterId: chapter.chapter_id }));
+        // 使用 chapter.book_id 而非闭包中的 currentBook（避免陈旧引用）
+        if (chapter.book_id) {
+            localStorage.setItem('reading_progress', JSON.stringify({ bookId: chapter.book_id, chapterId: chapter.chapter_id }));
         }
     };
 
@@ -397,4 +422,4 @@ function App() {
     );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+export default App;

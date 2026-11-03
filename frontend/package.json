@@ -1,0 +1,31 @@
+{
+  "name": "frontend",
+  "version": "1.0.0",
+  "description": "- 单文件架构：所有 HTML / CSS / JSX 集中在 `frontend/index.html` - React 18 + Babel standalone（无构建步骤，直接在浏览器中编译 JSX） - Tailwind CSS via CDN - FastAPI 后端接口基址：`http://localhost:8000`",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "d3": "^7.9.0",
+    "markmap-lib": "^0.18.12",
+    "markmap-view": "^0.18.12",
+    "playwright": "^1.61.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.5.2",
+    "postcss": "^8.5.15",
+    "tailwindcss": "^3.4.19",
+    "vite": "^5.4.21"
+  }
+}

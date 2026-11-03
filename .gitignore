@@ -9,8 +9,14 @@ ENV/
 env/
 .venv/
 
-# 环境变量
+# 环境变量（含备份，绝不入库）
 .env
+.env.bak*
+*.env.bak*
+
+# 本地备份与工具目录
+*.bak
+.superpowers/
 
 # 上传文件
 uploads/

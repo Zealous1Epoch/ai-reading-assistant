@@ -36,3 +36,7 @@ redis==5.0.1
 # 工具
 httpx>=0.26.0
 aiofiles==23.2.1
+
+# 测试
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

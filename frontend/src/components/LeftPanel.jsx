@@ -1,4 +1,12 @@
+import { useState, useRef } from 'react';
+
 const API_BASE = '';
+
+// 转义用户输入（防止特殊字符导致 confirm 异常）
+function escapeInput(text) {
+    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return text.replace(/[&<>"']/g, c => map[c]);
+}
 
 function LeftPanel({ books, currentBook, currentChapter, selectedBookIds, onToggleBook, onSelectBook, onSelectChapter, onUploadBook, onUploadMultiple, onDeleteBook, uploading, chatMode }) {
     const [isDragging, setIsDragging] = useState(false);
@@ -157,7 +165,7 @@ function LeftPanel({ books, currentBook, currentChapter, selectedBookIds, onTogg
                                                 </p>
                                             </div>
                                             <button
-                                                onClick={(e) => { e.stopPropagation(); if (confirm(`确定删除「${book.title}」？`)) onDeleteBook(book.book_id); }}
+                                                onClick={(e) => { e.stopPropagation(); if (confirm(`确定删除「${escapeInput(book.title)}」？`)) onDeleteBook(book.book_id); }}
                                                 className="opacity-0 group-hover:opacity-100 p-1 rounded-md text-zinc-300 hover:text-red-500 hover:bg-red-50 transition-all flex-shrink-0"
                                                 title="删除此书"
                                             >
@@ -265,9 +273,14 @@ function LeftPanel({ books, currentBook, currentChapter, selectedBookIds, onTogg
                             <div className="space-y-0.5">
                                 {(() => {
                                     const toc = currentBook.toc || [];
-                                    // 如果无toc，退化为章节平铺
-                                    if (toc.length === 0) {
-                                        return currentBook.chapters.map(ch => (
+                                    const chapters = currentBook.chapters || [];
+                                    // 计算 TOC 与章节的匹配率，过低则降级为直接渲染章节列表
+                                    const tocMatchRate = toc.length > 0
+                                        ? toc.filter(item => chapters.some(c => c.title === item.title)).length / toc.length
+                                        : 0;
+                                    // 无 toc 或匹配率 < 80%：直接渲染章节列表
+                                    if (toc.length === 0 || tocMatchRate < 0.8) {
+                                        return chapters.map(ch => (
                                             <div
                                                 key={ch.chapter_id}
                                                 onClick={() => onSelectChapter(ch)}
@@ -285,7 +298,7 @@ function LeftPanel({ books, currentBook, currentChapter, selectedBookIds, onTogg
                                     return toc.map((item, i) => {
                                         const isL1 = (item.level || 1) === 1;
                                         if (isL1) chapterNum++;
-                                        const ch = currentBook.chapters?.find(c => c.title === item.title);
+                                        const ch = chapters.find(c => c.title === item.title);
                                         const isSelected = ch && currentChapter?.chapter_id === ch.chapter_id;
                                         return (
                                             <div
@@ -318,3 +331,5 @@ function LeftPanel({ books, currentBook, currentChapter, selectedBookIds, onTogg
         </div>
     );
 }
+
+export default LeftPanel;

@@ -4,14 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>智能读书助手</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Serif+SC:wght@400;600;700&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/d3@7.8.5/dist/d3.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/markmap-lib@0.15.4/dist/browser/index.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/markmap-view@0.15.4/dist/browser/index.js"></script>
     <style>
         * { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
         .font-serif-heading { font-family: 'Noto Serif SC', 'Georgia', serif; }
@@ -33,10 +26,6 @@
 </head>
 <body class="bg-zinc-50 antialiased">
     <div id="root"></div>
-
-    <script type="text/babel" src="components/LeftPanel.jsx"></script>
-    <script type="text/babel" src="components/MiddlePanel.jsx"></script>
-    <script type="text/babel" src="components/RightPanel.jsx"></script>
-    <script type="text/babel" src="app.jsx"></script>
+    <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>

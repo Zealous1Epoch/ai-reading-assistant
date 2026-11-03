@@ -529,6 +529,115 @@ class BookProcessor:
         merged.sort(key=lambda x: x[0])
         return merged
 
+    @staticmethod
+    def _merge_nested_anchors(positions: list, min_gap: int = 60) -> list:
+        """相邻过近的锚点按父子标题合并，避免父章被切分过滤器整章丢弃。
+
+        典型场景：真实标题页"第一章 让爱融入生活"行下仅一行就是小节标题
+        "引言"（相距十来字）。两个锚点都保留时，父章切片只有标题那十几个字，
+        过不了 word_count 过滤 → "第一章"从章节列表里凭空消失。
+        规则：间距 < min_gap 视为同一标题块——删掉层级更深的那个（level 数值大），
+        同级则删后者；被删锚点的内容自然并入保留锚点的章节切片。
+        positions: [(start, end, score, toc_item), ...]，已按 start 排序。
+        """
+        if len(positions) <= 1:
+            return positions
+
+        def level_of(p) -> int:
+            # 前置虚拟锚点（toc_item=None）层级最深，让位于任何真实标题
+            return p[3].level if p[3] is not None else 99
+
+        merged = [positions[0]]
+        for cur in positions[1:]:
+            prev = merged[-1]
+            if cur[0] - prev[0] < min_gap:
+                if level_of(cur) < level_of(prev):
+                    merged[-1] = cur  # 前一个是小节标题、后一个才是章标题：换锚
+                # 否则跳过 cur，其内容并入 prev 章节
+                continue
+            merged.append(cur)
+        return merged
+
+    def _mask_toc_pages(self, full_text: str, toc_items: List[TocItem]) -> str:
+        """把目录页区块替换为空白（严格保留字符偏移）。
+
+        目录页的"第一章 xxx [页码]"与正文标题行长得几乎一样，锚定时部分章节
+        会错锚到目录页（排在书前部的扉页/目录），导致章节顺序错乱——典型症状
+        是"第一章"排到"译序/前言"之前。检测特征：≥3 个不同目录标题在连续行
+        （容许 ≤2 空行）中成串出现，判定为目录区块并抹除。
+        另设 prose 保护：行后两个非空行内出现长句的不抹（EPUB 目录块可能
+        与正文章标题只隔一行，如游子吟"…修订版前言⏎⏎前言⏎⏎正文"）。
+        """
+        titles = []
+        for it in toc_items:
+            t = (it.pattern or it.title or "").strip()
+            if len(t) >= 2 and t not in titles:
+                titles.append(t)
+        if len(titles) < 4:
+            return full_text
+
+        # 目录页只会出现在书的前部，扫前 1/8（至少 5000 字）即可
+        head_end = min(len(full_text), max(5000, len(full_text) // 8))
+        head, tail = full_text[:head_end], full_text[head_end:]
+
+        def entry_title(line: str) -> Optional[str]:
+            s = re.sub(r'[\s.…·・\-—–_]*\d{1,4}\s*$', '', line.strip())
+            if len(s) < 2:
+                return None
+            for t in titles:
+                if s == t or s.startswith(t):
+                    return t
+            return None
+
+        lines = head.split("\n")
+        mask_flags = [False] * len(lines)
+        run: List[int] = []
+        run_titles: set = set()
+        gap = 0
+
+        def followed_by_prose(li: int) -> bool:
+            """行后两个非空行内出现长句 → 该行为真实标题而非目录条目。
+
+            目录条目后面跟着的仍是短目录行；正文标题（哪怕紧贴目录块）
+            后面很快就是正文段落。EPUB 常无空行分隔目录页与正文，
+            没有这层保护会把紧挨目录块的正文章标题一起抹掉。
+            """
+            seen = 0
+            for j in range(li + 1, min(len(lines), li + 8)):
+                s = lines[j].strip()
+                if not s:
+                    continue
+                seen += 1
+                if len(s) > 35:
+                    return True
+                if seen >= 2:
+                    return False
+            return False
+
+        def flush():
+            if len(run_titles) >= 3:
+                for li in run:
+                    if not followed_by_prose(li):
+                        mask_flags[li] = True
+
+        for li, raw in enumerate(lines):
+            t = entry_title(raw)
+            if t is not None:
+                run.append(li)
+                run_titles.add(t)
+                gap = 0
+            elif raw.strip() == "" and run and gap < 2:
+                gap += 1
+            else:
+                flush()
+                run, run_titles, gap = [], set(), 0
+        flush()
+
+        if not any(mask_flags):
+            return full_text
+        out = [" " * len(ln) if m else ln for ln, m in zip(lines, mask_flags)]
+        return "\n".join(out) + tail
+
     def split_by_toc(self, full_text: str, toc_items: List[TocItem]) -> List[Chapter]:
         """根据目录切分章节。
 
@@ -536,9 +645,13 @@ class BookProcessor:
         1. 三级匹配按优先级分层合并，每级只扫一次全文（3 次 vs 旧版 3n 次）
         2. 标题置信度打分替代盲目的 matches[-1]
         3. 邻近去重，消除同一标题的重复低置信匹配
+        4. 目录页掩码，防止锚点错落到目录页造成章节乱序
+        5. 父子标题合并，章标题与紧随其后的小节标题不再互斥导致整章丢失
         """
         if not toc_items:
             return self._split_by_paragraphs(full_text)
+
+        full_text = self._mask_toc_pages(full_text, toc_items)
 
         # ---- 构建三级模式列表 ----
         # 每级: [(toc_item, index_in_level, regex_string)]
@@ -599,9 +712,10 @@ class BookProcessor:
             if key not in best_per_item or score > best_per_item[key][2]:
                 best_per_item[key] = (start, end, score, toc_item)
 
-        # ---- 按位置排序 + 邻近去重 ----
+        # ---- 按位置排序 + 邻近去重 + 父子标题合并 ----
         positions = sorted(best_per_item.values(), key=lambda x: x[0])
         positions = self._deduplicate_nearby(positions, min_gap=150)
+        positions = self._merge_nested_anchors(positions, min_gap=60)
 
         # 首页/目录前置章节
         if positions and positions[0][0] > 0:

@@ -1,5 +1,19 @@
 # 智能读书助手 — 版本历史
 
+## v2.0 — 2026-11-10（存档点：前端全面重构——书架首页 + 书内四区 + 产出即消息）
+- **两级页面（hash 路由）**：`#/` 书架首页（设计感占位封面：书名/作者衬线排版 + 按 book_id 哈希的 12 对渐变色块 + 书脊线，零外部依赖；卡片显示"读到 ×章"+进度条，无进度显示字数；整页拖拽上传 + 右下角进度浮层；hover 删除）→ `#/book/{id}` 书内。刷新/前进后退/深链直达均正常
+- **书架全局语义搜索**：`/search/semantic` 400ms 防抖，结果卡显示 `{相似度×100}% 相关`（relevance_score 即相似度，直接映射），点击直达该书该章
+- **书内四区**：`[会话侧栏 216px | 阅读区 flex-1 | AI 区 400px | 工具细栏 36px]`，各区可独立收起为 36px 图标细栏（AI 区流式时收起态图标带脉冲点）；开合状态持久化 `reader_ui`；<1280px 默认收起 AI 区
+- **阅读区双栏书页**：容器实测宽 ≥900px 自动 `.book-columns`（CSS columns:2 + column-rule，<980px 媒体查询回落单栏）；判定用 **useState 回调 ref + ResizeObserver**（useRef+[] deps 会错过异步挂载的章节、永不过 observe——真 bug 教训）；摘要条全宽置顶不受分栏影响；章头带字数、上/下一章翻页、换章回顶
+- **章节目录 = 顶栏「目录」抽屉**：左满高抽屉，toc 层级渲染（匹配率<0.8 降级平铺，逻辑迁移自旧 LeftPanel）+ 本书全文搜索 `/search/fulltext` + 底部书籍摘要
+- **产出即消息（核心架构变更）**：AI 工具产出不再是独立面板，而是 `kind:"tool"` 消息流进对话时间线——卡头 ⚡工具名+范围+流式状态点，正文块化渲染（表格/列表转换迁移自旧 RightPanel）、mindmap 走 markmap 全屏浮层、HTML artifact 内嵌 iframe 浮层+下载、完成后可收藏；**可直接被追问**（buildHistory 中 tool 消息截断 600 字带【AI 工具产出·名称】标签，html 产出只留一行占位）
+- **后端配套**：`POST /sessions/{sid}/messages` 落盘端点（role/kind 白名单校验、空内容 400）；`chat_store.append_messages` 支持 tool 元数据白名单落盘（tool_id/tool_name/output_type/filename/scope）；会话以工具产出开场时用工具名兜底标题（`×× · 工具产出`）
+- **多书进度**：`reading_progress_map`（localStorage，旧 `reading_progress` 自动迁移），书架与进书恢复各自章节
+- **组件重构**：新建 App.jsx（路由/状态中枢）+ Bookshelf/BookReader/ReadingPane/AiPanel/SessionRail/ToolRail/ToolMessageCard/tools.js 八件套；删除 LeftPanel/MiddlePanel/RightPanel 三件套；vite proxy 补 `/sessions` `/experts`
+- **踩坑记录**：① PDF 提取书普遍无空行，`split(/\n\n+/)` 整章成一个巨型 block，`break-inside-avoid` 让 CSS columns 无法内部断栏→双栏右列全空；修复=无空行时退化按单 `\n` 切段 + 长块（>300 字）不再禁止断行 + 标题行 `break-after:avoid`。② 类名/标识符肉眼核验不可信（本版本多次"看到"的笔误实为显示错觉），唯一可信=构建+浏览器 E2E+截图，终极=源码 className token 与产物 CSS 交叉比对（0 缺失）
+- **测试**：pytest 46 passed（+tool 落盘/端点校验 5 项）；`tests/e2e_v20.py` API 级 28 断言；`tests/e2e_v20_browser.cjs` Playwright 浏览器级 16 断言（书架/搜索/进书/双栏含右列文字流动实测 425 字/抽屉/工具流式落盘 1062 字/刷新恢复/追问/无 JS 报错）
+- 已知限制：<1280px 窄屏靠收起 AI 区腾宽；工具产出收藏仍走旧 favorites（未随会话归档）；对比阅读已于 v1.9.1 下线
+
 ## v1.9.1 — 2026-11-09（对比阅读下线，输入区改为显示模式切换）
 - **删除对比阅读**：前端模式按钮组/cross 面板/左栏多选勾选全移除；后端 `ChatRequest.selected_book_ids` 字段与多书检索分支移除（旧客户端带该字段仍 200 忽略，不 500）；`chat_store` 的 scope 存储机制保留（cross 白名单兼容存量数据，注释标遗留）
 - **输入区按钮组改显示模式**：中栏"阅读/对话"两态——阅读=章节卡片（摘要+原文+书籍摘要），对话=纯消息流+参考来源；发消息/进专家/收束报告/切历史会话自动跳对话，选书回阅读

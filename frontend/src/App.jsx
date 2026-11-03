@@ -1,25 +1,43 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import LeftPanel from './components/LeftPanel.jsx';
-import MiddlePanel from './components/MiddlePanel.jsx';
-import RightPanel from './components/RightPanel.jsx';
+import Bookshelf from './components/Bookshelf.jsx';
+import BookReader from './components/BookReader.jsx';
+import { TOOL_LABELS } from './tools.js';
 
 const API_BASE = '';
 
+// hash 路由：#/ 书架；#/book/{id} 书内（刷新/前进后退天然可用）
+function parseHash() {
+    const m = (window.location.hash || '').match(/^#\/book\/(.+)$/);
+    return m ? { view: 'book', bookId: decodeURIComponent(m[1]) } : { view: 'shelf', bookId: null };
+}
+
+// 多书阅读进度：{bookId: {chapterId, chapterTitle, updatedAt}}
+const PROGRESS_KEY = 'reading_progress_map';
+function loadProgressMap() {
+    try {
+        const map = JSON.parse(localStorage.getItem(PROGRESS_KEY) || '{}');
+        // 迁移旧单书进度键
+        const legacy = JSON.parse(localStorage.getItem('reading_progress') || 'null');
+        if (legacy?.bookId && !map[legacy.bookId]) {
+            map[legacy.bookId] = { chapterId: legacy.chapterId, updatedAt: Date.now() };
+        }
+        return map;
+    } catch { return {}; }
+}
+
 function App() {
+    const [route, setRoute] = useState(parseHash);
     const [books, setBooks] = useState([]);
+    const [booksLoaded, setBooksLoaded] = useState(false);
     const [currentBook, setCurrentBook] = useState(null);
     const [currentChapter, setCurrentChapter] = useState(null);
-    const [uploadProgress, setUploadProgress] = useState(null); // { current, total } or null
+    const [uploadProgress, setUploadProgress] = useState(null); // {phase, current, total, ocrProgress?}
     const [messages, setMessages] = useState([]);
     const [sessions, setSessions] = useState([]);
     const [sessionId, setSessionId] = useState(null);
     const [isStreaming, setIsStreaming] = useState(false);
-    const [contentMode, setContentMode] = useState('book');
-    const [activeTool, setActiveTool] = useState(null);
-    const [toolLoading, setToolLoading] = useState(false);
-    const [toolResult, setToolResult] = useState(null);
-    const [viewMode, setViewMode] = useState('reading'); // 中栏显示模式：阅读 / 对话
-    const [sources, setSources] = useState(null);
+    const [busyToolId, setBusyToolId] = useState(null);
+    const [aiOpen, setAiOpen] = useState(() => window.innerWidth >= 1280);
     const [favorites, setFavorites] = useState(() => {
         try { return JSON.parse(localStorage.getItem('reading_favorites') || '[]'); }
         catch { return []; }
@@ -28,43 +46,91 @@ function App() {
     const [experts, setExperts] = useState([]);
     const [activeExpertId, setActiveExpertId] = useState(null);
     const [expertOpening, setExpertOpening] = useState(false);
+    const [progressMap, setProgressMap] = useState(loadProgressMap);
+
+    // 从搜索结果/来源标注进书时暂存目标章，进书 effect 消费
+    const pendingChapterRef = useRef(null);
+    // 竞态：仅接受最后一次请求的章节内容
+    const loadingChapterRef = useRef(null);
 
     // 收藏持久化
     useEffect(() => {
         localStorage.setItem('reading_favorites', JSON.stringify(favorites));
     }, [favorites]);
 
-    // 页面加载时从后端恢复书籍列表
+    // hash 路由同步
+    useEffect(() => {
+        const onHash = () => setRoute(parseHash());
+        window.addEventListener('hashchange', onHash);
+        return () => window.removeEventListener('hashchange', onHash);
+    }, []);
+
+    // 书籍列表
     useEffect(() => {
         fetch(`${API_BASE}/books/list`)
             .then(res => res.json())
-            .then(data => {
-                if (data.books?.length > 0) {
-                    setBooks(data.books);
-                    const saved = (() => { try { return JSON.parse(localStorage.getItem('reading_progress')); } catch { return null; } })();
-                    if (saved?.bookId) {
-                        const book = data.books.find(b => b.book_id === saved.bookId);
-                        if (book) {
-                            setCurrentBook(book);
-                            const chapter = book.chapters?.find(c => c.chapter_id === saved.chapterId);
-                            setCurrentChapter(chapter || book.chapters?.[0] || null);
-                            return;
-                        }
-                    }
-                    setCurrentBook(data.books[0]);
-                    setCurrentChapter(data.books[0].chapters?.[0] || null);
-                }
-            })
-            .catch(err => console.log('获取书籍列表失败（首次加载无数据是正常的）:', err));
+            .then(data => { setBooks(data.books || []); })
+            .catch(err => console.log('获取书籍列表失败（首次加载无数据是正常的）:', err))
+            .finally(() => setBooksLoaded(true));
     }, []);
 
-    // 加载专家包（展示元数据，落文件即生效）
+    // 专家包（展示元数据，落文件即生效）
     useEffect(() => {
         fetch(`${API_BASE}/experts`)
             .then(res => res.json())
             .then(data => setExperts(data.experts || []))
             .catch(() => {});
     }, []);
+
+    // 加载章节内容（处理竞态）
+    const loadChapterContent = async (chapter) => {
+        const chapterId = chapter.chapter_id;
+        loadingChapterRef.current = chapterId;
+        try {
+            const res = await fetch(`${API_BASE}/books/chapters/${chapterId}`);
+            const data = await res.json();
+            if (loadingChapterRef.current === chapterId) {
+                setCurrentChapter(data);
+            }
+        } catch (err) {
+            console.error('获取章节失败:', err);
+        }
+    };
+
+    // 路由 → 进书（含刷新深链 #/book/{id}；同书重进用于消费搜索跳转的目标章）
+    useEffect(() => {
+        if (route.view !== 'book' || !booksLoaded) return;
+        const book = books.find(b => b.book_id === route.bookId);
+        if (!book) { window.location.hash = '#/'; return; }
+        const wantId = pendingChapterRef.current;
+        if (currentBook?.book_id === book.book_id) {
+            // 已在书内（返回书架未清态）：仅处理「跳到指定章」
+            if (wantId) {
+                pendingChapterRef.current = null;
+                const ch = book.chapters?.find(c => c.chapter_id === wantId);
+                if (ch) {
+                    setCurrentChapter(ch);
+                    updateProgress(book.book_id, ch);
+                    if (!ch.content) loadChapterContent(ch);
+                }
+            }
+            return;
+        }
+        setCurrentBook(book);
+        let chapter = null;
+        pendingChapterRef.current = null;
+        if (wantId) chapter = book.chapters?.find(c => c.chapter_id === wantId) || null;
+        if (!chapter) {
+            const saved = progressMap[book.book_id];
+            chapter = (saved && book.chapters?.find(c => c.chapter_id === saved.chapterId)) || book.chapters?.[0] || null;
+        }
+        setCurrentChapter(chapter);
+        if (chapter) {
+            updateProgress(book.book_id, chapter);
+            if (!chapter.content) loadChapterContent(chapter);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [route, booksLoaded, books]);
 
     // 当前会话作用域：按当前书隔离
     const scopeKey = currentBook?.book_id || '';
@@ -82,7 +148,6 @@ function App() {
 
     // 切换书籍：重新拉会话列表，并自动恢复该书最近一次会话
     useEffect(() => {
-        setSources(null);
         if (!scopeKey) { setSessionId(null); setMessages([]); setActiveExpertId(null); return; }
         let alive = true;
         (async () => {
@@ -104,39 +169,82 @@ function App() {
         return () => { alive = false; };
     }, [scopeKey, fetchSessions]);
 
-    const resetSession = () => {
-        setContentMode('book');
-        setActiveTool(null);
-        setToolResult(null);
+    // ---------- 书架 / 书内导航 ----------
+
+    const handleEnterBook = (bookId, chapterId) => {
+        pendingChapterRef.current = chapterId || null;
+        window.location.hash = `#/book/${encodeURIComponent(bookId)}`;
     };
 
-    // 删除书籍
+    const handleBackToShelf = () => {
+        window.location.hash = '#/';
+    };
+
+    const updateProgress = useCallback((bookId, chapter) => {
+        setProgressMap(prev => {
+            const next = {
+                ...prev,
+                [bookId]: {
+                    chapterId: chapter.chapter_id,
+                    chapterTitle: chapter.title,
+                    updatedAt: Date.now(),
+                },
+            };
+            localStorage.setItem(PROGRESS_KEY, JSON.stringify(next));
+            return next;
+        });
+    }, []);
+
+    const handleSelectChapter = async (chapter) => {
+        if (!chapter.content) {
+            await loadChapterContent(chapter);
+        } else {
+            setCurrentChapter(chapter);
+        }
+        // 使用 chapter.book_id 而非闭包中的 currentBook（避免陈旧引用）
+        if (chapter.book_id) {
+            updateProgress(chapter.book_id, chapter);
+        }
+    };
+
+    // 从来源标注/引用芯片跳原文
+    const handleNavigateToSource = async (bookId, chapterId) => {
+        if (!bookId) return;
+        const book = books.find(b => b.book_id === bookId);
+        if (!book) return;
+        if (currentBook?.book_id !== bookId) {
+            handleEnterBook(bookId, chapterId);
+            return;
+        }
+        const chapter = book.chapters?.find(c => c.chapter_id === chapterId);
+        if (chapter) await handleSelectChapter(chapter);
+    };
+
+    // ---------- 上传 / 删除 ----------
+
     const handleDeleteBook = async (bookId) => {
         try {
             const res = await fetch(`${API_BASE}/books/${bookId}`, { method: 'DELETE' });
             if (!res.ok) throw new Error('删除失败');
-            // 使用函数式更新，确保基于最新状态计算
+            setBooks(prev => prev.filter(b => b.book_id !== bookId));
             if (currentBook?.book_id === bookId) {
-                setBooks(prev => {
-                    const remaining = prev.filter(b => b.book_id !== bookId);
-                    setCurrentBook(remaining[0] || null);
-                    setCurrentChapter(null);
-                    return remaining;
-                });
+                setCurrentBook(null);
+                setCurrentChapter(null);
                 setSessionId(null);
                 setMessages([]);
-            } else {
-                setBooks(prev => prev.filter(b => b.book_id !== bookId));
+                if (route.view === 'book') window.location.hash = '#/';
             }
-            setSessions([]);
         } catch (err) {
             console.error('删除失败:', err);
             alert(`删除失败: ${err.message}`);
         }
     };
 
-    // 批量上传（上传 → 异步分析 → 轮询进度）
+    // 批量上传（上传 → 异步分析 → 轮询进度）；单任务串行，进行中直接忽略
+    const uploadingRef = useRef(false);
     const handleUploadMultiple = async (files) => {
+        if (uploadingRef.current || files.length === 0) return;
+        uploadingRef.current = true;
         const total = files.length;
         setUploadProgress({ phase: 'uploading', current: 0, total });
 
@@ -170,17 +278,15 @@ function App() {
             alert(`以下书籍已存在于书库（按内容识别），自动跳过：\n${duplicates.join('\n')}`);
         }
 
-        if (uploaded.length === 0) { setUploadProgress(null); return; }
+        if (uploaded.length === 0) { setUploadProgress(null); uploadingRef.current = false; return; }
 
         // Phase 2: 异步分析 + 轮询进度
         setUploadProgress({ phase: 'analyzing', current: 0, total: uploaded.length, ocrProgress: null });
 
-        // 启动所有异步分析
         for (const item of uploaded) {
             fetch(`${API_BASE}/books/analyze/${item.book_id}`, { method: 'POST' }).catch(() => {});
         }
 
-        // 轮询状态
         const pollInterval = 2000;
         const maxWait = 600000; // 10分钟
         const startTime = Date.now();
@@ -197,22 +303,16 @@ function App() {
                     if (status.status === 'completed') {
                         completed++;
                         item._done = true;
-                        // 获取分析结果
                         const ar = await fetch(`${API_BASE}/books/analysis/${item.book_id}`);
                         if (ar.ok) {
                             const result = await ar.json();
                             setBooks(prev => [{ ...result, _new: true }, ...prev]);
-                            if (!currentBook) {
-                                setCurrentBook(result);
-                                setCurrentChapter(result.chapters?.[0] || null);
-                            }
                         }
                     } else if (status.status === 'failed') {
                         // 后端已明确失败，不必再等 10 分钟超时
                         completed++;
                         item._done = true;
-                        item._failed = true;
-                        setToolResult({ error: `《${item.filename}》解析失败: ${status.error || '未知原因'}` });
+                        alert(`《${item.filename}》解析失败: ${status.error || '未知原因'}`);
                     } else if (status.status === 'duplicate') {
                         // 分析阶段才发现内容重复（并发上传同本书的窄窗口）
                         completed++;
@@ -230,111 +330,78 @@ function App() {
         }
 
         setUploadProgress(null);
+        uploadingRef.current = false;
 
-        // 检查是否有未完成的文件
         const failed = uploaded.filter(item => !item._done);
         if (failed.length > 0) {
-            setToolResult({ error: `${failed.length} 本书分析超时，请稍后重试` });
+            alert(`${failed.length} 本书分析超时，请稍后刷新书架查看`);
         }
     };
 
-    // 上传书籍（单文件，兼容旧接口）
-    const handleUploadBook = (file) => handleUploadMultiple([file]);
+    // ---------- 会话与对话 ----------
 
-    // 选择书籍（不重置聊天记录）
-    const handleSelectBook = async (book) => {
-        setCurrentBook(book);
-        setCurrentChapter(book.chapters?.[0] || null);
-        setContentMode('book');
-        setActiveTool(null);
-        setToolResult(null);
-        setViewMode('reading');
-        if (book.chapters?.[0] && !book.chapters[0].content) {
-            await loadChapterContent(book.chapters[0]);
-        }
-    };
-
-    // 用于处理竞态条件：追踪当前正在加载的章节 ID
-    const loadingChapterRef = useRef(null);
-
-    // 加载章节内容（处理竞态条件）
-    const loadChapterContent = async (chapter) => {
-        const chapterId = chapter.chapter_id;
-        loadingChapterRef.current = chapterId;
+    // 惰性创建会话：首次发言/跑工具才占坑，避免历史列表堆满空"新对话"
+    const ensureSession = async () => {
+        if (sessionId) return sessionId;
+        if (!scopeKey) return null;
         try {
-            const res = await fetch(`${API_BASE}/books/chapters/${chapterId}`);
-            const data = await res.json();
-            // 仅当返回的章节仍是当前选中的章节时更新状态（防止竞态）
-            if (loadingChapterRef.current === chapterId) {
-                setCurrentChapter(data);
-            }
-        } catch (err) {
-            console.error('获取章节失败:', err);
-        }
+            const res = await fetch(`${API_BASE}/sessions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ scope: 'book', book_id: currentBook?.book_id })
+            });
+            const sid = (await res.json()).session_id;
+            setSessionId(sid);
+            return sid;
+        } catch { return null; }
     };
 
-    const handleSelectChapter = async (chapter) => {
-        if (!chapter.content) {
-            await loadChapterContent(chapter);
-        } else {
-            setCurrentChapter(chapter);
-        }
-        // 使用 chapter.book_id 而非闭包中的 currentBook（避免陈旧引用）
-        if (chapter.book_id) {
-            localStorage.setItem('reading_progress', JSON.stringify({ bookId: chapter.book_id, chapterId: chapter.chapter_id }));
-        }
-    };
-
-    // 从来源标注跳转到原文
-    const handleNavigateToSource = async (bookId, chapterId) => {
-        const book = books.find(b => b.book_id === bookId);
-        if (!book) return;
-        setCurrentBook(book);
-        setContentMode('book');
-        setActiveTool(null);
-        setToolResult(null);
-        const chapter = book.chapters?.find(c => c.chapter_id === chapterId);
-        if (chapter) {
-            if (!chapter.content) {
-                await loadChapterContent(chapter);
-            } else {
-                setCurrentChapter(chapter);
+    // 上下文构造：最近 8 条；工具产出以截断摘录参与追问（HTML 产物只留一行占位说明）
+    const buildHistory = () => messages
+        .filter(m => !m.streaming)
+        .slice(-8)
+        .map(m => {
+            if (m.kind === 'tool') {
+                const name = m.tool_name || TOOL_LABELS[m.tool_id] || m.tool_id;
+                if (m.output_type === 'html') {
+                    return { role: 'assistant', content: `【AI 工具产出 · ${name}】已生成 HTML 精读笔记页` };
+                }
+                const text = (m.content || '').trim();
+                if (!text) return null;
+                const excerpt = text.length > 600 ? text.slice(0, 600) + '…（截断）' : text;
+                return { role: 'assistant', content: `【AI 工具产出 · ${name}】\n${excerpt}` };
             }
-        }
-    };
+            if (m.kind === 'opening' || m.kind === 'report' || !m.kind) {
+                return { role: m.role, content: m.content };
+            }
+            return null;
+        })
+        .filter(m => m && m.content && m.content.trim());
 
     // 流式发送消息（后端按 session_id 自动落盘，刷新不丢）
     const handleSendMessage = async (message) => {
+        if (!currentBook || isStreaming) return;
         setIsStreaming(true);
-        setSources(null);
-        setViewMode('chat');
+        setAiOpen(true);
 
-        // 惰性创建会话：首次提问才占坑，避免历史列表堆满空"新对话"
-        let sid = sessionId;
-        if (!sid && scopeKey) {
-            try {
-                const res = await fetch(`${API_BASE}/sessions`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        scope: 'book',
-                        book_id: currentBook?.book_id
-                    })
-                });
-                sid = (await res.json()).session_id;
-                setSessionId(sid);
-            } catch { sid = null; }
-        }
+        const sid = await ensureSession();
 
-        const history = messages.slice(-6).map(({ role, content }) => ({ role, content }));
-        const body = { message, chat_history: history, session_id: sid };
-        body.book_id = currentBook?.book_id;
-        if (currentChapter?.chapter_id) {
-            body.chapter_id = currentChapter.chapter_id;
-        }
+        const body = {
+            message,
+            chat_history: buildHistory(),
+            session_id: sid,
+            book_id: currentBook?.book_id,
+        };
+        if (currentChapter?.chapter_id) body.chapter_id = currentChapter.chapter_id;
         if (activeExpertId) body.expert_id = activeExpertId;
 
         setMessages(prev => [...prev, { role: 'user', content: message }, { role: 'assistant', content: '' }]);
+
+        const patchLast = (patchFn) => setMessages(prev => {
+            const next = [...prev];
+            next[next.length - 1] = patchFn({ ...next[next.length - 1] });
+            return next;
+        });
 
         try {
             const response = await fetch(`${API_BASE}/analysis/chat/stream`, {
@@ -342,7 +409,6 @@ function App() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
             });
-
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
             const reader = response.body.getReader();
@@ -357,40 +423,131 @@ function App() {
                 const lines = buffer.split('\n');
                 buffer = lines.pop(); // 半截行留到下个 chunk 再拼（SSE 帧可能被 TCP 切开）
                 for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        const data = line.slice(6);
-                        if (data === '[DONE]') continue;
-                        try {
-                            const json = JSON.parse(data);
-                            if (json.content) {
-                                assistantMessage += json.content;
-                                setMessages(prev => {
-                                    const newMessages = [...prev];
-                                    newMessages[newMessages.length - 1].content = assistantMessage;
-                                    return newMessages;
-                                });
-                            }
-                            if (json.sources) {
-                                setSources(json.sources);
-                            }
-                        } catch (e) { /* skip parse errors */ }
-                    }
+                    if (!line.startsWith('data: ')) continue;
+                    const data = line.slice(6);
+                    if (data === '[DONE]') continue;
+                    try {
+                        const json = JSON.parse(data);
+                        if (json.content) {
+                            assistantMessage += json.content;
+                            patchLast(m => ({ ...m, content: assistantMessage }));
+                        }
+                        if (json.sources) {
+                            patchLast(m => ({ ...m, sources: json.sources }));
+                        }
+                    } catch (e) { /* skip parse errors */ }
                 }
             }
             if (sid) fetchSessions(scopeKey); // 刷新标题/排序
         } catch (err) {
             console.error('发送失败:', err);
-            setMessages(prev => {
-                const last = prev[prev.length - 1];
-                if (last && last.role === 'assistant' && !last.content) {
-                    const next = [...prev];
-                    next[next.length - 1] = { role: 'assistant', content: `发送失败: ${err.message}` };
-                    return next;
-                }
-                return [...prev, { role: 'assistant', content: `发送失败: ${err.message}` }];
-            });
+            patchLast(m => ({ ...m, content: m.content || `发送失败: ${err.message}` }));
         } finally {
             setIsStreaming(false);
+        }
+    };
+
+    // AI 工具：产出即消息（v2.0）——结果作为 kind=tool 消息流进当前对话末尾，完成后可被追问
+    const handleRunTool = async (toolId, userInput) => {
+        if (!currentBook || isStreaming || busyToolId) return;
+        setAiOpen(true);
+        setBusyToolId(toolId);
+
+        const sid = await ensureSession();
+        const toolName = TOOL_LABELS[toolId] || toolId;
+        const scope = (userInput || '').trim() || (currentChapter ? currentChapter.title : '整本书');
+        const tid = `${toolId}-${Date.now()}`;
+
+        setMessages(prev => [...prev, {
+            _tid: tid, role: 'assistant', kind: 'tool',
+            tool_id: toolId, tool_name: toolName, output_type: 'text',
+            content: '', scope, streaming: true,
+        }]);
+
+        const patchTool = (patchFn) => setMessages(prev => prev.map(m => m._tid === tid ? patchFn({ ...m }) : m));
+
+        try {
+            const res = await fetch(`${API_BASE}/api/tools/${toolId}/stream`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    book_id: currentBook.book_id,
+                    chapter_id: currentChapter?.chapter_id,
+                    user_input: userInput || null
+                })
+            });
+            if (!res.ok) {
+                const errText = await res.text().catch(() => '');
+                throw new Error(errText || `请求失败 (${res.status})`);
+            }
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let text = '';
+            let status = '';
+            let sources = [];
+            let artifact = null;
+            let streamError = null;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    const payload = line.slice(6);
+                    if (payload === '[DONE]') continue;
+                    try {
+                        const f = JSON.parse(payload);
+                        if (f.status !== undefined) status = f.status;
+                        else if (f.content !== undefined) text += f.content;
+                        else if (f.sources) sources = f.sources;
+                        else if (f.artifact) artifact = f.artifact;
+                        else if (f.error) streamError = f.error;
+                    } catch { /* 半截 JSON 丢弃即可，后续帧完整 */ }
+                    patchTool(m => ({
+                        ...m,
+                        content: artifact ? m.content : text,
+                        status: status || m.status,
+                        sources: sources.length ? sources : m.sources,
+                    }));
+                }
+            }
+
+            const outputType = artifact ? 'html' : (toolId === 'mindmap' ? 'mindmap' : 'text');
+            const finalContent = artifact ? artifact.data : text;
+
+            if (streamError) {
+                patchTool(m => ({ ...m, streaming: false, error: streamError }));
+            } else {
+                patchTool(m => ({
+                    ...m, streaming: false, content: finalContent,
+                    output_type: outputType, filename: artifact?.filename,
+                }));
+                // 落盘：产出即消息（刷新/切会话后仍在）
+                if (sid && finalContent.trim()) {
+                    fetch(`${API_BASE}/sessions/${sid}/messages`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            role: 'assistant', content: finalContent, kind: 'tool',
+                            tool_id: toolId, tool_name: toolName,
+                            output_type: outputType, filename: artifact?.filename || null,
+                            scope, sources: sources.length ? sources : null,
+                        })
+                    }).then(r => { if (!r.ok) console.warn('工具产出落盘失败', r.status); })
+                      .catch(e => console.warn('工具产出落盘失败', e));
+                    fetchSessions(scopeKey);
+                }
+            }
+        } catch (err) {
+            console.error('工具调用失败:', err);
+            patchTool(m => ({ ...m, streaming: false, error: err.message }));
+        } finally {
+            setBusyToolId(null);
         }
     };
 
@@ -398,8 +555,8 @@ function App() {
     const handleNewSession = () => {
         setSessionId(null);
         setMessages([]);
-        setSources(null);
         setActiveExpertId(null);
+        setAiOpen(true);
     };
 
     const handleSelectSession = async (id) => {
@@ -409,9 +566,8 @@ function App() {
             const full = await res.json();
             setSessionId(full.session_id);
             setMessages(full.messages || []);
-            setSources(null);
             setActiveExpertId(full.expert_id || null);
-            setViewMode('chat');
+            setAiOpen(true);
         } catch (err) {
             console.error('加载会话失败:', err);
         }
@@ -420,17 +576,18 @@ function App() {
     const handleDeleteSession = async (id) => {
         try {
             await fetch(`${API_BASE}/sessions/${id}`, { method: 'DELETE' });
-            if (id === sessionId) { setSessionId(null); setMessages([]); setSources(null); setActiveExpertId(null); }
+            if (id === sessionId) { setSessionId(null); setMessages([]); setActiveExpertId(null); }
             fetchSessions(scopeKey);
         } catch (err) {
             console.error('删除会话失败:', err);
         }
     };
 
-    // 专家模式：进入 = 生成起手式并建会话（范围 = 左栏当前选中章，未选中则整本书）
+    // 专家模式：进入 = 生成起手式并建会话（范围 = 当前选中章，未选中则整本书）
     const handleOpenExpert = async (expertId) => {
         if (!currentBook || expertOpening) return;
         setExpertOpening(true);
+        setAiOpen(true);
         try {
             const res = await fetch(`${API_BASE}/experts/${expertId}/opening`, {
                 method: 'POST',
@@ -445,12 +602,9 @@ function App() {
                 throw new Error(err.detail || `启动失败 (${res.status})`);
             }
             const data = await res.json();
-            setContentMode('book');
             setSessionId(data.session_id);
             setMessages([{ role: 'assistant', content: data.content, kind: 'opening' }]);
             setActiveExpertId(expertId);
-            setSources(null);
-            setViewMode('chat');
             fetchSessions(scopeKey);
         } catch (err) {
             console.error('专家模式启动失败:', err);
@@ -464,7 +618,7 @@ function App() {
     const handleGenerateReport = async () => {
         if (!activeExpertId || !sessionId || isStreaming) return;
         setIsStreaming(true);
-        setViewMode('chat');
+        setAiOpen(true);
         setMessages(prev => [...prev, { role: 'assistant', content: '', kind: 'report' }]);
         let text = '';
         try {
@@ -515,85 +669,6 @@ function App() {
         }
     };
 
-    // 工具卡片点击 —— SSE 流式；作用范围 = 左栏当前选中章（未选中则整本书）
-    const handleRunTool = async (toolId, userInput) => {
-        if (!currentBook || toolLoading) return;
-
-        setActiveTool(toolId);
-        setToolLoading(true);
-        setToolResult({ data: '', streaming: true });
-
-        try {
-            const res = await fetch(`${API_BASE}/api/tools/${toolId}/stream`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    book_id: currentBook.book_id,
-                    chapter_id: currentChapter?.chapter_id,
-                    user_input: userInput || null
-                })
-            });
-
-            if (!res.ok) {
-                const errText = await res.text().catch(() => '');
-                throw new Error(errText || `请求失败 (${res.status})`);
-            }
-
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-            let text = '';
-            let status = '';
-            let sources = [];
-            let artifact = null;
-            let streamError = null;
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop();
-                for (const line of lines) {
-                    if (!line.startsWith('data: ')) continue;
-                    const payload = line.slice(6);
-                    if (payload === '[DONE]') continue;
-                    try {
-                        const f = JSON.parse(payload);
-                        if (f.status !== undefined) status = f.status;
-                        else if (f.content !== undefined) text += f.content;
-                        else if (f.sources) sources = f.sources;
-                        else if (f.artifact) artifact = f.artifact;
-                        else if (f.error) streamError = f.error;
-                    } catch { /* 半截 JSON 丢弃即可，后续帧完整 */ }
-                    setToolResult({
-                        data: text, streaming: true,
-                        status: status || undefined,
-                        sources: sources.length ? sources : undefined,
-                    });
-                }
-            }
-
-            if (streamError) setToolResult({ error: streamError });
-            else if (artifact) setToolResult({ type: 'html', data: artifact.data, filename: artifact.filename });
-            else setToolResult({ data: text, sources: sources.length ? sources : undefined });
-        } catch (err) {
-            console.error('工具调用失败:', err);
-            setToolResult({ error: err.message });
-        } finally {
-            setToolLoading(false);
-        }
-    };
-
-    const handleBackToTools = () => {
-        setActiveTool(null);
-        setToolResult(null);
-    };
-
-    const handleBackToBook = () => {
-        setContentMode('book');
-    };
-
     // 收藏（按内容去重，持久化到 localStorage）
     const handleToggleFavorite = (qa) => {
         setFavorites(prev => {
@@ -608,57 +683,54 @@ function App() {
         setFavorites(prev => prev.filter(f => f.id !== id));
     };
 
-    const getActiveMessages = () => messages;
-
     const activeExpert = experts.find(e => e.expert_id === activeExpertId) || null;
 
-    return (
-        <div className="h-screen flex overflow-hidden bg-zinc-50 p-3 gap-3">
-            <LeftPanel
-                books={books}
+    if (route.view === 'book' && currentBook) {
+        return (
+            <BookReader
                 currentBook={currentBook}
                 currentChapter={currentChapter}
-                onSelectBook={handleSelectBook}
                 onSelectChapter={handleSelectChapter}
-                onUploadBook={handleUploadBook}
-                onUploadMultiple={handleUploadMultiple}
-                onDeleteBook={handleDeleteBook}
-                uploading={uploadProgress}
-            />
-            <MiddlePanel
-                currentBook={currentBook}
-                currentChapter={currentChapter}
-                chatMessages={getActiveMessages()}
+                onBackToShelf={handleBackToShelf}
                 sessions={sessions}
                 currentSessionId={sessionId}
                 onNewSession={handleNewSession}
                 onSelectSession={handleSelectSession}
                 onDeleteSession={handleDeleteSession}
+                messages={messages}
                 isStreaming={isStreaming}
+                busyToolId={busyToolId}
                 onSendMessage={handleSendMessage}
-                viewMode={viewMode}
-                onToggleView={setViewMode}
-                sources={sources}
-                onToggleFavorite={handleToggleFavorite}
-                onNavigateToSource={handleNavigateToSource}
+                onRunTool={handleRunTool}
                 favorites={favorites}
+                onToggleFavorite={handleToggleFavorite}
+                onRemoveFavorite={handleRemoveFavorite}
+                onNavigateToSource={handleNavigateToSource}
                 experts={experts}
                 activeExpert={activeExpert}
                 expertOpening={expertOpening}
                 onOpenExpert={handleOpenExpert}
                 onGenerateReport={handleGenerateReport}
+                aiOpen={aiOpen}
+                setAiOpen={setAiOpen}
             />
-            <RightPanel
-                currentBook={currentBook}
-                currentChapter={currentChapter}
-                toolState={{ toolId: activeTool, loading: toolLoading, result: toolResult }}
-                onRunTool={handleRunTool}
-                onBackToTools={handleBackToTools}
-                favorites={favorites}
-                onToggleFavorite={handleToggleFavorite}
-                onRemoveFavorite={handleRemoveFavorite}
-            />
-        </div>
+        );
+    }
+
+    // 书内但书还没就位（深链加载中）时保持空白，避免书架闪现
+    if (route.view === 'book') {
+        return <div className="h-screen bg-zinc-50" />;
+    }
+
+    return (
+        <Bookshelf
+            books={books}
+            progressMap={progressMap}
+            uploading={uploadProgress}
+            onEnterBook={handleEnterBook}
+            onUploadMultiple={handleUploadMultiple}
+            onDeleteBook={handleDeleteBook}
+        />
     );
 }
 

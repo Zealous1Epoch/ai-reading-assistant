@@ -69,6 +69,65 @@ class TestChatStore:
     def test_append_to_missing_session(self, store_env):
         assert chat_store.append_messages("nope", [{"role": "user", "content": "x"}]) is None
 
+    def test_tool_meta_persisted(self, store_env):
+        s = chat_store.create_session(book_id="b1")
+        chat_store.append_messages(s["session_id"], [{
+            "role": "assistant", "content": "# 导图", "kind": "tool",
+            "tool_id": "mindmap", "tool_name": "思维导图", "output_type": "mindmap",
+        }])
+        m = chat_store.get_session(s["session_id"])["messages"][0]
+        assert m["kind"] == "tool" and m["tool_id"] == "mindmap" and m["output_type"] == "mindmap"
+        # 工具产出开场的会话：标题用工具名兜底
+        assert chat_store.get_session(s["session_id"])["title"] == "思维导图 · 工具产出"
+
+
+class TestAppendMessageEndpoint:
+    """v2.0「工具产出即消息」落盘端点：直接调端点函数，绕开 TestClient 兼容问题"""
+
+    @staticmethod
+    def _append(session_id, **kw):
+        import asyncio
+        import app.routers.sessions as sessions_mod
+        req = sessions_mod.AppendMessageRequest(**kw)
+        return asyncio.run(sessions_mod.append_message(session_id, req))
+
+    def test_append_tool_message(self, store_env):
+        s = chat_store.create_session(book_id="b1")
+        resp = self._append(s["session_id"], content="总结全文……", kind="tool",
+                            tool_id="summarize", tool_name="总结", output_type="text",
+                            sources=[{"chapter_title": "第一章"}])
+        assert resp["ok"] is True and resp["message_count"] == 1
+        m = chat_store.get_session(s["session_id"])["messages"][0]
+        assert m["kind"] == "tool" and m["tool_id"] == "summarize"
+        assert m["sources"][0]["chapter_title"] == "第一章"
+        # None 字段不落盘，保持存储干净
+        assert "filename" not in m
+
+    def test_append_html_artifact_message(self, store_env):
+        s = chat_store.create_session(book_id="b1")
+        self._append(s["session_id"], content="<html>note</html>", kind="tool",
+                     tool_id="knowledge-graph", tool_name="精读笔记",
+                     output_type="html", filename="精读笔记.html")
+        m = chat_store.get_session(s["session_id"])["messages"][0]
+        assert m["output_type"] == "html" and m["filename"] == "精读笔记.html"
+
+    def test_validation_and_404(self, store_env):
+        import pytest as _pt
+        from fastapi import HTTPException
+        s = chat_store.create_session(book_id="b1")
+        with _pt.raises(HTTPException) as ei:
+            self._append(s["session_id"], content="x", role="system")
+        assert ei.value.status_code == 400
+        with _pt.raises(HTTPException) as ei:
+            self._append(s["session_id"], content="x", kind="unknown")
+        assert ei.value.status_code == 400
+        with _pt.raises(HTTPException) as ei:
+            self._append(s["session_id"], content="   ")
+        assert ei.value.status_code == 400
+        with _pt.raises(HTTPException) as ei:
+            self._append("no-such-session", content="x")
+        assert ei.value.status_code == 404
+
 
 class TestStreamPersistence:
     """流式对话接口的会话落盘（伪造 LLM 流，不发真实请求）

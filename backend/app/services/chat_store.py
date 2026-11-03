@@ -131,6 +131,10 @@ def delete_sessions_for_book(book_id: str) -> int:
     return len(doomed)
 
 
+# AI 工具产出即消息（v2.0）：kind="tool" 时随消息一起落盘的元数据白名单
+_TOOL_META_KEYS = ("tool_id", "tool_name", "output_type", "filename", "scope")
+
+
 def append_messages(session_id: str, messages: List[Dict[str, Any]]) -> Optional[dict]:
     """向会话追加消息（{role, content, sources?}），自动起标题并刷时间"""
     with _lock:
@@ -144,12 +148,20 @@ def append_messages(session_id: str, messages: List[Dict[str, Any]]) -> Optional
                 entry["sources"] = m["sources"]
             if m.get("kind"):
                 entry["kind"] = m["kind"]
+            for key in _TOOL_META_KEYS:
+                if m.get(key):
+                    entry[key] = m[key]
             session.setdefault("messages", []).append(entry)
         if session.get("title") in (None, "新对话"):
             first_user = next((m for m in session["messages"] if m.get("role") == "user"), None)
             if first_user:
                 text = " ".join((first_user.get("content") or "").split())
                 session["title"] = text[:24] + ("…" if len(text) > 24 else "")
+            else:
+                # 会话以工具产出开场（尚无提问）：用工具名兜底标题
+                first_tool = next((m for m in session["messages"] if m.get("tool_name")), None)
+                if first_tool:
+                    session["title"] = f"{first_tool['tool_name']} · 工具产出"
         session["updated_at"] = _now()
         _save(data)
         return session

@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     # 上传限制（MB）
     max_upload_size_mb: int = 200
 
+    # RAG 检索
+    embedding_provider: str = "bge"  # bge（本地中文模型）| chroma_default（英文 MiniLM，兜底）
+    embedding_model_dir: str = str(PROJECT_ROOT / "backend" / "data" / "models" / "bge-small-zh-v1.5")
+    chunk_size: int = 650            # 检索切块目标字数
+    chunk_overlap: int = 130         # 相邻块重叠字数（防句子跨块被切断）
+    search_max_distance: float = 0.75  # cosine 距离阈值，超过视为无关，不进 LLM 上下文
+
     class Config:
         env_file = find_env_file()
         env_file_encoding = "utf-8"

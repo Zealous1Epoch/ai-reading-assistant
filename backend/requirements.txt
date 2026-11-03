@@ -21,6 +21,10 @@ pillow>=10.0.0
 # 向量数据库
 chromadb>=0.4.0
 
+# 中文 embedding（bge-small-zh ONNX 本地推理，模型文件经 scripts/download_embedding_model.py 下载）
+onnxruntime>=1.17.0
+tokenizers>=0.15.0
+
 # 数据处理
 pydantic==2.6.1
 pydantic-settings==2.1.0

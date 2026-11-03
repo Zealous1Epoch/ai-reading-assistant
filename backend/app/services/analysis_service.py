@@ -158,7 +158,7 @@ class AnalysisService:
 
         # 添加章节上下文
         if chapter_context:
-            context_msg = f"[参考内容]\n{chapter_context[:4000]}\n\n请基于以上内容回答用户问题。引用时请标注来源。"
+            context_msg = f"[参考内容]\n{chapter_context[:4000]}\n\n请基于以上内容回答用户问题。引用时请标注来源。若参考内容与问题明显无关，请先说明书中未涉及该主题，不要勉强引用无关内容。"
             messages.append(HumanMessage(content=context_msg))
             messages.append(SystemMessage(content="好的，我已了解参考内容，会标注来源。请提问。"))
 

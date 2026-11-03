@@ -13,25 +13,8 @@ router = APIRouter(prefix="/api/tools", tags=["AI工具"])
 
 
 def _get_book_chapters(book_id: str):
-    """从 ChromaDB 获取指定书籍的所有章节"""
-    results = book_processor.collection.get(
-        where={"book_id": book_id},
-        include=["documents", "metadatas"]
-    )
-    chapters = []
-    if results["ids"]:
-        for i, doc_id in enumerate(results["ids"]):
-            content = results["documents"][i]
-            metadata = results["metadatas"][i]
-            chapters.append(Chapter(
-                chapter_id=doc_id,
-                book_id=book_id,
-                title=metadata.get("title", ""),
-                content=content,
-                word_count=len(content),
-                chapter_index=metadata.get("chapter_index", 0)
-            ))
-    return sorted(chapters, key=lambda c: c.chapter_index)
+    """获取指定书籍全部章节（服务层按块拼回整章，剥离滑窗重叠）"""
+    return book_processor.get_full_chapters(book_id)
 
 
 class ToolRequest(BaseModel):

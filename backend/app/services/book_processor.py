@@ -48,11 +48,26 @@ class BookProcessor:
         os.makedirs(self.persist_directory, exist_ok=True)
 
         # 初始化 ChromaDB
+        # v2：章节滑窗切块 + 中文 embedding + cosine 空间。
+        # 与旧版"整章一向量 + 英文 MiniLM + L2"空间不兼容，故换新集合名隔离，
+        # 旧集合保留作重建素材与回滚备份（scripts/rebuild_vectors.py）。
         self.chroma_client = chromadb.PersistentClient(path=self.persist_directory)
-        self.collection = self.chroma_client.get_or_create_collection(
-            name="book_chapters",
-            metadata={"description": "书籍章节向量化存储"}
+        collection_kwargs = dict(
+            name="book_chapters_v2",
+            metadata={
+                "description": "书籍章节滑窗切块向量库（cosine + bge-zh）",
+                "hnsw:space": "cosine",
+            },
         )
+        ef = None
+        try:
+            from app.services.embeddings import get_embedding_function
+            ef = get_embedding_function()
+        except RuntimeError:
+            raise  # 模型缺失必须显式报错：混用不同空间的向量是静默的检索毒药
+        if ef is not None:
+            collection_kwargs["embedding_function"] = ef
+        self.collection = self.chroma_client.get_or_create_collection(**collection_kwargs)
 
     @property
     def llm(self):
@@ -744,42 +759,94 @@ class BookProcessor:
 
         return '\n'.join(lines).strip()
 
+    def _split_into_chunks(self, text: str, target: int = None, overlap: int = None) -> List[Tuple[str, int]]:
+        """把章节正文切成滑窗小块，返回 [(块文本, 重叠前缀长度), ...]。
+
+        策略：先按行聚合成 ≤target 字的"单元"（超长段落按 target 硬切），
+        再给每块（首块除外）前置上一块尾部 overlap 字——防止关键句子恰好
+        跨在块边界上被切成两半、两边都召不回。前置长度记在 prefix_len 里，
+        重组整章时据此剥离，保证阅读视图无重复文字。
+        """
+        target = target or settings.chunk_size
+        overlap = overlap if overlap is not None else settings.chunk_overlap
+        if not text:
+            return []
+        if len(text) <= target:
+            return [(text, 0)]
+
+        # 1. 聚合成不重叠的单元
+        units: List[str] = []
+        buf = ""
+        for para in [p for p in text.split("\n") if p.strip()]:
+            while len(para) > target:  # 超长段落硬切
+                if buf:
+                    units.append(buf)
+                    buf = ""
+                units.append(para[:target])
+                para = para[target:]
+            candidate = (buf + "\n" + para) if buf else para
+            if len(candidate) > target:
+                units.append(buf)
+                buf = para
+            else:
+                buf = candidate
+        if buf:
+            units.append(buf)
+
+        # 2. 滑窗重叠：第 i 块前置第 i-1 块的尾部
+        chunks: List[Tuple[str, int]] = [(units[0], 0)]
+        for unit in units[1:]:
+            prev = chunks[-1][0]
+            tail = prev[-overlap:] if overlap > 0 and len(prev) > overlap else (prev if overlap > 0 else "")
+            chunks.append((tail + "\n" + unit, len(tail)))
+        return chunks
+
+    @staticmethod
+    def _assemble_chunks(pairs: List[Tuple[str, int]]) -> str:
+        """把 [(块文本, 重叠前缀长度)] 按顺序拼回整章（剥离重叠前缀，无重复文字）"""
+        parts = [c if prefix_len == 0 else c[prefix_len + 1:] for c, prefix_len in pairs]
+        return "\n".join(parts)
+
     async def store_chapters_to_chroma(self, book_id: str, chapters: List[Chapter], book_title: str = ""):
-        """将章节存储到ChromaDB（先清旧数据，重复解析不残留）"""
+        """将章节滑窗切块后存储到 ChromaDB（先清旧数据，重复解析不残留）"""
 
         if not chapters:
             return
 
-        # 幂等：同一 book_id 重新解析时，先删掉它自己的旧章节
+        # 幂等：同一 book_id 重新解析时，先删掉它自己的旧块
         self.delete_book_chapters(book_id)
 
-        # 批量添加
         ids = []
         documents = []
         metadatas = []
 
         for chapter in chapters:
             cleaned_content = self._clean_chapter_content(chapter.content)
-            ids.append(chapter.chapter_id)
-            documents.append(cleaned_content)
-            metadatas.append({
-                "book_id": book_id,
-                "book_title": book_title,
-                "chapter_id": chapter.chapter_id,
-                "title": chapter.title,
-                "chapter_index": chapter.chapter_index,
-                "word_count": chapter.word_count
-            })
+            for idx, (chunk_text, prefix_len) in enumerate(self._split_into_chunks(cleaned_content)):
+                ids.append(f"{chapter.chapter_id}#{idx}")
+                documents.append(chunk_text)
+                metadatas.append({
+                    "book_id": book_id,
+                    "book_title": book_title,
+                    "chapter_id": chapter.chapter_id,
+                    "title": chapter.title,
+                    "chapter_index": chapter.chapter_index,
+                    "chunk_index": idx,
+                    "prefix_len": prefix_len,
+                    "word_count": chapter.word_count,
+                })
 
-        # 添加到集合
-        self.collection.add(
-            ids=ids,
-            documents=documents,
-            metadatas=metadatas
-        )
+        # 分批添加（整本书一次 add 会给 embedding 攒出超大 batch）
+        batch = 64
+        for i in range(0, len(ids), batch):
+            self.collection.add(
+                ids=ids[i:i + batch],
+                documents=documents[i:i + batch],
+                metadatas=metadatas[i:i + batch],
+            )
 
     async def search_chapters(self, query: str, book_ids: Optional[List[str]] = None, n_results: int = 5) -> List[ChapterSearchResult]:
-        """搜索章节内容（支持多本书过滤）"""
+        """语义检索：返回命中的滑窗块（整块内容即上下文，不再截章首300字）"""
 
         where_filter = None
         if book_ids:
@@ -790,58 +857,136 @@ class BookProcessor:
 
         results = self.collection.query(
             query_texts=[query],
-            n_results=n_results,
+            n_results=max(n_results * 3, 10),  # 多召后过滤：阈值筛掉垃圾命中后仍要够数
             where=where_filter,
             include=["documents", "metadatas", "distances"]
         )
 
         search_results = []
+        seen_adjacent = set()  # 同章相邻块重叠区只保留分高的一块
         if results['ids'] and results['ids'][0]:
             for i, doc_id in enumerate(results['ids'][0]):
                 content = results['documents'][0][i]
                 metadata = results['metadatas'][0][i]
                 distance = results['distances'][0][i]
 
-                # 生成内容片段
-                snippet = content[:300] + "..." if len(content) > 300 else content
+                # cosine 距离 ∈ [0, 2]；超过阈值视为无关，不进 LLM 上下文
+                if distance > settings.search_max_distance:
+                    continue
+
+                chapter_id = metadata.get('chapter_id', doc_id)
+                chunk_index = metadata.get('chunk_index', 0)
+                adj_key = (chapter_id, chunk_index)
+                if (chapter_id, chunk_index - 1) in seen_adjacent or adj_key in seen_adjacent:
+                    continue
+                seen_adjacent.add(adj_key)
 
                 search_results.append(ChapterSearchResult(
-                    chapter_id=metadata.get('chapter_id', doc_id),
+                    chapter_id=chapter_id,
                     book_id=metadata.get('book_id', ''),
                     book_title=metadata.get('book_title', ''),
                     title=metadata.get('title', ''),
-                    content_snippet=snippet,
+                    content_snippet=content,
                     chapter_index=metadata.get('chapter_index', 0),
-                    relevance_score=1 - distance  # 转换为相似度
+                    relevance_score=max(0.0, min(1.0, 1 - distance)),  # cosine 相似度，诚实刻度
                 ))
+                if len(search_results) >= n_results:
+                    break
 
         return search_results
 
     def get_chapter_by_id(self, chapter_id: str) -> Optional[Chapter]:
-        """根据ID获取章节"""
+        """根据ID获取章节（按块拼回整章，剥离滑窗重叠前缀）"""
         results = self.collection.get(
-            ids=[chapter_id],
+            where={"chapter_id": chapter_id},
             include=["documents", "metadatas"]
         )
 
-        if results['ids']:
-            content = results['documents'][0]
-            metadata = results['metadatas'][0]
+        if not results['ids']:
+            return None
 
-            return Chapter(
-                chapter_id=chapter_id,
-                book_id=metadata.get('book_id', ''),
-                title=metadata.get('title', ''),
-                content=content,
-                word_count=len(content),
-                chapter_index=metadata.get('chapter_index', 0)
+        pairs = sorted(
+            [(doc, m.get('chunk_index', 0), m.get('prefix_len', 0), m)
+             for doc, m in zip(results['documents'], results['metadatas'])],
+            key=lambda t: t[1],
+        )
+        metadata = pairs[0][3]
+        content = self._assemble_chunks([(p[0], p[2]) for p in pairs])
+
+        return Chapter(
+            chapter_id=chapter_id,
+            book_id=metadata.get('book_id', ''),
+            title=metadata.get('title', ''),
+            content=content,
+            word_count=len(content),
+            chapter_index=metadata.get('chapter_index', 0)
+        )
+
+    def get_full_chapters(self, book_id: str) -> List[Chapter]:
+        """按书取全部章节完整内容（块→章聚合，供 AI 工具整书分析用）"""
+        results = self.collection.get(
+            where={"book_id": book_id},
+            include=["documents", "metadatas"]
+        )
+        grouped = {}
+        for doc, metadata in zip(results['documents'] or [], results['metadatas'] or []):
+            cid = metadata.get('chapter_id', '')
+            grouped.setdefault(cid, []).append(
+                (doc, metadata.get('chunk_index', 0), metadata.get('prefix_len', 0), metadata)
             )
 
-        return None
+        chapters = []
+        for cid, items in grouped.items():
+            items.sort(key=lambda t: t[1])
+            content = self._assemble_chunks([(it[0], it[2]) for it in items])
+            meta = items[0][3]
+            chapters.append(Chapter(
+                chapter_id=cid,
+                book_id=meta.get('book_id', book_id),
+                title=meta.get('title', ''),
+                content=content,
+                word_count=len(content),
+                chapter_index=meta.get('chapter_index', 0),
+            ))
+        return sorted(chapters, key=lambda c: c.chapter_index)
+
+    def fulltext_search(self, book_id: str, keyword: str, limit: int = 20) -> List[dict]:
+        """全文关键词搜索：按块收集命中、按章聚合去重（重叠区会重复命中同一句）"""
+        results = self.collection.get(
+            where={"book_id": book_id},
+            include=["documents", "metadatas"]
+        )
+        matches = []
+        seen_snippets = set()
+        if results['ids']:
+            for i, doc_id in enumerate(results['ids']):
+                content = results['documents'][i]
+                metadata = results['metadatas'][i]
+                pos = 0
+                while True:
+                    idx = content.find(keyword, pos)
+                    if idx == -1 or len(matches) >= limit:
+                        break
+                    start = max(0, idx - 30)
+                    end = min(len(content), idx + len(keyword) + 80)
+                    snippet = ('...' if start > 0 else '') + content[start:end] + ('...' if end < len(content) else '')
+                    if snippet not in seen_snippets:
+                        seen_snippets.add(snippet)
+                        matches.append({
+                            "chapter_id": metadata.get("chapter_id", doc_id),
+                            "chapter_title": metadata.get("title", ""),
+                            "chapter_index": metadata.get("chapter_index", 0),
+                            "chunk_index": metadata.get("chunk_index", 0),
+                            "position": idx,
+                            "snippet": snippet
+                        })
+                    pos = idx + 1
+                if len(matches) >= limit:
+                    break
+        return sorted(matches, key=lambda m: (m["chapter_index"], m["chunk_index"], m["position"]))
 
     def delete_book_chapters(self, book_id: str):
-        """删除指定书籍的所有章节"""
-        # 先查询该书籍的所有章节ID
+        """删除指定书籍的所有切块"""
         results = self.collection.get(
             where={"book_id": book_id}
         )

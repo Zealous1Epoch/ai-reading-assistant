@@ -1,5 +1,14 @@
 # 智能读书助手 — 版本历史
 
+## v1.6 — 2026-11-03（存档点：RAG 检索质量升级）
+- **中文 embedding 上线**：废弃 ChromaDB 默认英文 MiniLM，接入本地 ONNX 版 `bge-small-zh-v1.5`（onnxruntime + tokenizers，CLS pooling + L2 归一化），数据不出机器、零调用费；模型经 `scripts/download_embedding_model.py` 一次性下载（不入库）
+- **章节滑窗切块**：整章一向量 → 650 字滑窗块（重叠 130 字防跨块断句），块元数据保留 chapter_id/chunk_index/prefix_len；检索命中即返回整块上下文，废掉"章首 300 字"截断
+- **cosine 空间 + 诚实打分**：新集合 `book_chapters_v2` 用 cosine 距离；relevance_score 改为真实余弦相似度；`search_max_distance` 阈值把明显无关内容挡出 LLM 上下文；prompt 增加"参考内容无关时须声明书中未涉及"兜底
+- **阅读/工具链路适配**：`get_chapter_by_id`、`get_full_chapters`（AI 工具整书分析）、fulltext 全文搜索均改为"块→章"按序拼回（剥离重叠前缀，实测无重复文字）
+- **重建零 LLM 成本**：`scripts/rebuild_vectors.py` 直接读旧集合整章正文重切块入库；馆藏 3 本 1224 块重建完成；清理掉测试残留《我的试验小品》
+- **质量回归**：黄金问题集 10 问（3 本真实藏书，top-3 期望关键词断言）+ 切块单测 6 个 + 无关查询反例；全量 35 passed
+- 实测对比：《非暴力沟通》"怎样表达感受"从章首截断噪声 → top1 直接命中"第四章 体会和表达感受"
+
 ## v1.5 — 2026-11-03（存档点：上传与解析链路完善）
 - **上传加固**：分块流式写盘 + SHA-256 内容去重（索引存 `content_hash`，`/upload` 与解析阶段双重查重，重复上传返回 `duplicate:true`）；单文件大小上限（默认 200MB，超限 413）；空文件拒收；扩展名白名单
 - **文件真实性校验**：python-magic 优先 + 零依赖文件头魔数兜底（`.pdf` 须 `%PDF`、`.epub` 须 `PK`、`.txt` 内容实为 PDF/zip 时拒收），伪装文件不再进库

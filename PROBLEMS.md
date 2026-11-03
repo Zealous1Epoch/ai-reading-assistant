@@ -233,3 +233,35 @@ async def serve_app_jsx():
 **解决**：先 DELETE 旧测试书再重传，书名"我的试验小品"正确回填。
 
 **教训**：验证解析类改动时，若上传内容与馆藏重复，被去重短路属正常——测试前先清同内容旧书，或换内容指纹。
+
+---
+
+## 20. chromadb 1.x 的 embed_query 协议分裂
+
+**问题**：自写 EmbeddingFunction 只实现了 `__call__`，入库（add）一切正常，查询（query）直接抛 `AttributeError: 'BGESmallZhONNXEmbeddingFunction' object has no attribute 'embed_query'`。
+
+**根因**：chromadb 1.x 把文档入库与查询编码拆成两条路径：add 走 `__call__`/`embed_documents`，query 走 `embed_query`。只实现 `__call__` 是 0.x 时代的旧约定。
+
+**解决**：在 EF 类上补 `embed_documents` / `embed_query` 两个方法（bge 对称编码，同实现转调 `__call__`）。
+
+**教训**：给存储层写适配器时，"写入通"不代表"接口全通"，读写两条路都要冒烟。
+
+---
+
+## 21. hf-mirror 拒绝 python 默认 UA（403）
+
+**问题**：下载脚本里 90MB 的 model.onnx 顺利下完，同仓库的 config.json/tokenizer.json 却连续 403 Forbidden。
+
+**根因**：hf-mirror 对 python-urllib 默认 User-Agent 的 LFS 小文件路径做了拦截，大文件直链不受影响——失败面非常迷惑。
+
+**解决**：urllib 请求统一带浏览器 UA 头；手动补齐阶段用 `curl -sL --fail -A "Mozilla/5.0 …"`。
+
+---
+
+## 22. 滑窗切块后"整章读取"三处隐性耦合
+
+**问题**：向量从"一章一行"变"一章 N 块"后，三个直接 `collection.get` 当整章用的调用点全部会拿到半章内容：`/books/chapters/{id}`（阅读视图）、tools.py `_get_book_chapters`（AI 工具整书分析）、`/search/fulltext`（命中位置错乱 + 重叠区重复命中）。
+
+**解决**：存储时给每块记 `chunk_index` 与 `prefix_len`（重叠前缀长度），服务层新增 `get_full_chapters` 与统一拼章逻辑 `_assemble_chunks`（剥前缀，实测长句重复率 0/18）；fulltext 按章聚合并按 snippet 去重。
+
+**教训**：改存储粒度前先把 `collection.get/add/query` 的调用点全部列一遍——这个 grep 十分钟，漏改是隐性数据损坏。

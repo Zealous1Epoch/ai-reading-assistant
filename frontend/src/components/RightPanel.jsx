@@ -10,16 +10,17 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
     const [pendingToolId, setPendingToolId] = useState(null);
     const [mindmapExpanded, setMindmapExpanded] = useState(false);
 
-    const needsInput = { summarize: true, debate: true, mindmap: true };
+    // 仅「与作者对谈」需要输入问题；其余工具的作用范围 = 左栏当前选中
+    const needsInput = { 'author-talk': true };
 
     const tools = [
-        { id: 'summarize', label: '总结', desc: '整本书或指定章节的详细总结', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
+        { id: 'summarize', label: '总结', desc: '总结整本书或当前选中章节', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
         { id: 'background', label: '背景调研', desc: '探索书籍的时代与学术背景', icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z' },
         { id: 'questions', label: '读书十问', desc: '十个深度问题帮你吃透一本书', icon: 'M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
-        { id: 'mindmap', label: '思维导图', desc: '可视化的知识框架与逻辑脉络', icon: 'M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4' },
+        { id: 'mindmap', label: '思维导图', desc: '按当前范围生成知识框架与逻辑脉络', icon: 'M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4' },
         { id: 'recommend', label: '书籍推荐', desc: '推荐同主题的好书', icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253' },
-        { id: 'debate', label: '芒格辩论', desc: '跨学科视角正反辩论看清观点', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
-        { id: 'knowledge-graph', label: '知识图谱', desc: '导出精读笔记HTML卡片页', icon: 'M4 6h16M4 12h16M4 18h16M8 2v4m8-4v4M8 16v4m8-4v4' },
+        { id: 'author-talk', label: '与作者对谈', desc: '基于书中论点向作者提问', icon: 'M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z' },
+        { id: 'knowledge-graph', label: '精读笔记', desc: '生成可下载的精读笔记页', icon: 'M4 6h16M4 12h16M4 18h16M8 2v4m8-4v4M8 16v4m8-4v4' },
     ];
 
     const toggleFavSelect = (id) => {
@@ -69,21 +70,19 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
     };
 
     useEffect(() => {
-        if (toolState?.result && !toolState?.loading) {
+        if (toolState?.result && (!toolState?.loading || toolState.result.streaming)) {
             setToolView('result');
         }
-    }, [toolState?.result]);
+    }, [toolState?.result, toolState?.loading]);
 
     const toolLabel = {
         summarize: '总结', background: '背景调研', questions: '读书十问',
-        mindmap: '思维导图', recommend: '书籍推荐', debate: '芒格辩论',
-        'knowledge-graph': '知识图谱'
+        mindmap: '思维导图', recommend: '书籍推荐', 'author-talk': '与作者对谈',
+        'knowledge-graph': '精读笔记'
     };
 
     const inputPlaceholder = {
-        summarize: '输入总结范围（如：整本书、第3章、第1-5章）',
-        debate: '输入你书中想辩论的观点',
-        mindmap: '输入思维导图范围（如：整本书、第3-5章、某个主题）'
+        'author-talk': '你想问作者的问题'
     };
 
     const mindmapRef = useRef(null);
@@ -283,7 +282,7 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
                             {toolState?.result && !toolState?.loading && !toolState.result.error && activeToolId !== 'mindmap' && activeToolId !== 'knowledge-graph' && (
                                 (() => {
                                     const label = toolLabel[activeToolId] || activeToolId;
-                                    const scope = toolInput || label;
+                                    const scope = (toolInput || '').trim() || (currentChapter ? currentChapter.title : '整本书');
                                     const content = typeof toolState.result.data === 'string' ? toolState.result.data : '';
                                     const alreadyFav = favorites?.some(f => f.type === 'tool' && f.toolId === activeToolId && f.answer === content);
                                     return (
@@ -301,7 +300,10 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
                             )}
                         </>
                     ) : (
-                        <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-widest">AI 工具</h2>
+                        <div className="min-w-0">
+                            <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-widest">AI 工具</h2>
+                            <p className="text-[11px] text-zinc-400 mt-1 truncate">范围：{currentChapter ? currentChapter.title : '整本书'}</p>
+                        </div>
                     )}
                 </div>
 
@@ -327,8 +329,8 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
                         </div>
                     )}
 
-                    {/* 工具加载视图 */}
-                    {activeToolId && toolState?.loading && (
+                    {/* 工具加载视图（流式已开始输出时不再显示转圈） */}
+                    {activeToolId && toolState?.loading && !toolState?.result?.streaming && (
                         <div className="flex flex-col items-center justify-center py-10 animate-fade-in">
                             <div className="animate-spin h-8 w-8 border-2 border-zinc-300 border-t-transparent rounded-full mb-3"></div>
                             <p className="text-xs text-zinc-400">AI 处理中...</p>
@@ -336,9 +338,15 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
                         </div>
                     )}
 
-                    {/* 工具结果视图 */}
-                    {activeToolId && toolState?.result && !toolState?.loading && (
+                    {/* 工具结果视图（流式期间同步渲染已生成部分） */}
+                    {activeToolId && toolState?.result && (!toolState?.loading || toolState?.result.streaming) && (
                         <div className="animate-fade-in">
+                            {toolState.result.streaming && (
+                                <div className="flex items-center gap-2 text-xs text-zinc-400 mb-3">
+                                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-zinc-400 animate-pulse"></span>
+                                    {toolState.result.status || '生成中'}
+                                </div>
+                            )}
                             {toolState.result.error ? (
                                 <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4">
                                     <div className="flex items-center gap-2 text-zinc-500 mb-2">
@@ -378,6 +386,8 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
                                         </details>
                                     </div>
                                 </div>
+                            ) : activeToolId === 'mindmap' && toolState.result.streaming ? (
+                                <pre className="text-xs text-zinc-500 whitespace-pre-wrap leading-relaxed">{toolState.result.data}</pre>
                             ) : activeToolId === 'mindmap' ? (
                                 <div>
                                     <div className="flex items-center justify-between mb-3">
@@ -402,6 +412,11 @@ function RightPanel({ currentBook, currentChapter, toolState, onRunTool, onBackT
                                         if (!raw.trim()) return null;
                                         return renderResultBlocks(raw);
                                     })()}
+                                    {!toolState.result.streaming && toolState.result.sources?.length > 0 && (
+                                        <div className="pt-2 border-t border-zinc-100 text-[11px] text-zinc-400">
+                                            引用章节：{toolState.result.sources.map(s => s.chapter_title).join('、')}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

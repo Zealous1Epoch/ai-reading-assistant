@@ -424,15 +424,16 @@ function App() {
         }
     };
 
-    // 工具卡片点击
+    // 工具卡片点击 —— SSE 流式；作用范围 = 左栏当前选中章（未选中则整本书）
     const handleRunTool = async (toolId, userInput) => {
         if (!currentBook || toolLoading) return;
 
         setActiveTool(toolId);
         setToolLoading(true);
+        setToolResult({ data: '', streaming: true });
 
         try {
-            const res = await fetch(`${API_BASE}/api/tools/${toolId}`, {
+            const res = await fetch(`${API_BASE}/api/tools/${toolId}/stream`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -447,8 +448,44 @@ function App() {
                 throw new Error(errText || `请求失败 (${res.status})`);
             }
 
-            const data = await res.json();
-            setToolResult(data);
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let text = '';
+            let status = '';
+            let sources = [];
+            let artifact = null;
+            let streamError = null;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    const payload = line.slice(6);
+                    if (payload === '[DONE]') continue;
+                    try {
+                        const f = JSON.parse(payload);
+                        if (f.status !== undefined) status = f.status;
+                        else if (f.content !== undefined) text += f.content;
+                        else if (f.sources) sources = f.sources;
+                        else if (f.artifact) artifact = f.artifact;
+                        else if (f.error) streamError = f.error;
+                    } catch { /* 半截 JSON 丢弃即可，后续帧完整 */ }
+                    setToolResult({
+                        data: text, streaming: true,
+                        status: status || undefined,
+                        sources: sources.length ? sources : undefined,
+                    });
+                }
+            }
+
+            if (streamError) setToolResult({ error: streamError });
+            else if (artifact) setToolResult({ type: 'html', data: artifact.data, filename: artifact.filename });
+            else setToolResult({ data: text, sources: sources.length ? sources : undefined });
         } catch (err) {
             console.error('工具调用失败:', err);
             setToolResult({ error: err.message });

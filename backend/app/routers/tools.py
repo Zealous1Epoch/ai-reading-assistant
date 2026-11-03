@@ -1,87 +1,105 @@
 """
-AI工具路由 - 右侧工具栏的后端接口
+AI 工具路由 —— 右侧工具栏的后端接口（v1.8 P0 重设计）
+
+共享管线：
+- 范围收口：作用范围 = 左栏当前选中（chapter_id 命中当前章，否则整本书），不再靠打字描述
+- 统一上下文构建：单章全文直进；全书按预算逐章分配限额（首尾都取，覆盖每一章）
+- SSE 流式执行：除精读笔记（HTML 产物）外全部逐 token 推送
+
+SSE 帧协议（与 /analysis/chat/stream 同款 data: 行）：
+  data: {"status": "..."}    进度提示（全书分段通读等）
+  data: {"content": "..."}   正文增量
+  data: {"sources": [...]}   引用章节（与作者对谈）
+  data: {"artifact": {...}}  非文本产物（精读笔记 HTML）
+  data: {"error": "..."}     执行失败
+  data: [DONE]
 """
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
+from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
+import json
 
 from app.services.book_processor import book_processor
 from app.services.analysis_service import analysis_service
-from app.models.book_models import Chapter
+from app.routers.book_processor import analysis_results as books_index
 
 router = APIRouter(prefix="/api/tools", tags=["AI工具"])
 
-
-def _get_book_chapters(book_id: str):
-    """获取指定书籍全部章节（服务层按块拼回整章，剥离滑窗重叠）"""
-    return book_processor.get_full_chapters(book_id)
+# 上下文预算（字符数）。单章尽量全文；全书拼接按章数分配每章限额。
+CHAPTER_CAP = 12000
+BOOK_BUDGET = 30000
+# 全书总结 map-reduce：每块目标大小 / 每块章节数
+MAP_CHUNK = 12000
+MAP_GROUP_SIZE = 8
 
 
 class ToolRequest(BaseModel):
     book_id: str
-    chapter_id: Optional[str] = None
-    user_input: Optional[str] = None
+    chapter_id: Optional[str] = None   # 左栏当前选中章；不传即作用范围为整本书
+    user_input: Optional[str] = None   # 仅「与作者对谈」使用：读者的问题
 
 
-@router.post("/{tool_id}")
-async def run_tool(tool_id: str, request: ToolRequest):
-    """运行指定工具"""
+def _frame(obj) -> str:
+    return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
-    # 获取书籍章节
-    chapters = _get_book_chapters(request.book_id)
-    if not chapters and request.chapter_id:
-        chapter = book_processor.get_chapter_by_id(request.chapter_id)
-        chapters = [chapter] if chapter else []
+
+DONE_FRAME = "data: [DONE]\n\n"
+
+
+def _book_title(book_id: str) -> str:
+    entry = books_index.get(book_id)
+    return (getattr(entry, "title", "") or "").strip() or "这本书"
+
+
+def _resolve_scope(request: ToolRequest):
+    """范围收口：返回 (作用章节列表, 范围描述)"""
+    chapters = book_processor.get_full_chapters(request.book_id)
     if not chapters:
         raise HTTPException(status_code=404, detail="找不到书籍或章节内容")
-
-    if tool_id == "summarize":
-        return await _summarize(request, chapters)
-    elif tool_id == "background":
-        return await _background(request, chapters)
-    elif tool_id == "questions":
-        return await _questions(request, chapters)
-    elif tool_id == "mindmap":
-        return await _mindmap(request, chapters)
-    elif tool_id == "recommend":
-        return await _recommend(request, chapters)
-    elif tool_id == "debate":
-        return await _debate(request, chapters)
-    elif tool_id == "knowledge-graph":
-        return await _knowledge_graph(request, chapters)
-    else:
-        raise HTTPException(status_code=404, detail=f"未知工具: {tool_id}")
-
-
-def _get_context(chapters, chapter_id=None):
-    """获取要分析的文本内容"""
-    if chapter_id:
+    if request.chapter_id:
         for ch in chapters:
-            if ch.chapter_id == chapter_id:
-                return f"《{ch.title}》\n{ch.content[:10000]}"
-        return ""
-    # 全书：取每章前2000字
+            if ch.chapter_id == request.chapter_id:
+                return [ch], ch.title
+    return chapters, "整本书"
+
+
+def _context(chapters, budget: int = BOOK_BUDGET) -> str:
+    """统一上下文构建：单章全文（封顶）；全书按预算分配每章限额，首尾都取、覆盖每一章"""
+    if len(chapters) == 1:
+        ch = chapters[0]
+        return f"[{ch.title}]\n{ch.content[:CHAPTER_CAP]}"
+    cap = max(500, budget // len(chapters))
     parts = []
-    for ch in chapters[:20]:
-        parts.append(f"[{ch.title}]\n{ch.content[:2000]}")
+    for ch in chapters:
+        if len(ch.content) <= cap:
+            body = ch.content
+        else:
+            tail_n = min(200, cap // 4)
+            body = ch.content[:cap - tail_n] + "\n……（中段省略）……\n" + ch.content[-tail_n:]
+        parts.append(f"[{ch.title}]\n{body}")
     return "\n\n".join(parts)
 
 
-async def _summarize(request, chapters):
-    """总结 - 用户可指定整本书或特定章节"""
-    user_spec = (request.user_input or "").strip()
-    if not user_spec:
-        return {"data": "请说明你想总结的范围，例如「整本书」或「第3章」"}
+async def _stream_prompt(prompt: str):
+    """逐 token 推送一次补全"""
+    async for msg in analysis_service.llm.astream([HumanMessage(content=prompt)]):
+        piece = msg.content if isinstance(msg.content, str) else ""
+        if piece:
+            yield _frame({"content": piece})
 
-    # 尝试理解用户指定的章节
-    target_chapter = request.chapter_id
-    context = _get_context(chapters, target_chapter)
 
-    prompt = f"""用户想总结的内容：{user_spec}
+# ---------------------------------------------------------------- 工具实现
 
-请根据以下书籍内容，提供详细的总结：
+async def _summarize(request, chapters, scope_desc):
+    """总结 —— 范围即左栏选中；全书走 map-reduce 全章覆盖"""
+    if len(chapters) == 1:
+        ch = chapters[0]
+        prompt = f"""请根据以下章节内容，提供详细的总结：
 
-{context[:8000]}
+《{ch.title}》
+{ch.content[:CHAPTER_CAP]}
 
 请提供：
 1. 核心内容概述（300字左右）
@@ -89,19 +107,43 @@ async def _summarize(request, chapters):
 3. 重要的概念和结论
 
 格式要求：每个部分用编号作为标题行（如"1. 核心内容概述"），标题行后换行写正文。请用纯文本，不要使用 Markdown 符号。"""
-    from langchain_core.messages import HumanMessage
+        async for frame in _stream_prompt(prompt):
+            yield frame
+        return
 
-    response = await analysis_service.llm.ainvoke([HumanMessage(content=prompt)])
-    return {"data": response.content}
+    book = _book_title(request.book_id)
+    groups = [chapters[i:i + MAP_GROUP_SIZE] for i in range(0, len(chapters), MAP_GROUP_SIZE)]
+    partials = []
+    for i, grp in enumerate(groups, 1):
+        yield _frame({"status": f"通读全书 {i}/{len(groups)} 段"})
+        part_prompt = f"""以下是《{book}》一书的一部分（第 {grp[0].title} 至 {grp[-1].title}，共 {len(grp)} 节），请提炼这部分的主要内容。
+每节给出 1-3 行要点，保留关键论据、案例和数据细节。纯文本输出，不要客套话。
+
+{_context(grp, budget=MAP_CHUNK)}"""
+        resp = await analysis_service.llm.ainvoke([HumanMessage(content=part_prompt)])
+        partials.append(f"【{grp[0].title} — {grp[-1].title}】\n{resp.content}")
+
+    yield _frame({"status": "汇总全书总结"})
+    prompt = f"""以下是《{book}》全书分段提炼的要点（覆盖全部 {len(chapters)} 节）：
+
+{chr(10).join(partials)[:24000]}
+
+请据此写一份全书详细总结：
+1. 全书核心内容概述（400字左右）
+2. 关键论点与论据（按书中脉络组织）
+3. 重要的概念和结论
+
+格式要求：每个部分用编号作为标题行（如"1. 核心内容概述"），标题行后换行写正文。请用纯文本，不要使用 Markdown 符号。"""
+    async for frame in _stream_prompt(prompt):
+        yield frame
 
 
-async def _background(request, chapters):
+async def _background(request, chapters, scope_desc):
     """背景调研"""
-    context = _get_context(chapters)
-
+    context = _context(chapters)
     prompt = f"""请为以下书籍内容提供详细的背景调研分析：
 
-{context[:6000]}
+{context}
 
 请从以下角度分析：
 1. 时代背景：这本书创作的历史和社会背景
@@ -109,20 +151,17 @@ async def _background(request, chapters):
 3. 学术脉络：这本书在相关学术领域中的位置
 4. 核心争论：书中涉及的主要学术或思想争论
 5. 影响力：这本书发布后产生的影响和回响"""
-    from langchain_core.messages import HumanMessage
-
-    response = await analysis_service.llm.ainvoke([HumanMessage(content=prompt)])
-    return {"data": response.content}
+    async for frame in _stream_prompt(prompt):
+        yield frame
 
 
-async def _questions(request, chapters):
-    """读书十问 - 固定10个问题的模板"""
-    context = _get_context(chapters)
-
+async def _questions(request, chapters, scope_desc):
+    """读书十问"""
+    context = _context(chapters)
     prompt = f"""请基于以下书籍内容，回答以下10个问题。每个问题请给出具体、有深度的回答，引用书中内容作为依据。
 
 书籍内容：
-{context[:8000]}
+{context}
 
 请逐一回答：
 
@@ -138,70 +177,55 @@ async def _questions(request, chapters):
 10. 读完这本书后，最值得记住或落实的一个行动建议是什么？
 
 格式要求：每个问题用一行作为标题（如"1. 核心问题是什么？"），然后换行用一段或多段回答。问题之间用空行分隔。请用纯文本，不要使用 Markdown 符号。"""
-    from langchain_core.messages import HumanMessage
-
-    response = await analysis_service.llm.ainvoke([HumanMessage(content=prompt)])
-    return {"data": response.content}
+    async for frame in _stream_prompt(prompt):
+        yield frame
 
 
-async def _mindmap(request, chapters):
-    """思维导图 - 生成 Markdown 层级结构，供 markmap 渲染"""
-    user_spec = (request.user_input or "").strip()
-    scope_desc = user_spec if user_spec else "整本书"
+async def _mindmap(request, chapters, scope_desc):
+    """思维导图 —— 章节锚定用左栏选中的真实标题，不再正则猜编号"""
+    book = _book_title(request.book_id)
+    context = _context(chapters)
 
-    # 根据用户指定范围筛选章节内容
-    target_chapters = chapters
-    if user_spec:
-        import re
-        # 尝试匹配 "第X章" 或 "第X-Y章"
-        matches = re.findall(r'第\s*(\d+)\s*[章\-—至到]\s*(\d+)?', user_spec)
-        if matches:
-            start = int(matches[0][0])
-            end = int(matches[0][1]) if matches[0][1] else start
-            target_chapters = [ch for ch in chapters if start <= ch.chapter_index <= end]
-
-    if not target_chapters:
-        target_chapters = chapters
-
-    context = _get_context(target_chapters)
-
-    prompt = f"""请为以下书籍内容生成一份极其详尽的思维导图。用户想了解的范围：{scope_desc}
-
-使用 Markdown 标题层级（# 一级 ## 二级 ### 三级 #### 四级 ##### 五级 ###### 六级）：
-
-层级结构要求：
-- # 一级：书名
-- ## 二级：章节标题
+    if len(chapters) == 1:
+        anchor_rule = f"- # 一级：《{book}》→「{chapters[0].title}」\n- ## 二级：该章的核心小节/主题\n- ### 三级：每个主题下的关键论点\n- #### 四级：支撑论点的具体论据、案例、数据\n- ##### 五级：论据的展开——原文中的具体例子、关键引文、数据细节、作者的推理步骤"
+    else:
+        title_lines = "\n".join(f"{i + 1}. {ch.title}" for i, ch in enumerate(chapters))
+        anchor_rule = f"""- # 一级：《{book}》
+- ## 二级：章节标题——必须逐条使用下面列表中的原文标题，每章恰好一个、顺序一致，不得改写、合并或遗漏：
+{title_lines}
 - ### 三级：该章的核心主题/小节标题
 - #### 四级：每个主题下的关键论点（作者的主张是什么）
-- ##### 五级：支撑该论点的具体论据、案例、数据
-- ###### 六级（重要）：对论据的进一步展开——原文中的具体例子、关键引文、数据细节、作者的推理步骤
+- ##### 五级：支撑该论点的具体论据、案例、数据"""
+
+    prompt = f"""请为《{book}》（作用范围：{scope_desc}）生成一份极其详尽的思维导图。
+
+使用 Markdown 标题层级（# 一级 ## 二级 ### 三级 #### 四级 ##### 五级）：
+
+层级结构要求：
+{anchor_rule}
 
 核心要求：
-- 必须深入到第五级和第六级，把每个论点的论据说透
+- 必须深入到第四级和第五级，把每个论点的论据说透
 - 不要写"15字以内"这种限制，每个节点写出完整意思
-- 第六级要包含书中真实出现过的具体内容，如：人名、事件、数据、引文原文、比喻或故事
+- 第五级要包含书中真实出现过的具体内容，如：人名、事件、数据、引文原文、比喻或故事
 - 结构要反映作者的论证逻辑链条，而非简单的要点罗列
-- 确保覆盖书中所有主要论点，不要遗漏重要内容
+- 确保覆盖范围内所有主要论点，不要遗漏重要内容
 
 书籍内容：
-{context[:12000]}
+{context}
 
-请直接输出 Markdown 格式的思维导图结构，不要输出任何前言、说明、结尾语或客套话。第一行必须是 # 开头的标题。第五级和第六级是关键。"""
-    from langchain_core.messages import HumanMessage
-
-    response = await analysis_service.llm.ainvoke([HumanMessage(content=prompt)])
-    return {"data": response.content}
+请直接输出 Markdown 格式的思维导图结构，不要输出任何前言、说明、结尾语或客套话。第一行必须是 # 开头的标题。"""
+    async for frame in _stream_prompt(prompt):
+        yield frame
 
 
-async def _recommend(request, chapters):
+async def _recommend(request, chapters, scope_desc):
     """书籍推荐 - 推荐同主题书籍"""
-    context = _get_context(chapters)
-
+    context = _context(chapters)
     prompt = f"""请根据以下书籍内容，推荐 3-5 本相同主题或相似内容的书籍。
 
 书籍内容：
-{context[:5000]}
+{context}
 
 请按以下格式推荐：
 
@@ -211,51 +235,57 @@ async def _recommend(request, chapters):
    - 适合读者：（什么样的读者适合读这本）
 
 请确保推荐真实存在的书籍，推荐理由要具体。"""
-    from langchain_core.messages import HumanMessage
-
-    response = await analysis_service.llm.ainvoke([HumanMessage(content=prompt)])
-    return {"data": response.content}
+    async for frame in _stream_prompt(prompt):
+        yield frame
 
 
-async def _debate(request, chapters):
-    """芒格辩论法 - 跨学科正反辩论"""
-    if not request.user_input:
-        return {"data": "请输入书中你想辩论的观点（ 如「人与AI可不可以和谐共生」 ）"}
+async def _author_talk(request, chapters, scope_desc):
+    """与作者对谈 —— 问题先经语义检索书中相关段落，AI 以作者视角基于书中论点回答并标注出处"""
+    question = (request.user_input or "").strip()
+    if not question:
+        yield _frame({"content": "请输入你想问作者的问题。"})
+        return
 
-    prompt = f"""用户输入的观点：{request.user_input}
+    yield _frame({"status": "检索书中相关段落"})
+    results = await book_processor.search_chapters(
+        query=question, book_ids=[request.book_id], n_results=6
+    )
+    sources = [{
+        "book_title": r.book_title,
+        "chapter_title": r.title,
+        "chapter_id": r.chapter_id,
+        "book_id": r.book_id,
+    } for r in results]
+    if sources:
+        yield _frame({"sources": sources})
 
-请用查理·芒格推崇的「多元思维模型」辩论法，模拟以下四个领域的专家从正反两方对这个观点进行辩论：
+    book = _book_title(request.book_id)
+    if results:
+        passages = "\n\n".join(
+            f"〔出自《{r.title}》〕\n{r.content_snippet}" for r in results
+        )
+    else:
+        passages = "（未检索到与问题直接相关的段落）"
 
-## 一、经济学专家视角
-正方（支持）：从经济学角度如何论证这个观点？
-反方（质疑）：从经济学角度如何质疑这个观点？
+    prompt = f"""你是一位读者正在向《{book}》的作者本人提问。请扮演这位作者，以第一人称回答。
 
-## 二、心理学专家视角
-正方（支持）：从心理学角度如何论证？
-反方（质疑）：从心理学角度如何质疑？
+【读者问题】
+{question}
 
-## 三、社会学专家视角
-正方（支持）：从社会学角度如何论证？
-反方（质疑）：从社会学角度如何质疑？
+【书中与问题相关的原文段落】
+{passages}
 
-## 四、哲学/逻辑学专家视角
-正方（支持）：从哲学/逻辑学角度如何论证？
-反方（质疑）：从哲学/逻辑学角度如何质疑？
-
-## 总结
-- 这个观点的前提假设是什么？
-- 它的适用边界在哪里？
-- 综合四个角度，你的最终评估是什么？
-
-请用纯文本格式，每个专家的回答要具体、有深度，避免泛泛而谈。"""
-    from langchain_core.messages import HumanMessage
-
-    response = await analysis_service.llm.ainvoke([HumanMessage(content=prompt)])
-    return {"data": response.content}
+回答要求：
+1. 基于书中真实观点回答；引用时标注出自哪一节，如"正如我在《××》里写的"
+2. 书中没有谈到的内容，坦白说明书中未涉及，可谨慎延伸但必须声明这是书外之谈
+3. 语气如作者面对面的深入对谈，有立场、有细节，不要空泛客套
+4. 600 字左右，纯文本，不要使用 Markdown 符号"""
+    async for frame in _stream_prompt(prompt):
+        yield frame
 
 
 def _build_knowledge_html(book_title: str, author: str, chapters_data: list, keyword_index: list, recommendations: list) -> str:
-    """组装知识图谱 HTML 页面"""
+    """组装精读笔记 HTML 页面"""
     now = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M')
 
     cards_html = ""
@@ -418,18 +448,21 @@ def _build_knowledge_html(book_title: str, author: str, chapters_data: list, key
 </html>"""
 
 
-async def _knowledge_graph(request, chapters):
-    """知识图谱 HTML 导出 - 生成精读笔记卡片页"""
-    from langchain_core.messages import HumanMessage
+async def _knowledge_graph(request, chapters, scope_desc):
+    """精读笔记 —— 生成 HTML 卡片页（P1 将改为 JSON + 前端渲染）"""
+    entry = books_index.get(request.book_id)
+    book = getattr(entry, "title", "") or ""
+    author = getattr(entry, "author", "") or "未知作者"
 
-    # 限制章节数量，控制 token 消耗
-    selected = chapters[:20]
+    selected = chapters[:24]
     chapter_texts = []
     for i, ch in enumerate(selected):
-        chapter_texts.append(f"--- 第{i+1}章：{ch.title} ---\n{ch.content[:1500]}")
+        chapter_texts.append(f"--- 第{i+1}节：{ch.title} ---\n{ch.content[:1500]}")
 
     book_content = "\n\n".join(chapter_texts)
     chapter_names = "\n".join([f"{i+1}. {ch.title}" for i, ch in enumerate(selected)])
+
+    yield _frame({"status": "生成精读笔记"})
 
     prompt = f"""你是一位资深的阅读编辑，请为以下书籍生成一份精读笔记内容。我需要你输出一个严格格式的文本，以便程序解析后生成HTML页面。
 
@@ -442,8 +475,8 @@ async def _knowledge_graph(request, chapters):
 请按以下格式输出（严格按照标记，每个字段独立一行）：
 
 [BOOK]
-标题：根据内容推断的书名
-作者：根据内容推断的作者
+标题：{book or '根据内容推断的书名'}
+作者：{author or '根据内容推断的作者'}
 
 [CHAPTERS]
 （为每一章输出以下内容块，用 ===CHAPTER=== 分隔）
@@ -485,7 +518,6 @@ async def _knowledge_graph(request, chapters):
     keyword_index = []
     recommendations = []
     book_title = ""
-    author = "未知作者"
 
     current_section = None
     current_chapter = {}
@@ -537,8 +569,6 @@ async def _knowledge_graph(request, chapters):
                 kws = line.replace('关键词：', '').strip()
                 current_chapter['keywords'] = [k.strip() for k in kws.replace('，', ',').split(',') if k.strip()]
             elif line.startswith('摘录') and line[2].isdigit():
-                # Ensure excerpts list has enough slots
-                idx_str = line.split('：')[0].replace('摘录', '')
                 txt = line.split('：', 1)[1].strip() if '：' in line else ''
                 excerpts.append({'text': txt, 'annotation': ''})
             elif line.startswith('批注') and line[2].isdigit():
@@ -588,7 +618,46 @@ async def _knowledge_graph(request, chapters):
         }]
 
     if not book_title:
-        book_title = chapters[0].title if chapters else "未命名"
+        book_title = book or (chapters[0].title if chapters else "未命名")
 
     html = _build_knowledge_html(book_title, author, chapters_data, keyword_index, recommendations)
-    return {"data": html, "type": "html", "filename": f"{book_title}_精读笔记.html"}
+    yield _frame({"artifact": {"type": "html", "data": html, "filename": f"{book_title}_精读笔记.html"}})
+
+
+_STREAM_TOOLS = {
+    "summarize": _summarize,
+    "background": _background,
+    "questions": _questions,
+    "mindmap": _mindmap,
+    "recommend": _recommend,
+    "author-talk": _author_talk,
+    "knowledge-graph": _knowledge_graph,
+}
+
+
+@router.post("/{tool_id}/stream")
+async def run_tool_stream(tool_id: str, request: ToolRequest):
+    """运行指定工具（SSE 流式）。作用范围 = 左栏当前选中：chapter_id 命中当前章，否则整本书"""
+    fn = _STREAM_TOOLS.get(tool_id)
+    if not fn:
+        raise HTTPException(status_code=404, detail=f"未知工具: {tool_id}")
+
+    chapters, scope_desc = _resolve_scope(request)
+
+    async def generate():
+        try:
+            async for frame in fn(request, chapters, scope_desc):
+                yield frame
+        except Exception as e:
+            yield _frame({"error": f"工具执行失败: {e}"})
+        yield DONE_FRAME
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )

@@ -122,6 +122,11 @@ python -m app.main
 - `GET /sessions/{session_id}` - 会话详情（含全部消息与来源）
 - `DELETE /sessions/{session_id}` - 删除会话（删书时级联清理）
 
+### AI 工具（SSE 流式）
+- `POST /api/tools/{tool_id}/stream` - 运行工具，SSE 帧协议：`{"status"}` 进度 / `{"content"}` 正文增量 / `{"sources"}` 引用章节 / `{"artifact"}` HTML 产物 / `[DONE]`
+- 请求体：`book_id` 必填；`chapter_id` 传了则作用范围为该章，否则整本书（范围不再由用户打字描述）；`user_input` 仅 `author-talk` 使用（读者的问题）
+- 工具：`summarize` 总结（全书走 map-reduce 全章覆盖）、`background` 背景调研、`questions` 读书十问、`mindmap` 思维导图（章节锚定用真实标题）、`recommend` 书籍推荐、`author-talk` 与作者对谈（语义检索书中论点 grounding）、`knowledge-graph` 精读笔记（HTML 产物）
+
 ## 使用示例
 
 ### 上传并分析书籍

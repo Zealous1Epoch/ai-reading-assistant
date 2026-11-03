@@ -17,7 +17,6 @@ class ChatRequest(BaseModel):
     message: str
     chapter_id: Optional[str] = None
     book_id: Optional[str] = None
-    selected_book_ids: Optional[List[str]] = None
     chat_history: Optional[List[dict]] = None
     session_id: Optional[str] = None  # 传入则本次问答自动持久化到该会话
     expert_id: Optional[str] = None   # 专家模式：用该方法论 playbook 替换默认人格
@@ -114,23 +113,21 @@ async def stream_chat(request: ChatRequest):
                 "book_id": chapter.book_id
             })
 
-    if request.selected_book_ids or request.book_id:
-        search_ids = request.selected_book_ids or ([request.book_id] if request.book_id else None)
-        if search_ids:
-            search_results = await book_processor.search_chapters(
-                query=request.message,
-                book_ids=search_ids,
-                n_results=5
-            )
-            for r in search_results:
-                source_label = f"[{r.book_title} → {r.title}]" if r.book_title else f"[{r.title}]"
-                context_parts.append(f"{source_label}\n{r.content_snippet}")
-                sources.append({
-                    "book_title": r.book_title,
-                    "chapter_title": r.title,
-                    "chapter_id": r.chapter_id,
-                    "book_id": r.book_id
-                })
+    if request.book_id:
+        search_results = await book_processor.search_chapters(
+            query=request.message,
+            book_ids=[request.book_id],
+            n_results=5
+        )
+        for r in search_results:
+            source_label = f"[{r.book_title} → {r.title}]" if r.book_title else f"[{r.title}]"
+            context_parts.append(f"{source_label}\n{r.content_snippet}")
+            sources.append({
+                "book_title": r.book_title,
+                "chapter_title": r.title,
+                "chapter_id": r.chapter_id,
+                "book_id": r.book_id
+            })
 
     chapter_context = "\n\n---\n\n".join(context_parts) if context_parts else None
 
@@ -162,7 +159,7 @@ async def stream_chat(request: ChatRequest):
             full_reply += chunk
             yield f"data: {json.dumps({'content': chunk}, ensure_ascii=False)}\n\n"
 
-        # 多书/整本书模式：发送来源章节信息（含书名）
+        # RAG 命中时发送来源章节信息（含书名）
         if sources:
             yield f"data: {json.dumps({'sources': sources}, ensure_ascii=False)}\n\n"
 
@@ -192,20 +189,18 @@ async def chat(request: ChatRequest):
         chapter = book_processor.get_chapter_by_id(request.chapter_id)
         if chapter:
             chapter_context = chapter.content
-    elif request.selected_book_ids or request.book_id:
-        search_ids = request.selected_book_ids or ([request.book_id] if request.book_id else None)
-        if search_ids:
-            search_results = await book_processor.search_chapters(
-                query=request.message,
-                book_ids=search_ids,
-                n_results=5
-            )
-            if search_results:
-                parts = []
-                for r in search_results:
-                    source_label = f"[{r.book_title} → {r.title}]" if r.book_title else f"[{r.title}]"
-                    parts.append(f"{source_label}\n{r.content_snippet}")
-                chapter_context = "\n\n---\n\n".join(parts)
+    elif request.book_id:
+        search_results = await book_processor.search_chapters(
+            query=request.message,
+            book_ids=[request.book_id],
+            n_results=5
+        )
+        if search_results:
+            parts = []
+            for r in search_results:
+                source_label = f"[{r.book_title} → {r.title}]" if r.book_title else f"[{r.title}]"
+                parts.append(f"{source_label}\n{r.content_snippet}")
+            chapter_context = "\n\n---\n\n".join(parts)
 
     full_response = ""
     async for chunk in analysis_service.stream_chat(

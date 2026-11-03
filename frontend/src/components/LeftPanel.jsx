@@ -8,7 +8,7 @@ function escapeInput(text) {
     return text.replace(/[&<>"']/g, c => map[c]);
 }
 
-function LeftPanel({ books, currentBook, currentChapter, selectedBookIds, onToggleBook, onSelectBook, onSelectChapter, onUploadBook, onUploadMultiple, onDeleteBook, uploading, chatMode }) {
+function LeftPanel({ books, currentBook, currentChapter, onSelectBook, onSelectChapter, onUploadBook, onUploadMultiple, onDeleteBook, uploading }) {
     const [isDragging, setIsDragging] = useState(false);
     const [leftView, setLeftView] = useState('files');
     const [searchKeyword, setSearchKeyword] = useState('');
@@ -83,18 +83,6 @@ function LeftPanel({ books, currentBook, currentChapter, selectedBookIds, onTogg
                     </div>
                     </div>
 
-                    {/* 已选书籍提示（仅综合阅读模式显示） */}
-                    {chatMode === 'cross' && selectedBookIds?.length > 0 && (
-                        <div className="px-3 pb-1">
-                            <div className="flex items-center gap-1.5 text-[11px] text-zinc-600 bg-zinc-50 rounded-lg px-3 py-2">
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                </svg>
-                                <span>已选 {selectedBookIds.length} 本书</span>
-                            </div>
-                        </div>
-                    )}
-
                     {/* 书籍列表 */}
                     <div className="flex-1 overflow-y-auto scrollbar-thin px-3 pb-3">
                         <div className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider px-2 py-2">
@@ -138,21 +126,6 @@ function LeftPanel({ books, currentBook, currentChapter, selectedBookIds, onTogg
                                             ${isSelected ? 'bg-zinc-50 ring-1 ring-zinc-200' : 'hover:bg-zinc-50'}`}
                                     >
                                         <div className="flex items-center gap-2">
-                                            {chatMode === 'cross' && (
-                                                <div
-                                                    onClick={(e) => { e.stopPropagation(); onToggleBook(book.book_id); }}
-                                                    className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors cursor-pointer
-                                                        ${selectedBookIds.includes(book.book_id)
-                                                            ? 'bg-zinc-800 border-zinc-800'
-                                                            : 'border-zinc-300 hover:border-zinc-400'}`}
-                                                >
-                                                    {selectedBookIds.includes(book.book_id) && (
-                                                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                                        </svg>
-                                                    )}
-                                                </div>
-                                            )}
                                             <div className="w-9 h-11 rounded-lg flex items-center justify-center text-[11px] font-bold flex-shrink-0 bg-zinc-50 text-zinc-400 border border-zinc-100">
                                                 {book.file_format || 'TXT'}
                                             </div>

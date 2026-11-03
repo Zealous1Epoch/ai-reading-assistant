@@ -9,7 +9,7 @@ router = APIRouter(prefix="/sessions", tags=["对话历史"])
 
 class CreateSessionRequest(BaseModel):
     book_id: Optional[str] = None
-    scope: str = "book"  # book | cross
+    scope: str = "book"  # cross 为对比阅读遗留值（前端入口已移除，仅兼容存量数据）
 
 
 @router.get("")

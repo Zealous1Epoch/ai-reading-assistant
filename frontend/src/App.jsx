@@ -18,9 +18,8 @@ function App() {
     const [activeTool, setActiveTool] = useState(null);
     const [toolLoading, setToolLoading] = useState(false);
     const [toolResult, setToolResult] = useState(null);
-    const [chatMode, setChatMode] = useState('book');
+    const [viewMode, setViewMode] = useState('reading'); // 中栏显示模式：阅读 / 对话
     const [sources, setSources] = useState(null);
-    const [selectedBookIds, setSelectedBookIds] = useState([]);
     const [favorites, setFavorites] = useState(() => {
         try { return JSON.parse(localStorage.getItem('reading_favorites') || '[]'); }
         catch { return []; }
@@ -67,25 +66,22 @@ function App() {
             .catch(() => {});
     }, []);
 
-    // 当前会话作用域：单书模式按书隔离，对比阅读全局一个桶
-    const scopeKey = chatMode === 'cross' ? 'cross' : (currentBook?.book_id || '');
-    const scopeRef = useRef(scopeKey);
+    // 当前会话作用域：按当前书隔离
+    const scopeKey = currentBook?.book_id || '';
 
     const fetchSessions = useCallback(async (key) => {
         if (!key) { setSessions([]); return []; }
         try {
-            const params = chatMode === 'cross' ? 'scope=cross' : `scope=book&book_id=${encodeURIComponent(key)}`;
-            const res = await fetch(`${API_BASE}/sessions?${params}`);
+            const res = await fetch(`${API_BASE}/sessions?scope=book&book_id=${encodeURIComponent(key)}`);
             const data = await res.json();
             const list = data.sessions || [];
             setSessions(list);
             return list;
         } catch { return []; }
-    }, [chatMode]);
+    }, []);
 
-    // 切换书/模式：重新拉会话列表，并自动恢复该作用域最近一次会话
+    // 切换书籍：重新拉会话列表，并自动恢复该书最近一次会话
     useEffect(() => {
-        scopeRef.current = scopeKey;
         setSources(null);
         if (!scopeKey) { setSessionId(null); setMessages([]); setActiveExpertId(null); return; }
         let alive = true;
@@ -107,14 +103,6 @@ function App() {
         })();
         return () => { alive = false; };
     }, [scopeKey, fetchSessions]);
-
-    const handleToggleBook = (bookId) => {
-        setSelectedBookIds(prev =>
-            prev.includes(bookId)
-                ? prev.filter(id => id !== bookId)
-                : [...prev, bookId]
-        );
-    };
 
     const resetSession = () => {
         setContentMode('book');
@@ -260,6 +248,7 @@ function App() {
         setContentMode('book');
         setActiveTool(null);
         setToolResult(null);
+        setViewMode('reading');
         if (book.chapters?.[0] && !book.chapters[0].content) {
             await loadChapterContent(book.chapters[0]);
         }
@@ -318,6 +307,7 @@ function App() {
     const handleSendMessage = async (message) => {
         setIsStreaming(true);
         setSources(null);
+        setViewMode('chat');
 
         // 惰性创建会话：首次提问才占坑，避免历史列表堆满空"新对话"
         let sid = sessionId;
@@ -327,8 +317,8 @@ function App() {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        scope: chatMode,
-                        book_id: chatMode === 'book' ? currentBook?.book_id : null
+                        scope: 'book',
+                        book_id: currentBook?.book_id
                     })
                 });
                 sid = (await res.json()).session_id;
@@ -338,13 +328,9 @@ function App() {
 
         const history = messages.slice(-6).map(({ role, content }) => ({ role, content }));
         const body = { message, chat_history: history, session_id: sid };
-        if (chatMode === 'book') {
-            body.book_id = currentBook?.book_id;
-            if (currentChapter?.chapter_id) {
-                body.chapter_id = currentChapter.chapter_id;
-            }
-        } else {
-            body.selected_book_ids = selectedBookIds.length > 0 ? selectedBookIds : null;
+        body.book_id = currentBook?.book_id;
+        if (currentChapter?.chapter_id) {
+            body.chapter_id = currentChapter.chapter_id;
         }
         if (activeExpertId) body.expert_id = activeExpertId;
 
@@ -425,6 +411,7 @@ function App() {
             setMessages(full.messages || []);
             setSources(null);
             setActiveExpertId(full.expert_id || null);
+            setViewMode('chat');
         } catch (err) {
             console.error('加载会话失败:', err);
         }
@@ -458,12 +445,12 @@ function App() {
                 throw new Error(err.detail || `启动失败 (${res.status})`);
             }
             const data = await res.json();
-            setChatMode('book');
             setContentMode('book');
             setSessionId(data.session_id);
             setMessages([{ role: 'assistant', content: data.content, kind: 'opening' }]);
             setActiveExpertId(expertId);
             setSources(null);
+            setViewMode('chat');
             fetchSessions(scopeKey);
         } catch (err) {
             console.error('专家模式启动失败:', err);
@@ -477,6 +464,7 @@ function App() {
     const handleGenerateReport = async () => {
         if (!activeExpertId || !sessionId || isStreaming) return;
         setIsStreaming(true);
+        setViewMode('chat');
         setMessages(prev => [...prev, { role: 'assistant', content: '', kind: 'report' }]);
         let text = '';
         try {
@@ -602,10 +590,6 @@ function App() {
         setToolResult(null);
     };
 
-    const handleToggleMode = (mode) => {
-        setChatMode(mode);
-    };
-
     const handleBackToBook = () => {
         setContentMode('book');
     };
@@ -634,15 +618,12 @@ function App() {
                 books={books}
                 currentBook={currentBook}
                 currentChapter={currentChapter}
-                selectedBookIds={selectedBookIds}
-                onToggleBook={handleToggleBook}
                 onSelectBook={handleSelectBook}
                 onSelectChapter={handleSelectChapter}
                 onUploadBook={handleUploadBook}
                 onUploadMultiple={handleUploadMultiple}
                 onDeleteBook={handleDeleteBook}
                 uploading={uploadProgress}
-                chatMode={chatMode}
             />
             <MiddlePanel
                 currentBook={currentBook}
@@ -655,11 +636,9 @@ function App() {
                 onDeleteSession={handleDeleteSession}
                 isStreaming={isStreaming}
                 onSendMessage={handleSendMessage}
-                chatMode={chatMode}
-                onToggleMode={handleToggleMode}
+                viewMode={viewMode}
+                onToggleView={setViewMode}
                 sources={sources}
-                selectedBookIds={selectedBookIds}
-                books={books}
                 onToggleFavorite={handleToggleFavorite}
                 onNavigateToSource={handleNavigateToSource}
                 favorites={favorites}

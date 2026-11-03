@@ -32,7 +32,7 @@ function fmtTime(iso) {
     return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
 }
 
-function MiddlePanel({ currentBook, currentChapter, chatMessages, isStreaming, onSendMessage, chatMode, onToggleMode, sources, selectedBookIds, books, onToggleFavorite, onNavigateToSource, favorites, sessions = [], currentSessionId, onNewSession, onSelectSession, onDeleteSession, experts = [], activeExpert, expertOpening = false, onOpenExpert, onGenerateReport }) {
+function MiddlePanel({ currentBook, currentChapter, chatMessages, isStreaming, onSendMessage, viewMode = 'reading', onToggleView, sources, onToggleFavorite, onNavigateToSource, favorites, sessions = [], currentSessionId, onNewSession, onSelectSession, onDeleteSession, experts = [], activeExpert, expertOpening = false, onOpenExpert, onGenerateReport }) {
     const [input, setInput] = useState('');
     const [historyOpen, setHistoryOpen] = useState(false);
     const [plusOpen, setPlusOpen] = useState(false);
@@ -150,11 +150,10 @@ function MiddlePanel({ currentBook, currentChapter, chatMessages, isStreaming, o
 
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [chatMessages]);
+    }, [chatMessages, viewMode]);
 
     const handleSend = () => {
         if (!input.trim() || isStreaming) return;
-        if (chatMode === 'cross' && selectedBookIds?.length === 0) return;
         onSendMessage(input.trim());
         setInput('');
     };
@@ -170,36 +169,16 @@ function MiddlePanel({ currentBook, currentChapter, chatMessages, isStreaming, o
         <div className="flex-1 flex flex-col h-full min-w-0 bg-white rounded-3xl border border-zinc-200 overflow-hidden">
             {/* 顶部栏 */}
             <div className="h-14 px-6 border-b border-zinc-100 flex items-center gap-3 flex-shrink-0">
-                {chatMode === 'cross' ? (
-                    <>
-                        <h1 className="text-base font-serif-heading font-semibold text-zinc-800">
-                            <span className="flex items-center gap-2">综合阅读</span>
-                        </h1>
-                        {selectedBookIds?.length > 0 && (
-                            <div className="ml-auto flex gap-1">
-                                {selectedBookIds.map(id => {
-                                    const book = books.find(b => b.book_id === id);
-                                    return book ? (
-                                        <span key={id} className="text-[11px] px-2 py-0.5 bg-zinc-50 text-zinc-500 rounded-full border border-zinc-200">{book.title}</span>
-                                    ) : null;
-                                })}
-                            </div>
-                        )}
-                    </>
-                ) : (
-                    <>
-                        <h1 className="text-base font-serif-heading font-semibold text-zinc-800 truncate">
-                            {currentBook ? (
-                                <span className="flex items-center gap-2">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-800 flex-shrink-0"></span>
-                                    {currentBook.title}
-                                </span>
-                            ) : '智能读书助手'}
-                        </h1>
-                        {currentChapter && (
-                            <div className="ml-auto text-xs text-zinc-400">{currentChapter.title}</div>
-                        )}
-                    </>
+                <h1 className="text-base font-serif-heading font-semibold text-zinc-800 truncate">
+                    {currentBook ? (
+                        <span className="flex items-center gap-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-zinc-800 flex-shrink-0"></span>
+                            {currentBook.title}
+                        </span>
+                    ) : '智能读书助手'}
+                </h1>
+                {currentChapter && (
+                    <div className="ml-auto text-xs text-zinc-400">{currentChapter.title}</div>
                 )}
             </div>
 
@@ -217,49 +196,7 @@ function MiddlePanel({ currentBook, currentChapter, chatMessages, isStreaming, o
                             <p className="text-sm text-zinc-400">从左侧上传或选择书籍，AI 将帮你深入理解内容</p>
                         </div>
                     </div>
-                ) : chatMode === 'cross' ? (
-                    <div className="animate-fade-in max-w-3xl">
-                        <div className="mb-6">
-                            <div className="flex items-center gap-2 mb-3">
-                                <span className="text-xs font-medium text-zinc-400 uppercase tracking-wider">综合阅读</span>
-                            </div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                                {selectedBookIds.length > 0 ? (
-                                    <>
-                                        <span className="text-xs text-zinc-400">已选书籍：</span>
-                                        {selectedBookIds.map(id => {
-                                            const book = books.find(b => b.book_id === id);
-                                            return book ? (
-                                                <span key={id} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-zinc-50 text-zinc-600 border border-zinc-200">
-                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                                    </svg>
-                                                    {book.title}
-                                                </span>
-                                            ) : null;
-                                        })}
-                                    </>
-                                ) : (
-                                    <div className="flex items-center gap-2 bg-zinc-50 border border-zinc-200 rounded-xl px-4 py-3">
-                                        <svg className="w-4 h-4 text-zinc-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                        </svg>
-                                        <p className="text-sm text-zinc-500">请先在左侧勾选要对比的书籍</p>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                        <div className="bg-zinc-50 rounded-2xl p-6 border border-zinc-200">
-                            <h3 className="text-sm font-semibold text-zinc-800 mb-2">多书对比阅读</h3>
-                            <p className="text-sm text-zinc-500 leading-relaxed">你已开启综合阅读模式。在左侧勾选多本书后，可以直接提问，AI 会基于所选书籍的内容进行对比分析。</p>
-                            <div className="mt-3 flex flex-wrap gap-2 text-xs text-zinc-400">
-                                <span className="px-2.5 py-1 bg-white rounded-full border border-zinc-200">对比两本书对同一观点的看法</span>
-                                <span className="px-2.5 py-1 bg-white rounded-full border border-zinc-200">分析不同作者的论证逻辑</span>
-                                <span className="px-2.5 py-1 bg-white rounded-full border border-zinc-200">综合多本书的视角回答问题</span>
-                            </div>
-                        </div>
-                    </div>
-                ) : (
+                ) : viewMode === 'reading' ? (
                     <div className="animate-fade-in max-w-3xl">
                         {currentChapter ? (
                             <div className="border border-zinc-200 rounded-3xl bg-white">
@@ -326,11 +263,14 @@ function MiddlePanel({ currentBook, currentChapter, chatMessages, isStreaming, o
                             </div>
                         )}
                     </div>
-                )}
+                ) : null}
 
-                {/* 对话消息 */}
-                {chatMessages.length > 0 && (
-                    <div className="mt-8 max-w-3xl border-t border-zinc-100 pt-6 space-y-4">
+                {/* 对话视图：消息流 */}
+                {viewMode === 'chat' && chatMessages.length === 0 && (
+                    <div className="text-center text-zinc-300 text-sm py-16">暂无对话</div>
+                )}
+                {viewMode === 'chat' && chatMessages.length > 0 && (
+                    <div className="max-w-3xl space-y-4">
                         {chatMessages.map((msg, i) => {
                             if (msg.kind === 'report') {
                                 return (
@@ -391,7 +331,7 @@ function MiddlePanel({ currentBook, currentChapter, chatMessages, isStreaming, o
                 )}
 
                 {/* 来源标注 */}
-                {sources?.length > 0 && chatMessages.length > 0 && (
+                {viewMode === 'chat' && sources?.length > 0 && chatMessages.length > 0 && (
                     <div className="mt-6 max-w-3xl">
                         <div className="flex items-center gap-2 mb-2">
                             <svg className="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -569,48 +509,34 @@ function MiddlePanel({ currentBook, currentChapter, chatMessages, isStreaming, o
                             </>
                         )}
                     </div>
-                    {currentBook && (
-                        <div className="flex bg-zinc-100 rounded-full p-0.5 gap-0.5 flex-shrink-0">
-                            {[
-                                { id: 'book', icon: '\u{1F4D6}', label: '当前书籍', title: '基于当前整本书回答' },
-                                { id: 'cross', icon: '\u{1F4DA}', label: '对比阅读', title: '基于多本书对比回答' },
-                            ].map(mode => (
-                                <button
-                                    key={mode.id}
-                                    onClick={() => onToggleMode(mode.id)}
-                                    disabled={isStreaming}
-                                    title={mode.title}
-                                    className={`px-2.5 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${chatMode === mode.id ? 'bg-white text-zinc-800 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}
-                                >
-                                    {mode.icon} {mode.label}
-                                </button>
-                            ))}
-                        </div>
-                    )}
+                    <div className="flex bg-zinc-100 rounded-full p-0.5 gap-0.5 flex-shrink-0">
+                        {[
+                            { id: 'reading', icon: '\u{1F4D6}', label: '阅读' },
+                            { id: 'chat', icon: '\u{1F4AC}', label: '对话' },
+                        ].map(vm => (
+                            <button
+                                key={vm.id}
+                                onClick={() => onToggleView?.(vm.id)}
+                                className={`px-2.5 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${viewMode === vm.id ? 'bg-white text-zinc-800 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}
+                            >
+                                {vm.icon} {vm.label}
+                            </button>
+                        ))}
+                    </div>
                     <div className="flex-1 relative">
                         <input
                             type="text"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
                             onKeyDown={handleKeyDown}
-                            placeholder={!(currentBook || chatMode === 'cross') ? '请先选择一本书' : (chatMode === 'cross' && selectedBookIds?.length === 0 ? '请先在左侧勾选要搜索的书籍...' : '输入你的问题...')}
-                            disabled={!(currentBook || chatMode === 'cross') || isStreaming}
+                            placeholder={!currentBook ? '请先选择一本书' : '输入你的问题...'}
+                            disabled={!currentBook || isStreaming}
                             className="w-full px-4 py-2.5 bg-zinc-50 border border-zinc-200 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed placeholder:text-zinc-400 transition-all"
                         />
-                        {chatMode === 'cross' && selectedBookIds?.length === 0 && currentBook && (
-                            <div className="absolute -bottom-5 left-0 right-0">
-                                <p className="text-[11px] text-zinc-400 flex items-center gap-1">
-                                    <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                    </svg>
-                                    请先在左侧勾选要搜索的书籍
-                                </p>
-                            </div>
-                        )}
                     </div>
                     <button
                         onClick={handleSend}
-                        disabled={!input.trim() || isStreaming || (!currentBook && chatMode !== 'cross') || (chatMode === 'cross' && selectedBookIds?.length === 0)}
+                        disabled={!input.trim() || isStreaming || !currentBook}
                         className="w-10 h-10 flex items-center justify-center bg-zinc-800 text-white rounded-full hover:bg-zinc-900 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 transition-all flex-shrink-0"
                     >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

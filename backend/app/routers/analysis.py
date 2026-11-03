@@ -6,6 +6,7 @@ import json
 
 from app.services.analysis_service import analysis_service
 from app.services.book_processor import book_processor
+from app.services import chat_store
 
 router = APIRouter(prefix="/analysis", tags=["AI分析"])
 
@@ -17,6 +18,7 @@ class ChatRequest(BaseModel):
     book_id: Optional[str] = None
     selected_book_ids: Optional[List[str]] = None
     chat_history: Optional[List[dict]] = None
+    session_id: Optional[str] = None  # 传入则本次问答自动持久化到该会话
 
 
 class QuickAnalysisRequest(BaseModel):
@@ -130,17 +132,31 @@ async def stream_chat(request: ChatRequest):
 
     chapter_context = "\n\n---\n\n".join(context_parts) if context_parts else None
 
+    # 会话持久化：用户消息先落盘（中途刷新/断流也不丢提问），回答完成后补写
+    if request.session_id:
+        if chat_store.get_session(request.session_id):
+            chat_store.append_messages(request.session_id, [{"role": "user", "content": request.message}])
+        else:
+            request.session_id = None
+
     async def generate():
+        full_reply = ""
         async for chunk in analysis_service.stream_chat(
             message=request.message,
             chapter_context=chapter_context,
             chat_history=request.chat_history
         ):
+            full_reply += chunk
             yield f"data: {json.dumps({'content': chunk}, ensure_ascii=False)}\n\n"
 
         # 多书/整本书模式：发送来源章节信息（含书名）
         if sources:
             yield f"data: {json.dumps({'sources': sources}, ensure_ascii=False)}\n\n"
+
+        if request.session_id and full_reply:
+            chat_store.append_messages(request.session_id, [{
+                "role": "assistant", "content": full_reply, "sources": sources or None
+            }])
 
         yield "data: [DONE]\n\n"
 

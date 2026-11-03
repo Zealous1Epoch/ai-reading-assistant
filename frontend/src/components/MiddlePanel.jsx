@@ -22,8 +22,19 @@ function cleanMarkdown(text) {
         .trim();
 }
 
-function MiddlePanel({ currentBook, currentChapter, chatMessages, isStreaming, onSendMessage, chatMode, onToggleMode, sources, selectedBookIds, books, onToggleFavorite, onNavigateToSource, favorites }) {
+function fmtTime(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    const now = new Date();
+    const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    if (d.toDateString() === now.toDateString()) return hm;
+    return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`;
+}
+
+function MiddlePanel({ currentBook, currentChapter, chatMessages, isStreaming, onSendMessage, chatMode, onToggleMode, sources, selectedBookIds, books, onToggleFavorite, onNavigateToSource, favorites, sessions = [], currentSessionId, onNewSession, onSelectSession, onDeleteSession }) {
     const [input, setInput] = useState('');
+    const [historyOpen, setHistoryOpen] = useState(false);
     const [chapterSummary, setChapterSummary] = useState(null);
     const [summaryLoading, setSummaryLoading] = useState(false);
     const [expandedChapter, setExpandedChapter] = useState(false);
@@ -378,6 +389,49 @@ function MiddlePanel({ currentBook, currentChapter, chatMessages, isStreaming, o
 
             {/* 底部输入框 */}
             <div className="px-6 py-4 border-t border-zinc-100 bg-white flex-shrink-0">
+                {/* 会话操作行 */}
+                <div className="max-w-3xl mx-auto flex justify-end gap-1.5 pb-2 relative">
+                    <button
+                        onClick={onNewSession}
+                        disabled={isStreaming}
+                        className="px-2.5 py-1 rounded-full text-xs text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 transition-all"
+                    >
+                        ＋ 新对话
+                    </button>
+                    <div className="relative">
+                        <button
+                            onClick={() => setHistoryOpen(o => !o)}
+                            className={`px-2.5 py-1 rounded-full text-xs transition-all ${historyOpen ? 'bg-zinc-100 text-zinc-800' : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100'}`}
+                        >
+                            历史 {sessions.length > 0 ? `(${sessions.length})` : ''}
+                        </button>
+                        {historyOpen && (
+                            <div className="absolute right-0 bottom-full mb-2 w-72 max-h-72 overflow-y-auto scrollbar-thin bg-white border border-zinc-200 rounded-xl shadow-lg py-1 z-30">
+                                {sessions.length === 0 ? (
+                                    <div className="px-4 py-3 text-xs text-zinc-400 text-center">暂无历史会话</div>
+                                ) : sessions.map(s => (
+                                    <div
+                                        key={s.session_id}
+                                        className={`group flex items-center gap-2 px-3 py-2 cursor-pointer text-sm transition-colors ${s.session_id === currentSessionId ? 'bg-zinc-50 text-zinc-800' : 'text-zinc-500 hover:bg-zinc-50'}`}
+                                        onClick={() => { onSelectSession(s.session_id); setHistoryOpen(false); }}
+                                    >
+                                        <div className="flex-1 min-w-0">
+                                            <div className="truncate text-[13px]">{s.title}</div>
+                                            <div className="text-[11px] text-zinc-400">{fmtTime(s.updated_at)} · {s.message_count} 条</div>
+                                        </div>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); onDeleteSession(s.session_id); }}
+                                            className="opacity-0 group-hover:opacity-100 text-zinc-300 hover:text-red-400 transition-all text-xs px-1"
+                                            title="删除"
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
                 <div className="max-w-3xl mx-auto flex gap-2 items-end">
                     {currentBook && (
                         <div className="flex bg-zinc-100 rounded-full p-0.5 gap-0.5 flex-shrink-0">

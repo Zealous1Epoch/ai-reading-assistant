@@ -10,8 +10,9 @@ function App() {
     const [currentBook, setCurrentBook] = useState(null);
     const [currentChapter, setCurrentChapter] = useState(null);
     const [uploadProgress, setUploadProgress] = useState(null); // { current, total } or null
-    const [bookChats, setBookChats] = useState({});
-    const [crossBookMessages, setCrossBookMessages] = useState([]);
+    const [messages, setMessages] = useState([]);
+    const [sessions, setSessions] = useState([]);
+    const [sessionId, setSessionId] = useState(null);
     const [isStreaming, setIsStreaming] = useState(false);
     const [contentMode, setContentMode] = useState('book');
     const [activeTool, setActiveTool] = useState(null);
@@ -54,15 +55,45 @@ function App() {
             .catch(err => console.log('获取书籍列表失败（首次加载无数据是正常的）:', err));
     }, []);
 
-    const getMessages = () => {
-        if (chatMode === 'cross') return { msgs: crossBookMessages, setMsgs: setCrossBookMessages };
-        const bookId = currentBook?.book_id;
-        const msgs = bookChats[bookId] || [];
-        const setMsgs = (updater) => {
-            setBookChats(prev => ({ ...prev, [bookId]: typeof updater === 'function' ? updater(prev[bookId] || []) : updater }));
-        };
-        return { msgs, setMsgs };
-    };
+    // 当前会话作用域：单书模式按书隔离，对比阅读全局一个桶
+    const scopeKey = chatMode === 'cross' ? 'cross' : (currentBook?.book_id || '');
+    const scopeRef = useRef(scopeKey);
+
+    const fetchSessions = useCallback(async (key) => {
+        if (!key) { setSessions([]); return []; }
+        try {
+            const params = chatMode === 'cross' ? 'scope=cross' : `scope=book&book_id=${encodeURIComponent(key)}`;
+            const res = await fetch(`${API_BASE}/sessions?${params}`);
+            const data = await res.json();
+            const list = data.sessions || [];
+            setSessions(list);
+            return list;
+        } catch { return []; }
+    }, [chatMode]);
+
+    // 切换书/模式：重新拉会话列表，并自动恢复该作用域最近一次会话
+    useEffect(() => {
+        scopeRef.current = scopeKey;
+        setSources(null);
+        if (!scopeKey) { setSessionId(null); setMessages([]); return; }
+        let alive = true;
+        (async () => {
+            const list = await fetchSessions(scopeKey);
+            if (!alive) return;
+            if (list.length > 0) {
+                try {
+                    const res = await fetch(`${API_BASE}/sessions/${list[0].session_id}`);
+                    const full = await res.json();
+                    if (!alive) return;
+                    setSessionId(full.session_id);
+                    setMessages(full.messages || []);
+                    return;
+                } catch { /* 落到空会话 */ }
+            }
+            if (alive) { setSessionId(null); setMessages([]); }
+        })();
+        return () => { alive = false; };
+    }, [scopeKey, fetchSessions]);
 
     const handleToggleBook = (bookId) => {
         setSelectedBookIds(prev =>
@@ -91,11 +122,12 @@ function App() {
                     setCurrentChapter(null);
                     return remaining;
                 });
-                setBookChats(prev => { const next = { ...prev }; delete next[bookId]; return next; });
+                setSessionId(null);
+                setMessages([]);
             } else {
                 setBooks(prev => prev.filter(b => b.book_id !== bookId));
-                setBookChats(prev => { const next = { ...prev }; delete next[bookId]; return next; });
             }
+            setSessions([]);
         } catch (err) {
             console.error('删除失败:', err);
             alert(`删除失败: ${err.message}`);
@@ -269,26 +301,42 @@ function App() {
         }
     };
 
-    // 流式发送消息
+    // 流式发送消息（后端按 session_id 自动落盘，刷新不丢）
     const handleSendMessage = async (message) => {
-        const { msgs, setMsgs } = getMessages();
-
-        setMsgs(prev => [...prev, { role: 'user', content: message }]);
         setIsStreaming(true);
         setSources(null);
 
-        try {
-            const history = msgs.length > 0 ? msgs.slice(-6) : [];
-            const body = { message, chat_history: history };
-            if (chatMode === 'book') {
-                body.book_id = currentBook?.book_id;
-                if (currentChapter?.chapter_id) {
-                    body.chapter_id = currentChapter.chapter_id;
-                }
-            } else {
-                body.selected_book_ids = selectedBookIds.length > 0 ? selectedBookIds : null;
-            }
+        // 惰性创建会话：首次提问才占坑，避免历史列表堆满空"新对话"
+        let sid = sessionId;
+        if (!sid && scopeKey) {
+            try {
+                const res = await fetch(`${API_BASE}/sessions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        scope: chatMode,
+                        book_id: chatMode === 'book' ? currentBook?.book_id : null
+                    })
+                });
+                sid = (await res.json()).session_id;
+                setSessionId(sid);
+            } catch { sid = null; }
+        }
 
+        const history = messages.slice(-6).map(({ role, content }) => ({ role, content }));
+        const body = { message, chat_history: history, session_id: sid };
+        if (chatMode === 'book') {
+            body.book_id = currentBook?.book_id;
+            if (currentChapter?.chapter_id) {
+                body.chapter_id = currentChapter.chapter_id;
+            }
+        } else {
+            body.selected_book_ids = selectedBookIds.length > 0 ? selectedBookIds : null;
+        }
+
+        setMessages(prev => [...prev, { role: 'user', content: message }, { role: 'assistant', content: '' }]);
+
+        try {
             const response = await fetch(`${API_BASE}/analysis/chat/stream`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -300,23 +348,23 @@ function App() {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let assistantMessage = '';
-
-            setMsgs(prev => [...prev, { role: 'assistant', content: '' }]);
+            let buffer = '';
 
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
-                const chunk = decoder.decode(value);
-                const lines = chunk.split('\n');
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); // 半截行留到下个 chunk 再拼（SSE 帧可能被 TCP 切开）
                 for (const line of lines) {
                     if (line.startsWith('data: ')) {
                         const data = line.slice(6);
-                        if (data === '[DONE]') break;
+                        if (data === '[DONE]') continue;
                         try {
                             const json = JSON.parse(data);
                             if (json.content) {
                                 assistantMessage += json.content;
-                                setMsgs(prev => {
+                                setMessages(prev => {
                                     const newMessages = [...prev];
                                     newMessages[newMessages.length - 1].content = assistantMessage;
                                     return newMessages;
@@ -329,11 +377,50 @@ function App() {
                     }
                 }
             }
+            if (sid) fetchSessions(scopeKey); // 刷新标题/排序
         } catch (err) {
             console.error('发送失败:', err);
-            setMsgs(prev => [...prev, { role: 'assistant', content: `发送失败: ${err.message}` }]);
+            setMessages(prev => {
+                const last = prev[prev.length - 1];
+                if (last && last.role === 'assistant' && !last.content) {
+                    const next = [...prev];
+                    next[next.length - 1] = { role: 'assistant', content: `发送失败: ${err.message}` };
+                    return next;
+                }
+                return [...prev, { role: 'assistant', content: `发送失败: ${err.message}` }];
+            });
         } finally {
             setIsStreaming(false);
+        }
+    };
+
+    // 会话操作
+    const handleNewSession = () => {
+        setSessionId(null);
+        setMessages([]);
+        setSources(null);
+    };
+
+    const handleSelectSession = async (id) => {
+        if (id === sessionId) return;
+        try {
+            const res = await fetch(`${API_BASE}/sessions/${id}`);
+            const full = await res.json();
+            setSessionId(full.session_id);
+            setMessages(full.messages || []);
+            setSources(null);
+        } catch (err) {
+            console.error('加载会话失败:', err);
+        }
+    };
+
+    const handleDeleteSession = async (id) => {
+        try {
+            await fetch(`${API_BASE}/sessions/${id}`, { method: 'DELETE' });
+            if (id === sessionId) { setSessionId(null); setMessages([]); setSources(null); }
+            fetchSessions(scopeKey);
+        } catch (err) {
+            console.error('删除会话失败:', err);
         }
     };
 
@@ -397,7 +484,7 @@ function App() {
         setFavorites(prev => prev.filter(f => f.id !== id));
     };
 
-    const getActiveMessages = () => getMessages().msgs;
+    const getActiveMessages = () => messages;
 
     return (
         <div className="h-screen flex overflow-hidden bg-zinc-50 p-3 gap-3">
@@ -419,6 +506,11 @@ function App() {
                 currentBook={currentBook}
                 currentChapter={currentChapter}
                 chatMessages={getActiveMessages()}
+                sessions={sessions}
+                currentSessionId={sessionId}
+                onNewSession={handleNewSession}
+                onSelectSession={handleSelectSession}
+                onDeleteSession={handleDeleteSession}
                 isStreaming={isStreaming}
                 onSendMessage={handleSendMessage}
                 chatMode={chatMode}

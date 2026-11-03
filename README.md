@@ -114,6 +114,13 @@ python -m app.main
 
 ### 聊天
 - `POST /chat/` - 与 AI 助手对话
+- `POST /analysis/chat/stream` - 流式对话（SSE；带 `session_id` 时问答自动持久化到会话）
+
+### 对话历史
+- `GET /sessions?scope=book&book_id=` - 会话列表（按更新时间倒序）
+- `POST /sessions` - 新建会话
+- `GET /sessions/{session_id}` - 会话详情（含全部消息与来源）
+- `DELETE /sessions/{session_id}` - 删除会话（删书时级联清理）
 
 ## 使用示例
 

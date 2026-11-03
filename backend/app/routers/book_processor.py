@@ -494,6 +494,10 @@ async def delete_book(book_id: str):
     processing_status.pop(book_id, None)
     _pending_meta.pop(book_id, None)
 
+    # 级联清理该书的对话会话
+    from app.services import chat_store
+    chat_store.delete_sessions_for_book(book_id)
+
     _save_books_index()
 
     return {"message": "书籍已删除", "book_id": book_id}

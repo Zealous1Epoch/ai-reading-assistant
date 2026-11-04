@@ -1,14 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Bookshelf from './components/Bookshelf.jsx';
 import BookReader from './components/BookReader.jsx';
+import ReviewPage from './components/ReviewPage.jsx';
 import { TOOL_LABELS } from './tools.js';
 
 const API_BASE = '';
 
-// hash 路由：#/ 书架；#/book/{id} 书内（刷新/前进后退天然可用）
+// hash 路由：#/ 书架；#/book/{id} 书内；#/review 复习页（v2.3）
 function parseHash() {
     const m = (window.location.hash || '').match(/^#\/book\/(.+)$/);
-    return m ? { view: 'book', bookId: decodeURIComponent(m[1]) } : { view: 'shelf', bookId: null };
+    if (m) return { view: 'book', bookId: decodeURIComponent(m[1]) };
+    if ((window.location.hash || '') === '#/review') return { view: 'review', bookId: null };
+    return { view: 'shelf', bookId: null };
 }
 
 // 多书阅读进度：{bookId: {chapterId, chapterTitle, updatedAt}}
@@ -47,6 +50,14 @@ function App() {
     const [activeExpertId, setActiveExpertId] = useState(null);
     const [expertOpening, setExpertOpening] = useState(false);
     const [progressMap, setProgressMap] = useState(loadProgressMap);
+    // 知识卡片统计（v2.3）：书架徽标 + 书内抽屉徽标共用；复习/抽卡/删卡后刷新
+    const [cardStats, setCardStats] = useState({ total: 0, due: 0, stats: {} });
+    const loadCardStats = useCallback(() => {
+        fetch(`${API_BASE}/cards/stats`).then(r => r.json())
+            .then(s => setCardStats({ total: s.total || 0, due: s.due || 0, stats: s.stats || {} }))
+            .catch(() => {});
+    }, []);
+    useEffect(() => { loadCardStats(); }, [loadCardStats, route.view]);
 
     // 从搜索结果/来源标注进书时暂存目标章，进书 effect 消费
     const pendingChapterRef = useRef(null);
@@ -538,7 +549,7 @@ function App() {
                 }
             }
 
-            const outputType = artifact ? (artifact.type === 'mindmap' ? 'mindmap' : 'html') : 'text';
+            const outputType = artifact ? (artifact.type === 'mindmap' ? 'mindmap' : artifact.type === 'cards' ? 'cards' : 'html') : 'text';
             const finalContent = artifact ? artifact.data : text;
 
             if (streamError) {
@@ -548,6 +559,8 @@ function App() {
                     ...m, streaming: false, content: finalContent,
                     output_type: outputType, filename: artifact?.filename,
                 }));
+                // 抽卡产出即入库：刷新徽标（书架/书内顶栏的 due 数）
+                if (toolId === 'cards') loadCardStats();
                 // 落盘：产出即消息（刷新/切会话后仍在）
                 if (sid && finalContent.trim()) {
                     fetch(`${API_BASE}/sessions/${sid}/messages`, {
@@ -706,6 +719,16 @@ function App() {
 
     const activeExpert = experts.find(e => e.expert_id === activeExpertId) || null;
 
+    if (route.view === 'review') {
+        return (
+            <ReviewPage
+                books={books}
+                onBack={() => { window.location.hash = '#/'; }}
+                onStatsChanged={loadCardStats}
+            />
+        );
+    }
+
     if (route.view === 'book' && currentBook) {
         return (
             <BookReader
@@ -735,6 +758,8 @@ function App() {
                 onGenerateReport={handleGenerateReport}
                 aiOpen={aiOpen}
                 setAiOpen={setAiOpen}
+                cardDue={(cardStats.stats[currentBook?.book_id] || {}).due || 0}
+                onCardsStatsChanged={loadCardStats}
             />
         );
     }
@@ -749,6 +774,8 @@ function App() {
             books={books}
             progressMap={progressMap}
             uploading={uploadProgress}
+            cardDue={cardStats.due}
+            onOpenReview={() => { window.location.hash = '#/review'; }}
             onEnterBook={handleEnterBook}
             onUploadMultiple={handleUploadMultiple}
             onDeleteBook={handleDeleteBook}

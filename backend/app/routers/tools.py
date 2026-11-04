@@ -770,12 +770,105 @@ async def _knowledge_graph(request, chapters, scope_desc):
     yield _frame({"artifact": {"type": "html", "data": html, "filename": f"{book_title}_精读笔记.html"}})
 
 
+# ---------------------------------------------------------------- 知识卡片（v2.3）
+
+CARDS_TOTAL_CAP = 40   # 全书抽卡总量上限（防一次抽太多复习不动）
+
+
+def _cards_prompt(book: str, scope_desc: str, body: str, n: int) -> str:
+    return f"""你是读书助手。从下面的内容中提炼 {n} 张适合长期记忆的知识卡片（抽卡式的回忆提示）。
+卡片要求：
+- front：一个问题或填空，具体明确、能一句话回答（50 字以内），不要出无意义或大而空的题
+- back：答案，准确自足、脱离原书也能看懂（200 字以内）
+- cite：内容中支撑该卡的原句摘录（60 字以内，必须真实存在，禁止编造；没有可留空）
+- 优先提取：核心概念、关键论据、反直觉的结论、值得记住的事实细节
+只输出 JSON，不要任何其他文字，格式：
+{{"cards":[{{"front":"...","back":"...","cite":"..."}}]}}
+
+《{book}》· {scope_desc}
+{body}"""
+
+
+def _clean_cards(obj) -> list:
+    """校验 LLM 输出的卡片数组：front/back 必须非空，去空白重复，限幅"""
+    raw = obj.get("cards") if isinstance(obj, dict) else None
+    if not isinstance(raw, list):
+        return []
+    out, seen = [], set()
+    for it in raw[:12]:
+        if not isinstance(it, dict):
+            continue
+        front = str(it.get("front", "")).strip()
+        back = str(it.get("back", "")).strip()
+        if not front or not back:
+            continue
+        key = "".join(front.split())
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"front": front, "back": back, "cite": str(it.get("cite", "")).strip()})
+    return out
+
+
+async def _cards(request, chapters, scope_desc):
+    """知识卡片抽卡：产出直接入库 card_store（去重），artifact 帧带入库卡列表进对话流"""
+    from app.services import card_store
+    book = _book_title(request.book_id)
+    single = len(chapters) == 1
+    if single:
+        groups = [(chapters, 8)]
+    else:
+        gs = [chapters[i:i + MAP_GROUP_SIZE] for i in range(0, len(chapters), MAP_GROUP_SIZE)]
+        groups = [(g, 3) for g in gs]
+
+    collected = []      # (cards, chapter_id, chapter_title)
+    failed = 0
+    for i, (grp, n) in enumerate(groups, 1):
+        label = grp[0].title if single else f"{grp[0].title} 等 {len(grp)} 章"
+        yield _frame({"status": f"提炼卡片 {i}/{len(groups)}"})
+        obj = await _llm_json(_cards_prompt(book, label, _context(grp), n))
+        cards = _clean_cards(obj)[:n]   # 每组硬截断：数量约束不能只靠 prompt 自觉
+        if not cards:
+            failed += 1
+            continue
+        cid = grp[0].chapter_id if single else None
+        ctitle = grp[0].title if single else None
+        collected.append((cards, cid, ctitle))
+        if sum(len(c) for c, _, _ in collected) >= CARDS_TOTAL_CAP:
+            collected = collected[:i]
+            break
+
+    if not collected:
+        yield _frame({"error": "卡片生成失败（模型输出未能解析），请重试"})
+        return
+
+    added_total, skipped_total, all_cards = 0, 0, []
+    for cards, cid, ctitle in collected:
+        if len(all_cards) + len(cards) > CARDS_TOTAL_CAP:
+            cards = cards[:CARDS_TOTAL_CAP - len(all_cards)]
+            if not cards:
+                break
+        result = card_store.add_cards(request.book_id, cards, chapter_id=cid, chapter_title=ctitle)
+        added_total += result["added"]
+        skipped_total += result["skipped"]
+        all_cards.extend(result["cards"])
+
+    note = f"已存入 {added_total} 张新卡片"
+    if skipped_total:
+        note += f"（跳过 {skipped_total} 张重复）"
+    if failed:
+        note += f"，{failed} 组生成失败"
+    yield _frame({"status": note})
+    yield _frame({"artifact": {"type": "cards", "data": json.dumps({"note": note, "cards": all_cards}, ensure_ascii=False)}})
+
+
 _STREAM_TOOLS = {
     "summarize": _summarize,
     "questions": _questions,
     "mindmap": _mindmap,
     "author-talk": _author_talk,
     "knowledge-graph": _knowledge_graph,
+    "cards": _cards,
 }
 
 

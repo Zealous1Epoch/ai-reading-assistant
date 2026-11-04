@@ -1,5 +1,15 @@
 # 智能读书助手 — 版本历史
 
+## v2.3 — 2026-11-04（知识卡片——抽卡入库 + Leitner 间隔复习 + 测验 + Anki 导出）
+- **抽卡=第 6 个 AI 工具 `cards`**（产出即入库，无"保存"按钮）：单章一次 ≤8 张、全书 8 章/组×每组 3 张、`CARDS_TOTAL_CAP=40` 封顶；LLM 输出 `{"cards":[{front,back,cite}]}` 包裹数组（`_extract_json_obj` 只认 dict），cite 要求原文真实存在 ≤60 字；**每组 `_clean_cards(obj)[:n]` 代码侧硬截断——数量约束不能只靠 prompt 自觉**（fake 单测实证：每组返 10 张入库恰 6）；artifact `{type:"cards"}` 落会话，ToolMessageCard 渲染卡正反+引文预览（JSON 解析失败降级纯文本）
+- **Leitner 五盒间隔重复**：`LEITNER_DAYS=(1,2,4,7,15)`；评分 again→盒1（明天）、good→+1 盒、easy→+2 盒（均 cap 盒5）；**新卡 `next_review`=当天**——抽完当天即进入复习队列；按日粒度排期（date 字符串比较）；到期队列排序 box 升序→next_review 升序（难卡优先）
+- **存储 `data/cards.json`**：chat_store 同款单文件 + `threading.Lock` + tmp/replace 原子写；同书内 `_norm_front`（去全部空白）精确去重、跨书不去重→对同一章重复抽卡安全（重跑仅"跳过 N 张重复"）；删书级联 `delete_cards_for_book`（book_processor 中挂 chat_store 清理后）
+- **6 端点**：`GET /cards?book_id=`、`GET /cards/due`、`GET /cards/stats`（`{stats:{bid:{total,due}},total,due}` 供书架徽标/抽屉计数）、`POST /cards/{id}/grade`（非法 result 400/缺失 404）、`DELETE /cards/{id}`、`GET /cards/export/anki`——三列 TSV `front\tback\ttag`，卡内换行→`<br>`、书名空格→下划线、`filename*=UTF-8''{quote(名)}`，空库 404
+- **前端三入口**：① 第三路由 `#/review` 复习页（书 tabs+今日到期/随机测验切换、测验=前端 shuffle 取 10）；② 书内顶栏「卡片」满高抽屉（今日复习/随机测验/列表三态、列表 hover 删卡+盒数/复习日/归属章、Anki 下载、到期计数）；③ 书架「复习」按钮+到期徽标（99+ 截断）。共享翻卡组件 **ReviewDeck**（两入口两用，评分按钮按当前盒预算 `previewDays` 显示"N 天后"）；cardStats 由 App 统一拉取（route.view 变化+抽卡完成/评分/删卡回调刷新）；vite proxy 加 `/cards`
+- **测试**：pytest 85 passed（新增 `tests/test_cards.py` 13 项：新卡当天到期/去重与跨书/Leitner 全进阶 cap5/due 难卡优先/级联/TSV 转义/路由 400·404·export/工具帧协议+重跑跳重+每组硬截断）；`tests/e2e_cards.cjs` 浏览器级 **16 断言全绿**（真实 LLM 抽卡 8 张全归所选章、复习页翻卡评分 box=2 落盘、抽屉计数=API、删卡 16→15、Anki 链接、无 JS 报错）
+- 踩坑：① **Edit 顺手重打 import 块把 `fastapi` 写成非法模块名——py_compile 通过、pytest 不导入该文件也不报错，直到 venv 运行时 `ModuleNotFoundError` 才实锤**；期间一次修串的 python replace 因"错误串/正确串"生成时被转码成同一字符串而静默空转。裁决层级固化：**运行时 import > py_compile > 显示层肉眼**；② CardsDrawer 计数 span 挂载即渲染 `(0)`，E2E `waitForSelector` 只等存在不等数据，读到 0 连累 Anki 链接（`total>0` 未渲染）三断言同根 FAIL——改 `total` 初值 null 加载完才渲染 + 删卡断言短轮询等计数下降（"DOM 断言带轮询"铁律再证）；③ pytest 传不存在的路径会**静默收集 0 条只报 warning**，险成假绿；④ TocRail 条目是 onClick div 非 button，E2E 加 `data-toc` 锚点；进书默认落孤章（序言），抽卡前必须先切章否则对空内容出废卡；⑤ ToolDrawer 点工具行即运行，无"运行"按钮（首版臆造导致 CRASH）
+- **回归说明**：提交当天上午 DeepSeek 账号 **402 Insufficient Balance**（探测实锤），v20/mindmap 真实 LLM 回归被阻。v20 两处 FAIL 的真根因是**进书自动恢复旧会话、工具产出落进 baseline 会话轮询永不可见**——已按 v2.1 同款教训给 v20 脚本补会话隔离步骤（+3 断言），待账号充值后全量复跑；v2.3 自身的卡片 E2E 16/16 与 pytest 85 passed 均在 LLM 可用窗口完成（卡片 E2E 本身已覆盖进书/目录/工具抽屉/落盘主链路）
+
 ## v2.2 — 2026-11-04（句内引用角标——[n] 编号 + 跳章段落高亮）
 - **句内引用（排期 #30）**：RAG 问答回答句内出现 `[n]` 引用角标（编号=本轮参考段落编号），点击角标跳转原文对应章节并在**段落级**定位+琥珀色闪烁高亮 3.2s；未命中锚点优雅回落章首，重复点击同处经 nonce 重新触发
 - **后端编号与锚点**：`stream_chat` 上下文块统一 `[n] ` 前缀（当前章=1，检索块顺延）；`sources` 帧每条加 `index`（int）与 `snippet`——`_source_snippet` 取块体**剥滑窗重叠前缀后**首行前 24 字（`_split_into_chunks` 按行聚合故块体起始对齐行首，前端以"段落 textContent 去空白后含 snippet"即可唯一定位）；`ChapterSearchResult` 模型补 `chunk_index`/`prefix_len` 透传锚点信息

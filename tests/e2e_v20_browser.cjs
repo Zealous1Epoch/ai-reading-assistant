@@ -118,6 +118,19 @@ let browser = null;
     say('目录侧栏可再展开', await page.evaluate(() => !!document.querySelector('input[placeholder="搜索本书"]')));
 
     // ---- 6 工具抽屉 → 运行 → 对话流卡片 → 后端落盘 ----
+    // 进书自动恢复该书最近会话——工具产出会落进 baseline 里的旧会话、轮询永不可见
+    // （v2.1 教训只写进了 mindmap 脚本，此处补齐同款隔离：会话抽屉 → 新对话）
+    await page.locator('button[title="会话"]').click();
+    let sessDrawer = false;
+    for (let i = 0; i < 10 && !sessDrawer; i++) {
+        await sleep(300);
+        sessDrawer = await page.evaluate(() => Array.from(document.querySelectorAll('h3')).some(h => h.textContent.trim() === '会话'));
+    }
+    say('会话抽屉打开', sessDrawer);
+    await page.locator('button[title="新对话"]').click();
+    await sleep(600);
+    say('新对话后抽屉自动收起', await page.evaluate(() => !Array.from(document.querySelectorAll('h3')).some(h => h.textContent.trim() === '会话')));
+    say('已重置为新对话', await page.evaluate(() => document.body.innerText.includes('暂无对话')));
     // 基线：之前崩溃轮残留的会话一律无视，只认本轮新增（否则残留会话会让落盘断言秒假绿、
     // 且刷新时本轮流式还没结束会被 reload 掐断产生 network error）
     const baseline = new Set(JSON.parse(await api('GET', '/sessions?scope=book&book_id=' + encodeURIComponent(bookId))).sessions.map(s => s.session_id));

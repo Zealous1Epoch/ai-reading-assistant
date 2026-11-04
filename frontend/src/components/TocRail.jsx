@@ -86,6 +86,7 @@ function TocRail({ book, currentChapter, onSelectChapter, open, onToggle }) {
                 return (
                     <div
                         key={ch.chapter_id}
+                        data-toc=""
                         onClick={() => goChapter(ch)}
                         className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all text-sm ${selected ? 'bg-zinc-50 text-zinc-800 font-medium' : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50'}`}
                     >
@@ -107,6 +108,7 @@ function TocRail({ book, currentChapter, onSelectChapter, open, onToggle }) {
             return (
                 <div
                     key={i}
+                    data-toc=""
                     onClick={() => { if (ch) goChapter(ch); }}
                     className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all text-sm ${selected ? 'bg-zinc-50 text-zinc-800 font-medium' : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50'} ${!isL1 ? 'pl-8' : ''}`}
                 >

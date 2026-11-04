@@ -16,6 +16,6 @@ export default defineConfig({
       '/chat': 'http://localhost:8000',
       '/sessions': 'http://localhost:8000',
       '/experts': 'http://localhost:8000',
-    },
+      '/cards': 'http://localhost:8000',    },
   },
 })

@@ -386,6 +386,30 @@ function MindmapTree({ root, bookId, onNavigateToSource }) {
     );
 }
 
+// ---------- 知识卡片产出（v2.3）：artifact data = {note, cards:[{front,back,cite,box,...}]} ----------
+function parseCardsResult(raw) {
+    try {
+        const o = JSON.parse((raw || '').trim());
+        if (o && Array.isArray(o.cards)) return o;
+    } catch { /* 非 JSON（旧数据/降级文本）走文本渲染 */ }
+    return null;
+}
+
+function CardsResult({ data }) {
+    return (
+        <div className="space-y-2.5" data-tool-cards>
+            <p className="text-sm text-zinc-600">{data.note || ''}</p>
+            {data.cards.map((c, i) => (
+                <div key={c.card_id || i} className="rounded-xl border border-zinc-100 bg-zinc-50/60 px-3.5 py-2.5">
+                    <p className="text-xs font-medium text-zinc-800 leading-relaxed" data-card-front>{c.front}</p>
+                    <p className="text-xs text-zinc-500 leading-relaxed mt-1" data-card-back>{c.back}</p>
+                    {c.cite && <p className="text-[11px] text-zinc-400 italic mt-1 border-l-2 border-zinc-100 pl-2 leading-relaxed">「{c.cite}」</p>}
+                </div>
+            ))}
+        </div>
+    );
+}
+
 // ---------- 工具产出消息卡（v2.0：产出即消息，流进对话流） ----------
 function ToolMessageCard({ msg, bookId, favorites, onToggleFavorite, onNavigateToSource }) {
     const [mindmapExpanded, setMindmapExpanded] = useState(false);
@@ -460,6 +484,8 @@ function ToolMessageCard({ msg, bookId, favorites, onToggleFavorite, onNavigateT
                                 </button>
                             </div>
                         </div>
+                    ) : msg.output_type === 'cards' && parseCardsResult(content) ? (
+                        <CardsResult data={parseCardsResult(content)} />
                     ) : msg.tool_id === 'mindmap' && !streaming && content.trim() ? (
                         mmRoot
                             ? <MindmapTree root={mmRoot} bookId={bookId} onNavigateToSource={onNavigateToSource} />

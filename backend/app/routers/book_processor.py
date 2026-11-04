@@ -498,6 +498,10 @@ async def delete_book(book_id: str):
     from app.services import chat_store
     chat_store.delete_sessions_for_book(book_id)
 
+    # 级联清理该书的知识卡片（v2.3）
+    from app.services import card_store
+    card_store.delete_cards_for_book(book_id)
+
     _save_books_index()
 
     return {"message": "书籍已删除", "book_id": book_id}

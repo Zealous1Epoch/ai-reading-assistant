@@ -47,7 +47,7 @@ function Cover({ book }) {
 }
 
 // 书架首页：网格封面 + 全局语义搜索 + 上传（含右下角进度浮层）+ hover 删除
-function Bookshelf({ books, progressMap, uploading, onEnterBook, onUploadMultiple, onDeleteBook }) {
+function Bookshelf({ books, progressMap, uploading, cardDue, onOpenReview, onEnterBook, onUploadMultiple, onDeleteBook }) {
     const [query, setQuery] = useState('');
     const [results, setResults] = useState(null);
     const [searching, setSearching] = useState(false);
@@ -113,6 +113,21 @@ function Bookshelf({ books, progressMap, uploading, onEnterBook, onUploadMultipl
                         <p className="text-xs text-zinc-400 mt-1 tabular-nums">{books.length} 本</p>
                     </div>
                     <div className="flex items-center gap-2">
+                        <button
+                            onClick={onOpenReview}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-zinc-200 bg-white text-xs font-medium text-zinc-600 hover:border-zinc-400 transition-all"
+                            data-open-review
+                        >
+                            <svg className="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                            </svg>
+                            复习
+                            {cardDue > 0 && (
+                                <span className="min-w-[16px] h-4 px-1 rounded-full bg-zinc-800 text-white text-[10px] leading-4 text-center tabular-nums" data-review-badge>
+                                    {cardDue > 99 ? '99+' : cardDue}
+                                </span>
+                            )}
+                        </button>
                         <div className="relative">
                             <input
                                 type="text"

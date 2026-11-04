@@ -5,6 +5,7 @@ import ReadingPane from './ReadingPane.jsx';
 import AiPanel from './AiPanel.jsx';
 import ToolDrawer from './ToolDrawer.jsx';
 import FavoritesDrawer from './FavoritesDrawer.jsx';
+import CardsDrawer from './CardsDrawer.jsx';
 
 function ToggleButton({ active, onClick, label, badge, children }) {
     return (
@@ -37,6 +38,8 @@ function BookReader({
     experts, activeExpert, expertOpening, onOpenExpert, onGenerateReport,
     // AI 区开合（App 持有，发消息等操作会自动展开）
     aiOpen, setAiOpen,
+    // 知识卡片（v2.3）：该书今日到期数 + 复习/删卡后的徽标刷新
+    cardDue, onCardsStatsChanged,
 }) {
     // 目录侧栏开合（持久化；旧键 railOpen 曾是会话侧栏，作一次性回落）
     const [tocOpen, setTocOpen] = useState(() => {
@@ -48,6 +51,7 @@ function BookReader({
     const [sessionOpen, setSessionOpen] = useState(false);
     const [toolOpen, setToolOpen] = useState(false);
     const [favOpen, setFavOpen] = useState(false);
+    const [cardsOpen, setCardsOpen] = useState(false);
     // 工具作用范围：默认当前章；「整本书」供全书思维导图/总结等使用（瞬时态，不持久化）
     const [toolScopeAll, setToolScopeAll] = useState(false);
 
@@ -97,6 +101,11 @@ function BookReader({
                     <ToggleButton active={aiOpen} onClick={() => setAiOpen(o => !o)} label="AI">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                    </ToggleButton>
+                    <ToggleButton active={cardsOpen} onClick={() => setCardsOpen(o => !o)} label="卡片" badge={cardDue}>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                         </svg>
                     </ToggleButton>
                     <ToggleButton active={toolOpen} onClick={() => setToolOpen(o => !o)} label="工具">
@@ -179,6 +188,14 @@ function BookReader({
                     favorites={favorites}
                     onRemoveFavorite={onRemoveFavorite}
                     onClose={() => setFavOpen(false)}
+                />
+            )}
+            {cardsOpen && currentBook && (
+                <CardsDrawer
+                    bookId={currentBook.book_id}
+                    bookTitle={currentBook.title}
+                    onClose={() => setCardsOpen(false)}
+                    onStatsChanged={onCardsStatsChanged}
                 />
             )}
         </div>

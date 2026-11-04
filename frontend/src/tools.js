@@ -7,9 +7,10 @@ export const TOOLS = [
     { id: 'author-talk', label: '与作者对谈', desc: '基于书中论点向作者提问', icon: 'M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z' },
     { id: 'knowledge-graph', label: '精读笔记', desc: '生成可下载的精读笔记页', icon: 'M4 6h16M4 12h16M4 18h16M8 2v4m8-4v4M8 16v4m8-4v4' },
     { id: 'cards', label: '知识卡片', desc: '提炼概念卡，按遗忘曲线间隔复习', icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10' },
+    { id: 'podcast', label: '读书播客', desc: '双主播对谈，可定主题与时长', icon: 'M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z' },
 ];
 
 export const TOOL_LABELS = Object.fromEntries(TOOLS.map(t => [t.id, t.label]));
 
-// 仅「与作者对谈」需要先输入问题；其余工具的作用范围 = 当前选中章（未选中则整本书）
-export const TOOL_NEEDS_INPUT = { 'author-talk': true };
+// 「与作者对谈」先输入问题、「读书播客」先选主题与时长；其余工具作用范围 = 当前选中章（未选中则整本书）
+export const TOOL_NEEDS_INPUT = { 'author-talk': true, 'podcast': true };

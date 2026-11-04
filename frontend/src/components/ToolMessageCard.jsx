@@ -487,6 +487,11 @@ function ToolMessageCard({ msg, bookId, favorites, onToggleFavorite, onNavigateT
                         </div>
                     ) : msg.output_type === 'cards' && parseCardsResult(content) ? (
                         <CardsResult data={parseCardsResult(content)} />
+                    ) : msg.output_type === 'audio' && !streaming && content.trim() ? (
+                        <div className="space-y-2" data-audio-card>
+                            <p className="text-xs text-zinc-400">双主播对谈 · 成品已存 data/audio，可点右上角收藏进资产区</p>
+                            <audio controls preload="metadata" src={content} className="w-full" data-audio-src={content} />
+                        </div>
                     ) : msg.tool_id === 'mindmap' && !streaming && content.trim() ? (
                         mmRoot
                             ? <MindmapTree root={mmRoot} bookId={bookId} onNavigateToSource={onNavigateToSource} />

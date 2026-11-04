@@ -528,7 +528,7 @@ function App() {
 
     // AI 工具：产出即消息（v2.0）——结果作为 kind=tool 消息流进当前对话末尾，完成后可被追问
     // scopeAll=true 时作用范围为整本书（chapter_id 不下发），否则为左栏当前选中章
-    const handleRunTool = async (toolId, userInput, scopeAll) => {
+    const handleRunTool = async (toolId, userInput, scopeAll, minutes) => {
         if (!currentBook || isStreaming || busyToolId) return;
         setAiOpen(true);
         setBusyToolId(toolId);
@@ -553,7 +553,8 @@ function App() {
                 body: JSON.stringify({
                     book_id: currentBook.book_id,
                     chapter_id: scopeAll ? null : (currentChapter?.chapter_id ?? null),
-                    user_input: userInput || null
+                    user_input: userInput || null,
+                    minutes: minutes || null,
                 })
             });
             if (!res.ok) {
@@ -597,7 +598,7 @@ function App() {
                 }
             }
 
-            const outputType = artifact ? (artifact.type === 'mindmap' ? 'mindmap' : artifact.type === 'cards' ? 'cards' : 'html') : 'text';
+            const outputType = artifact ? (artifact.type === 'mindmap' ? 'mindmap' : artifact.type === 'cards' ? 'cards' : artifact.type === 'audio' ? 'audio' : 'html') : 'text';
             const finalContent = artifact ? artifact.data : text;
 
             if (streamError) {

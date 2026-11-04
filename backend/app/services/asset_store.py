@@ -22,7 +22,7 @@ settings = get_settings()
 _lock = threading.Lock()
 
 ASSET_TYPES = ("note", "tool", "report")
-OUTPUT_TYPES = ("text", "html", "mindmap", "cards")
+OUTPUT_TYPES = ("text", "html", "mindmap", "cards", "audio")
 TITLE_CAP = 200
 CONTENT_CAP = 300_000   # html artifact 可能较大
 SOURCE_CAP = 200

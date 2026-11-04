@@ -1,5 +1,14 @@
 # 智能读书助手 — 版本历史
 
+## v2.5 — 2026-11-04（听书 + 读书播客——edge-tts 免费语音，双主播定制时长）
+- **语音层 `tts_service.py`（edge-tts 7.3.1，微软在线神经网络语音）**：免费、无独立 key、**完全不依赖 DeepSeek 余额**；男声 `zh-CN-YunxiNeural` / 女声 `zh-CN-XiaoyiNeural`；`clean_for_tts` 剥 markdown 行首符/内联符/分隔线、压空白，超 2 万字截断并补口语化收尾；缓存文件名 sha1(范围|书|章|正文哈希)——内容未变秒回，重切章自动失效；成品落 `data/audio/`（已 gitignore）
+- **章节听书 `/audio` 3 端点**：POST /chapter（孤章 404、空章 400；已缓存直接 `{done,url,cached}`，否则 `asyncio.create_task` 后台合成返回 task_id）→ GET /task/{id} 轮询 → GET /file/{name}（限定 40 位 hex 防路径穿越，`audio/mpeg`）。任务表纯内存：重启丢任务无妨，成品在盘上重新请求即命中
+- **播客 = 第 7 个 SSE 工具 `podcast`**：`user_input`=主题、`minutes`∈10/20/30（目标字数=分钟×240）；流程 = `search_chapters` 检索 6 段（未命中回落 `_context` 全书预算上下文）→ `_llm_json` 产台本 `{"lines":[{"s","t"}]}` → `lines_from_obj` 规范化（s 容错 A/B/女、空台词剔除、无有效台词报 error 帧）→ `stream_synth` 逐段双声合成**同文件顺序写入**（同码率 mp3 帧拼接直接可播）每 5 段发进度 status → `artifact {type:"audio", data:url}`；**新成品自动归档资产区**（`output_type="audio"`，归档失败不挡播放；缓存复用/合成失败不存）
+- **前端**：① 章头「听本章」按钮 + 播放条（ReadingPane 本地状态机 idle/busy/ready/err；`listenReqRef` 换章竞态保护——后台任务不取消因为成品落盘、回来秒播；autoPlay 经用户手势链合法）② ToolDrawer 播客内联面板（主题输入 + 10/20/30 档 chips；共享 talkOpen 重构成 per-tool `openInput`）③ ToolMessageCard `output_type==='audio'` 渲染 `<audio controls>` ④ AssetsDrawer audio 分支（**camelCase `outputType` 判分支——v2.4 教训落地**）⑤ App `handleRunTool(+minutes)` 与 artifact `audio` 类型映射
+- **测试**：pytest **107 passed**（新增 `test_tts.py` 15 项：清洗/cap 收尾/命名确定性与内容敏感/台本解析全护栏/真实 edge-tts 双声拼接冒烟（进度+MP3 头）/路由 404·400·任务流·缓存·防穿越/podcast 帧协议 fake LLM+fake 合成含自动归档断言）；`e2e_audio.cjs` **15/15 全绿且零 LLM**——真实合成整链路（1537 字译序约 25 秒出 1.9MB mp3）、浏览器内 fetch 验 200+audio/mpeg、二次 cached、播客表单交互、资产区播放器分支、无 JS 报错
+- 踩坑：① f-string 里 JSON 示例嵌套花括号写成 `}}}` 多一括号 → SyntaxError（运行时 import 第一时间拦截——铁律再次划算）；② E2E 的 `api()` helper 对 404 也 resolve 不 reject，孤章探测必须专门写 `probeStatus` 拿 statusCode；③ API 侧注入的资产 UI 不可见（favorites 是进书时拉的快照）——E2E 须 reload 触发 loadAssets；④ edge-tts 合成速度远快于实时，无需为长章设计流式边合边播；⑤ ToolDrawer 打开时顶栏钮被 z-50 面板覆盖（v2.4 同款），E2E 用背板点击关闭
+- 已知边界：播客台本生成需要 DeepSeek（402 充值后跑一次真实播客 E2E 补验）；听书不支持暂停续合成（整章一体文件）；mp3 无 ID3 元数据（文件名即哈希）
+
 ## v2.4 — 2026-11-04（收藏升级"本书资产区"——后端化 + 三类资产 + 导图重放/HTML 预览 + Markdown 导出）
 - **资产存储 `data/assets.json`**（`asset_store.py`）：chat/card 同款单文件 + `threading.Lock` + tmp/replace 原子写；三类 `type`：`note` 文字 / `tool` AI 产出 / `report` 报告；`output_type`：`text|html|mindmap|cards`（非法值静默降 text）；title 回落 `title→tool_name→"收藏"` 且 cap 200、content cap 30 万、正文空/未知 type/book_id 空 → `ValueError`（路由转 400）
 - **4 端点**：`GET /assets?book_id&type&q`（q=标题+正文小写包含、created_at 倒序）、`POST /assets`、`DELETE /assets/{asset_id}`（404）、`GET /assets/export?book_id=&ids=`（ids 逗号分隔子集**保序**，否则按书全量；空 404；`text/markdown; charset=utf-8` + `filename*=UTF-8''`）；**路由前缀共存**：`/assets` API 先注册、dist 静态 `/assets/{filename:path}` 兜底不冲突（运行时路由枚举裁决）

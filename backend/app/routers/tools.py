@@ -22,8 +22,11 @@ from typing import List, Optional
 import json
 import re
 
+import os
+
 from app.services.book_processor import book_processor
 from app.services.analysis_service import analysis_service
+from app.services import tts_service, asset_store
 from app.routers.book_processor import analysis_results as books_index
 
 router = APIRouter(prefix="/api/tools", tags=["AI工具"])
@@ -39,7 +42,8 @@ MAP_GROUP_SIZE = 8
 class ToolRequest(BaseModel):
     book_id: str
     chapter_id: Optional[str] = None   # 左栏当前选中章；不传即作用范围为整本书
-    user_input: Optional[str] = None   # 仅「与作者对谈」使用：读者的问题
+    user_input: Optional[str] = None   # 「与作者对谈」= 读者的问题；「读书播客」= 主题
+    minutes: Optional[int] = None      # 仅「读书播客」使用：目标时长（10/20/30）
 
 
 def _frame(obj) -> str:
@@ -862,6 +866,76 @@ async def _cards(request, chapters, scope_desc):
     yield _frame({"artifact": {"type": "cards", "data": json.dumps({"note": note, "cards": all_cards}, ensure_ascii=False)}})
 
 
+async def _podcast(request, chapters, scope_desc):
+    """读书播客（v2.5）——主题定制双主播对谈：RAG 找书中论点 → LLM 写台本 → edge-tts 双声合成。
+    台本生成依赖 DeepSeek；语音合成走微软免费接口不占额度。成品自动存入本书资产区（新建才存，缓存复用不重复存）。"""
+    topic = (request.user_input or "").strip()
+    if not topic:
+        yield _frame({"content": "请先告诉我这期播客想聊的主题，例如：如何区分观察和评论。"})
+        return
+    minutes = request.minutes if request.minutes in tts_service.PODCAST_MINUTES else 20
+    target = minutes * tts_service.PODCAST_CHARS_PER_MIN
+
+    yield _frame({"status": "检索书中与主题相关的段落"})
+    results = await book_processor.search_chapters(
+        query=topic, book_ids=[request.book_id], n_results=6)
+    if results:
+        passages = "\n\n".join(
+            f"〔出自《{r.title}》〕\n{r.content_snippet}" for r in results)
+    else:
+        passages = _context(chapters)
+
+    book = _book_title(request.book_id)
+    yield _frame({"status": f"撰写双主播对谈台本（目标约 {minutes} 分钟）"})
+    prompt = f"""你是读书播客的编剧。为《{book}》写一期双主播对谈播客台本，本期主题：{topic}。
+
+【书中与主题相关的原文段落】
+{passages}
+
+硬性要求：
+1. 只输出 JSON：{{"lines": [{{"s": "A", "t": "台词"}}]}}，s 只能是 A 或 B，不要输出任何其他文字
+2. 主播A（男）主导推进，主播B（女）追问、补充、举生活反例；严格交替发言
+3. 开场一两句问候并抛出主题；主体围绕书中观点展开（可口语化说明出自本书哪一节）；结尾互相道别
+4. 全程口语化，禁止书面腔与 Markdown 符号；每条台词不超过 120 字
+5. 全篇台词总字数约 {target} 字（中文口播约 240 字/分钟）；书中没谈的内容要明说"书里没谈"
+6. 台词字数超过目标 1.2 倍前必须妥善收尾"""
+    obj = await _llm_json(prompt)
+    lines = tts_service.lines_from_obj(obj)
+    if not lines:
+        yield _frame({"error": "台本生成或解析失败，请重试或换个主题说法"})
+        return
+
+    total_chars = sum(len(t) for t, _ in lines)
+    est_min = max(1, round(total_chars / tts_service.PODCAST_CHARS_PER_MIN))
+    name = tts_service.podcast_audio_name(
+        request.book_id, topic, minutes, tts_service.script_json(lines))
+    path = f"{tts_service.audio_dir()}/{name}"
+    url = f"/audio/file/{name}"
+
+    if os.path.exists(path):
+        yield _frame({"status": "该主题播客此前已生成过，直接复用成品"})
+    else:
+        yield _frame({"status": f"双主播合成语音：{len(lines)} 段台词（约 {est_min} 分钟音频）"})
+        try:
+            async for done_n, n in tts_service.stream_synth(lines, path):
+                if done_n % 5 == 0 or done_n == n:
+                    yield _frame({"status": f"已合成 {done_n}/{n} 段"})
+        except Exception as e:
+            yield _frame({"error": f"语音合成失败：{e}"})
+            return
+        try:  # 归档语义：新成品自动入资产区，失败不影响播放
+            asset_store.add_asset(
+                request.book_id, "tool", content=url,
+                title=f"播客 · {topic}", tool_id="podcast", tool_name="读书播客",
+                output_type="audio", source=f"约 {est_min} 分钟")
+            yield _frame({"status": "已自动存入本书资产区"})
+        except Exception:
+            pass
+
+    yield _frame({"content": f"本期播客《{topic}》：双主播对谈，约 {est_min} 分钟。"})
+    yield _frame({"artifact": {"type": "audio", "data": url, "filename": name}})
+
+
 _STREAM_TOOLS = {
     "summarize": _summarize,
     "questions": _questions,
@@ -869,6 +943,7 @@ _STREAM_TOOLS = {
     "author-talk": _author_talk,
     "knowledge-graph": _knowledge_graph,
     "cards": _cards,
+    "podcast": _podcast,
 }
 
 

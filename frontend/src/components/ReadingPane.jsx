@@ -80,6 +80,49 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget 
     const [summary, setSummary] = useState(null);
     const [summaryLoading, setSummaryLoading] = useState(false);
     const [summaryOpen, setSummaryOpen] = useState(true);
+    // 听本章（v2.5）：POST /audio/chapter → 任务轮询 → mp3 播放条。edge-tts 免费接口，不占 DeepSeek 额度
+    const [listen, setListen] = useState({ st: 'idle', msg: '', url: '' });
+    const listenReqRef = useRef(0);
+
+    useEffect(() => {
+        // 切章即复位听书状态（后台合成不取消——成品落盘，下次进本章直接命中缓存）
+        listenReqRef.current += 1;
+        setListen({ st: 'idle', msg: '', url: '' });
+    }, [currentChapter?.chapter_id]);
+
+    const startListen = async () => {
+        if (!currentBook || !currentChapter || listen.st === 'busy') return;
+        const reqId = ++listenReqRef.current;
+        const alive = () => listenReqRef.current === reqId;
+        setListen({ st: 'busy', msg: '正在排队合成', url: '' });
+        try {
+            const res = await fetch('/audio/chapter', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ book_id: currentBook.book_id, chapter_id: currentChapter.chapter_id }),
+            });
+            const d = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(d.detail || `请求失败 ${res.status}`);
+            if (d.status === 'done') {
+                if (alive()) setListen({ st: 'ready', msg: '', url: d.url });
+                return;
+            }
+            for (let i = 0; i < 900; i++) {
+                await new Promise(r => setTimeout(r, 2000));
+                if (!alive()) return;
+                const t = await (await fetch(`/audio/task/${d.task_id}`)).json().catch(() => ({}));
+                if (t.status === 'done') {
+                    if (alive()) setListen({ st: 'ready', msg: '', url: t.url });
+                    return;
+                }
+                if (t.status === 'error') throw new Error(t.error || '合成失败');
+                if (alive() && t.progress) setListen(a => (a.st === 'busy' ? { ...a, msg: t.progress } : a));
+            }
+            throw new Error('合成超时，请稍后重试');
+        } catch (e) {
+            if (alive()) setListen({ st: 'err', msg: String(e.message || e), url: '' });
+        }
+    };
     const [twoCol, setTwoCol] = useState(false);
     // 正文容器用回调 state ref：章节内容异步到位后也能挂上 ResizeObserver（useRef+[] 会错过挂载时机）
     const [colBoxEl, setColBoxEl] = useState(null);
@@ -164,6 +207,18 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget 
                     {currentChapter?.word_count ? (
                         <span className="text-[11px] text-zinc-300 flex-shrink-0 tabular-nums">{currentChapter.word_count} 字</span>
                     ) : null}
+                    <button
+                        onClick={startListen}
+                        disabled={!currentChapter || listen.st === 'busy'}
+                        title="听本章"
+                        data-listen-chapter
+                        className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] transition-all ${listen.st === 'ready' ? 'bg-zinc-800 text-white' : 'border border-zinc-200 text-zinc-500 hover:bg-zinc-50'} disabled:opacity-50`}
+                    >
+                        <svg className={`w-3.5 h-3.5 ${listen.st === 'busy' ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                        </svg>
+                        {listen.st === 'ready' ? '播放中' : listen.st === 'busy' ? '合成中' : '听本章'}
+                    </button>
                     <span className="ml-auto flex items-center gap-1 flex-shrink-0">
                         <ChapterNavButton dir="prev" disabled={!prev} title={prev?.title} onClick={() => prev && onSelectChapter?.(prev)} />
                         <span className="text-[11px] text-zinc-300 tabular-nums px-1">
@@ -172,6 +227,17 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget 
                         <ChapterNavButton dir="next" disabled={!next} title={next?.title} onClick={() => next && onSelectChapter?.(next)} />
                     </span>
                 </div>
+                {listen.st !== 'idle' && (
+                    <div className="mt-2.5 min-w-0" data-listen-bar>
+                        {listen.st === 'ready' ? (
+                            <audio controls autoPlay preload="metadata" src={listen.url} className="w-full h-9" data-audio-player />
+                        ) : (
+                            <p className={`text-[11px] ${listen.st === 'err' ? 'text-red-400' : 'text-zinc-400'}`} data-listen-status>
+                                {listen.st === 'busy' ? `${listen.msg}……（整章约需几十秒到几分钟，可继续翻页阅读）` : `${listen.msg}，再点一次「听本章」重试`}
+                            </p>
+                        )}
+                    </div>
+                )}
             </div>
 
             <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin">

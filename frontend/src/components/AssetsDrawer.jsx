@@ -126,6 +126,8 @@ function AssetsDrawer({ assets, bookId, bookTitle, onClose, onRemove, onNavigate
                                                     onNavigateToSource={(bid, cid) => { onNavigateToSource?.(bid, cid); onClose(); }}
                                                 />
                                             </div>
+                                        ) : a.type === 'tool' && a.outputType === 'audio' ? (
+                                            <audio controls preload="metadata" src={a.answer} className="w-full" data-asset-audio={a.id} />
                                         ) : a.type === 'tool' && a.outputType === 'html' ? (
                                             <iframe
                                                 title={a.question}

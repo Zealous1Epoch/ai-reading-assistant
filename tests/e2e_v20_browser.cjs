@@ -101,18 +101,15 @@ let browser = null;
     await page.locator('button[title="AI"]').click();
     await sleep(400);
 
-    // ---- 5 目录抽屉 ----
-    await page.locator('button[title="目录"]').click();
-    let tocOpen = false;
-    for (let i = 0; i < 10 && !tocOpen; i++) {
-        await sleep(400);
-        tocOpen = await page.evaluate(() => !!document.querySelector('input[placeholder="搜索本书"]'));
-    }
-    say('目录抽屉打开', tocOpen);
+    // ---- 5 目录侧栏（v2.1.1：常驻左栏，顶栏开合；1440 视口默认展开） ----
+    say('目录侧栏默认展开', await page.evaluate(() => !!document.querySelector('input[placeholder="搜索本书"]')));
     await page.screenshot({ path: '/tmp/v20_toc.png' });
-    await page.mouse.click(720, 450); // 背板关闭
+    await page.locator('button[title="目录"]').click();
     await sleep(400);
-    say('目录抽屉可关闭', await page.evaluate(() => !document.querySelector('input[placeholder="搜索本书"]')));
+    say('目录侧栏可收起', await page.evaluate(() => !document.querySelector('input[placeholder="搜索本书"]')));
+    await page.locator('button[title="目录"]').click();
+    await sleep(400);
+    say('目录侧栏可再展开', await page.evaluate(() => !!document.querySelector('input[placeholder="搜索本书"]')));
 
     // ---- 6 工具抽屉 → 运行 → 对话流卡片 → 后端落盘 ----
     // 基线：之前崩溃轮残留的会话一律无视，只认本轮新增（否则残留会话会让落盘断言秒假绿、

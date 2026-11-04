@@ -910,6 +910,7 @@ async def _podcast(request, chapters, scope_desc):
 
     book = _book_title(request.book_id)
     yield _frame({"status": f"撰写双主播对谈台本（目标约 {minutes} 分钟）"})
+    # v2.8-E 提示词增强：悬念钩子开场、观点标注出处章节、口语语感示例、结尾预告下期
     prompt = f"""你是读书播客的编剧。为《{book}》写一期双主播对谈播客台本，本期主题：{topic}。
 
 【书中与主题相关的原文段落】
@@ -917,18 +918,43 @@ async def _podcast(request, chapters, scope_desc):
 
 硬性要求：
 1. 只输出 JSON：{{"lines": [{{"s": "A", "t": "台词"}}]}}，s 只能是 A 或 B，不要输出任何其他文字
-2. 主播A（男）主导推进，主播B（女）追问、补充、举生活反例；严格交替发言
-3. 开场一两句问候并抛出主题；主体围绕书中观点展开（可口语化说明出自本书哪一节）；结尾互相道别
-4. 全程口语化，禁止书面腔与 Markdown 符号；每条台词不超过 120 字
-5. 全篇台词总字数约 {target} 字（中文口播约 240 字/分钟）；书中没谈的内容要明说"书里没谈"
-6. 台词字数超过目标 1.2 倍前必须妥善收尾"""
-    obj = await _llm_json(prompt)
-    lines = tts_service.lines_from_obj(obj)
-    if not lines:
+2. 主播A（男）主导推进，主播B（女）追问、补充、举生活反例；严格交替发言，不许同一人连说两条
+3. 开场先讲一个悬念或生活场景钩子（不要用"今天我们聊聊"式报幕腔），两三句内自然带出书名与主题
+4. 每讲一个书中观点，顺带一句它出自本书哪一节（照抄段落标注的章节名），方便听众翻回原文
+5. 结尾用一句话预告下期想聊的话题，再互相道别
+6. 全程口语化：多用短句、设问和接话词（如"说白了""你这么一提"）；禁止书面腔与 Markdown 符号；每条台词不超过 120 字
+7. 全篇台词总字数约 {target} 字（中文口播约 280 字/分钟），段数不少于 {max(12, target // 120)} 段；书中没谈的内容要明说"书里没谈"
+8. 台词总字数超过目标 1.2 倍前必须妥善收尾
+
+语感示例（仅示范口吻，内容严禁照抄）：
+A：你有没有发现，越是亲近的人，说话越容易扎人？
+B：太有了，上次我妈一句"我这是为你好"，我当场就顶回去了。
+A：书里其实把这事说透了，第三节管它叫"异化的语言"。"""
+
+    # v2.8-D 规则审核：不合格带问题清单追加进提示词重写（初稿 + 最多 2 次重掷）；
+    # "腰斩"档（不足目标六成）硬失败——宁可报错，不发一档时长注水的货。
+    lines, issues = None, []
+    feedback = ""
+    for round_i in range(3):
+        obj = await _llm_json(prompt + feedback)
+        cand = tts_service.lines_from_obj(obj)
+        if cand is None:
+            continue
+        lines, issues = cand, tts_service.validate_script(cand, target)
+        if not issues:
+            break
+        if round_i < 2:
+            yield _frame({"status": "台本未过审：" + "；".join(issues[:2]) + "，重写中"})
+            feedback = "\n\n【上一稿未过审，逐条修正后再输出】\n- " + "\n- ".join(issues)
+    if lines is None:
         yield _frame({"error": "台本生成或解析失败，请重试或换个主题说法"})
         return
-
     total_chars = sum(len(t) for t, _ in lines)
+    if issues and total_chars < target * 0.6:
+        yield _frame({"error": f"台本多次重写仍不足目标时长六成（约 {total_chars} 字），请稍后重试或换个主题说法"})
+        return
+    if issues:
+        yield _frame({"status": "台本仍有小瑕疵：" + "；".join(issues[:2]) + "，先照常合成"})
     est_min = max(1, round(total_chars / tts_service.PODCAST_CHARS_PER_MIN))
     # regen：时间戳 nonce 另起新期（同秒重复 regen 直接覆盖新期文件，无副作用）
     nonce = str(int(time.time())) if request.regen else ""
@@ -938,12 +964,15 @@ async def _podcast(request, chapters, scope_desc):
 
     yield _frame({"status": f"双主播合成语音：{len(lines)} 段台词（约 {est_min} 分钟音频）"})
     try:
-        async for done_n, n in tts_service.stream_synth(lines, path):
+        async for done_n, n in tts_service.stream_synth(
+                lines, path, rate=tts_service.PODCAST_RATE, gap=tts_service.PODCAST_GAP_BYTES):
             if done_n % 5 == 0 or done_n == n:
                 yield _frame({"status": f"已合成 {done_n}/{n} 段"})
     except Exception as e:
         yield _frame({"error": f"语音合成失败：{e}"})
         return
+    # v2.8 口径统一：首轮时长标签同样用成品字节反推（与复用分支同源，避免首轮/复看两个数字）
+    est_min = max(1, round(os.path.getsize(path) / 360000))
     try:  # 归档语义：新成品自动入资产区，失败不影响播放
         asset_store.add_asset(
             request.book_id, "tool", content=url,

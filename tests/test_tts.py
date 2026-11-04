@@ -179,6 +179,69 @@ class TestSynthConcurrency:
         assert not os.path.exists(path) and not os.path.exists(path + ".part")
 
 
+# ---------------- v2.8-C/D：语速停顿透传与台本审核规则 ----------------
+
+class TestSynthRateGap:
+    def test_rate_passed_through_and_gap_between_only(self, tmp_data, monkeypatch):
+        """rate 逐段透传给 Communicate；gap 只在段间插，片头片尾不加"""
+        seen = []
+        class FakeComm:
+            def __init__(self, text, voice, rate=None):
+                seen.append(rate)
+                self.text = text
+            async def stream(self):
+                yield {"type": "audio", "data": self.text.encode("utf-8")}
+        monkeypatch.setattr(tts_service.edge_tts, "Communicate", FakeComm)
+
+        async def run():
+            path = str(tmp_data / "rg.mp3")
+            _ = [p async for p in tts_service.stream_synth(
+                [("甲", "A"), ("乙", "B"), ("丙", "A")], path, rate="+9%", gap=b"~GAP~")]
+            return path
+        path = asyncio.run(run())
+        assert set(seen) == {"+9%"}
+        data = open(path, "rb").read()
+        assert data == "甲".encode("utf-8") + b"~GAP~" + "乙".encode("utf-8") + b"~GAP~" + "丙".encode("utf-8")
+
+
+class TestValidateScript:
+    @staticmethod
+    def _lines(n, per, alt=True):
+        out = []
+        for i in range(n):
+            voice = (tts_service.VOICE_A if i % 2 == 0 else tts_service.VOICE_B) if alt else tts_service.VOICE_A
+            out.append(("话" * per, voice))
+        return out
+
+    def test_good_script_passes(self):
+        # 30 段 × 90 字 = 2700 字，目标 2400：段数/字数/单条/交替全过
+        assert tts_service.validate_script(self._lines(30, 90), 2400) == []
+
+    def test_waist_cut_flagged(self):
+        # 1200 字 < 2400×60% → 恰触发"腰斩"一条
+        issues = tts_service.validate_script(self._lines(30, 40), 2400)
+        assert len(issues) == 1
+
+    def test_too_long_flagged(self):
+        # 3600 字 > 2400×135%
+        issues = tts_service.validate_script(self._lines(30, 120), 2400)
+        assert len(issues) == 1
+
+    def test_over_long_line_flagged(self):
+        # 单条 130 字超上限；段数(12=2400//200)与总字数(1560≥1440)都贴线但不触发
+        issues = tts_service.validate_script(self._lines(12, 130), 2400)
+        assert len(issues) == 1
+
+    def test_no_alternation_flagged(self):
+        # 30 段同人连说：只触发交替一条
+        issues = tts_service.validate_script(self._lines(30, 90, alt=False), 2400)
+        assert len(issues) == 1
+
+    def test_too_few_segments_flagged(self):
+        # 4 段×110 字=440 字：段数不足+腰斩双触发
+        issues = tts_service.validate_script(self._lines(4, 110), 2400)
+        assert len(issues) == 2
+
 # ---------------- /audio 路由 ----------------
 
 def _fake_chapter(content="正文内容"):
@@ -268,10 +331,12 @@ class TestPodcastTool:
         async def fake_llm(prompt):
             return lines_obj
         monkeypatch.setattr(tools, "_llm_json", fake_llm)
+        # v2.8-D: frame-protocol tests only; validator stubbed (rules in TestValidateScript)
+        monkeypatch.setattr(tts_service, "validate_script", lambda lines, target: [])
 
         calls = {"synth": 0, "asset": None}
 
-        async def fake_stream(lines, path):
+        async def fake_stream(lines, path, **kw):
             calls["synth"] += 1
             if synth_raises:
                 raise RuntimeError("网络断了")

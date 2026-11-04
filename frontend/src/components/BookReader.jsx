@@ -27,6 +27,7 @@ function ToggleButton({ active, onClick, label, badge, children }) {
 // 书内三区布局：[目录侧栏 | 阅读区 | AI区]；会话/工具/收藏均为顶栏唤出的满高抽屉
 function BookReader({
     currentBook, currentChapter, onSelectChapter, onBackToShelf,
+    citeTarget,
     // 会话
     sessions, currentSessionId, onNewSession, onSelectSession, onDeleteSession,
     // 对话与工具
@@ -127,6 +128,7 @@ function BookReader({
                     currentBook={currentBook}
                     currentChapter={currentChapter}
                     onSelectChapter={onSelectChapter}
+                    citeTarget={citeTarget}
                 />
                 <AiPanel
                     open={aiOpen}

@@ -21,7 +21,8 @@ function cleanMarkdown(text) {
         .trim();
 }
 
-function renderWithCitations(text) {
+// 「《书名》·章节名」徽章（旧机制保留）
+function renderBadges(text, keyBase) {
     const parts = text.split(/(「[^」]+」)/g);
     if (parts.length === 1) return text;
     return parts.map((part, i) => {
@@ -29,7 +30,7 @@ function renderWithCitations(text) {
         if (match) {
             const [bookPart, chapterPart] = match[1].split('·');
             return (
-                <span key={i} className="inline-flex items-center gap-1 mx-0.5 px-1.5 py-0.5 bg-zinc-50 text-zinc-600 rounded text-xs font-medium border border-zinc-200">
+                <span key={`${keyBase}-${i}`} className="inline-flex items-center gap-1 mx-0.5 px-1.5 py-0.5 bg-zinc-50 text-zinc-600 rounded text-xs font-medium border border-zinc-200">
                     {bookPart}
                     {chapterPart && <span className="text-zinc-300">·</span>}
                     {chapterPart || null}
@@ -40,14 +41,41 @@ function renderWithCitations(text) {
     });
 }
 
-function renderMessageParagraphs(text) {
+// 句内引用：把与本轮 sources.index 对应的 [n] 渲染为可点击上标角标（点→跳原文段落高亮）；
+// 无对应来源（历史存量/模型编号越界）时按普通文本保留
+function renderInlineCitations(text, sources, onCite, keyBase) {
+    const byIndex = new Map((sources || []).filter(s => s && s.index).map(s => [s.index, s]));
+    if (byIndex.size === 0) return renderBadges(text, keyBase);
+    const segs = text.split(/(\[\d{1,2}\])/g);
+    return segs.map((seg, i) => {
+        const m = seg.match(/^\[(\d{1,2})\]$/);
+        if (m && byIndex.has(+m[1])) {
+            const n = +m[1];
+            const src = byIndex.get(n);
+            return (
+                <button
+                    key={`${keyBase}-${i}`}
+                    data-cite={n}
+                    className="cite-marker"
+                    title={src.chapter_title}
+                    onClick={() => onCite?.(src)}
+                >
+                    {n}
+                </button>
+            );
+        }
+        return renderBadges(seg, `${keyBase}-${i}`);
+    });
+}
+
+function renderMessageParagraphs(text, sources, onCite) {
     const cleaned = cleanMarkdown(text);
     const paragraphs = cleaned.split(/\n\n+/).filter(p => p.trim());
     if (paragraphs.length <= 1) {
-        return <p className="text-sm text-zinc-700 leading-relaxed" style={{ textIndent: '2em' }}>{renderWithCitations(cleaned)}</p>;
+        return <p className="text-sm text-zinc-700 leading-relaxed" style={{ textIndent: '2em' }}>{renderInlineCitations(cleaned, sources, onCite, 'p')}</p>;
     }
     return paragraphs.map((para, i) => (
-        <p key={i} className="text-sm text-zinc-700 leading-relaxed mt-1.5" style={{ textIndent: '2em' }}>{renderWithCitations(para)}</p>
+        <p key={i} className="text-sm text-zinc-700 leading-relaxed mt-1.5" style={{ textIndent: '2em' }}>{renderInlineCitations(para, sources, onCite, `p${i}`)}</p>
     ));
 }
 
@@ -68,6 +96,9 @@ function AiPanel({
     const [plusOpen, setPlusOpen] = useState(false);
     const [plusGroup, setPlusGroup] = useState(null);
     const chatEndRef = useRef(null);
+
+    // 引用跳源：带上段落锚点 snippet（存量旧消息无此字段=只跳章首）
+    const citeJump = (src) => src && onNavigateToSource?.(src.book_id, src.chapter_id, src.snippet);
 
     const MENU_GROUPS = [{ id: 'experts', label: '专家模式' }];
     const expertStarters = (activeExpert?.quickPrompts || []).filter(q => !q.startsWith('收束'));
@@ -140,7 +171,7 @@ function AiPanel({
                                                 </svg>
                                                 <span className="text-xs font-semibold text-zinc-600">收束报告{activeExpert ? ` · ${activeExpert.name}` : ''}</span>
                                             </div>
-                                            {renderMessageParagraphs(msg.content)}
+                                            {renderMessageParagraphs(msg.content, msg.sources, citeJump)}
                                         </div>
                                     </div>
                                 );
@@ -151,13 +182,14 @@ function AiPanel({
                                         {msg.role === 'user' ? (
                                             <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                                         ) : (
-                                            renderMessageParagraphs(msg.content)
+                                            renderMessageParagraphs(msg.content, msg.sources, citeJump)
                                         )}
                                         {/* 逐条来源（含刷新恢复的存量消息） */}
                                         {msg.role === 'assistant' && msg.sources?.length > 0 && (
                                             <div className="mt-2 pt-2 border-t border-zinc-50 flex flex-wrap gap-1.5">
                                                 {msg.sources.map((s, j) => (
-                                                    <button key={j} onClick={() => onNavigateToSource?.(s.book_id, s.chapter_id)} className="inline-flex items-center gap-1 px-2 py-0.5 bg-zinc-50 text-zinc-500 rounded-full text-[11px] border border-zinc-100 hover:bg-zinc-100 transition-colors">
+                                                    <button key={j} data-source-chip={s.index || j + 1} onClick={() => citeJump(s)} className="inline-flex items-center gap-1 px-2 py-0.5 bg-zinc-50 text-zinc-500 rounded-full text-[11px] border border-zinc-100 hover:bg-zinc-100 transition-colors">
+                                                        <span className="min-w-[14px] h-[14px] px-1 rounded-full bg-white border border-zinc-200 text-zinc-400 text-[9px] leading-[13px] text-center tabular-nums">{s.index || j + 1}</span>
                                                         <span className="font-semibold">{s.book_title || currentBook?.title}</span>
                                                         <span className="text-zinc-300">·</span>
                                                         <span>{s.chapter_title}</span>

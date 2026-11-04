@@ -57,7 +57,13 @@ let browser = null;
     await page.waitForFunction(() => location.hash.startsWith('#/book/'), null, { timeout: 10000 });
     const bookId = decodeURIComponent(page.url().split('#/book/')[1]);
     say('hash 路由进书', bookId.length > 0, bookId.slice(0, 8));
-    say('AI 区就位', await page.getByText('AI 助手', { exact: true }).first().isVisible());
+    // 进书瞬间可能落后一帧渲染，短轮询防 flaky
+    let aiVisible = false;
+    for (let i = 0; i < 10 && !aiVisible; i++) {
+        aiVisible = await page.getByText('AI 助手', { exact: true }).first().isVisible();
+        if (!aiVisible) await sleep(200);
+    }
+    say('AI 区就位', aiVisible);
     let bodyRendered = false;
     for (let i = 0; i < 20 && !bodyRendered; i++) {
         await sleep(1000);

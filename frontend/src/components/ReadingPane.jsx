@@ -41,7 +41,7 @@ function ChapterParagraphs({ text }) {
                 if (isHeading) {
                     const bodyLines = lines.slice(1).filter(l => l.trim());
                     return (
-                        <div key={i} className={`${avoid} mb-5`}>
+                        <div key={i} data-p={i} className={`${avoid} mb-5`}>
                             <p className="text-lg font-serif-heading font-bold text-zinc-900 mb-2" style={{ breakAfter: 'avoid' }}>{firstLine}</p>
                             {bodyLines.map((l, j) => (
                                 <p key={j} className="text-[15px] text-zinc-700 leading-8 mb-2" style={{ textIndent: '2em' }}>{l.trim()}</p>
@@ -50,7 +50,7 @@ function ChapterParagraphs({ text }) {
                     );
                 }
                 return (
-                    <p key={i} className={`text-[15px] text-zinc-700 leading-8 mb-3 ${avoid}`} style={{ textIndent: '2em' }}>
+                    <p key={i} data-p={i} className={`text-[15px] text-zinc-700 leading-8 mb-3 ${avoid}`} style={{ textIndent: '2em' }}>
                         {block.trim()}
                     </p>
                 );
@@ -75,7 +75,8 @@ function ChapterNavButton({ dir, disabled, title, onClick }) {
 }
 
 // 阅读区：摘要条全宽置顶 + 正文；容器宽 >= 900px 时正文自动双栏（书页模式）
-function ReadingPane({ currentBook, currentChapter, onSelectChapter }) {
+// citeTarget：句内引用跳章后的段落高亮目标 {chapter_id, snippet, nonce}
+function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget }) {
     const [summary, setSummary] = useState(null);
     const [summaryLoading, setSummaryLoading] = useState(false);
     const [summaryOpen, setSummaryOpen] = useState(true);
@@ -102,6 +103,30 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter }) {
     useEffect(() => {
         scrollRef.current?.scrollTo({ top: 0 });
     }, [currentChapter?.chapter_id]);
+
+    // 引用角标跳转：在渲染段落中找到锚点子串 → 滚至居中并闪烁高亮；未命中则停留在章首（优雅回落）
+    useEffect(() => {
+        if (!citeTarget || !currentChapter || citeTarget.chapter_id !== currentChapter.chapter_id) return;
+        if (!citeTarget.snippet) return;
+        const box = scrollRef.current;
+        if (!box) return;
+        const norm = s => s.replace(/\s+/g, '');
+        const want = norm(citeTarget.snippet);
+        if (!want) return;
+        // 正文段落随内容异步渲染，稍等一帧再找
+        const timer = setTimeout(() => {
+            box.querySelectorAll('.cite-flash').forEach(el => el.classList.remove('cite-flash'));
+            const els = box.querySelectorAll('[data-p]');
+            let target = null;
+            for (const el of els) {
+                if (norm(el.textContent).includes(want)) { target = el; break; }
+            }
+            if (!target) return;
+            target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            target.classList.add('cite-flash');
+        }, 60);
+        return () => clearTimeout(timer);
+    }, [citeTarget?.nonce, currentChapter?.chapter_id, currentChapter?.content]);
 
     // 双栏判定：以正文容器实际宽度为准（与 AI 区/侧栏的展开状态天然联动）
     useEffect(() => {

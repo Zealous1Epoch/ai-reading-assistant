@@ -1,5 +1,13 @@
 # 智能读书助手 — 版本历史
 
+## v2.2 — 2026-11-04（句内引用角标——[n] 编号 + 跳章段落高亮）
+- **句内引用（排期 #30）**：RAG 问答回答句内出现 `[n]` 引用角标（编号=本轮参考段落编号），点击角标跳转原文对应章节并在**段落级**定位+琥珀色闪烁高亮 3.2s；未命中锚点优雅回落章首，重复点击同处经 nonce 重新触发
+- **后端编号与锚点**：`stream_chat` 上下文块统一 `[n] ` 前缀（当前章=1，检索块顺延）；`sources` 帧每条加 `index`（int）与 `snippet`——`_source_snippet` 取块体**剥滑窗重叠前缀后**首行前 24 字（`_split_into_chunks` 按行聚合故块体起始对齐行首，前端以"段落 textContent 去空白后含 snippet"即可唯一定位）；`ChapterSearchResult` 模型补 `chunk_index`/`prefix_len` 透传锚点信息
+- **引用指令注入**：`citation_instruction` 由路由器构造（仅在有来源时注入），追加到 system 末尾——**默认人格与专家 `system_prompt_override` 一路生效**；prompt 明确"编号每轮重新分配，历史回答里的旧编号不沿用"；默认格式规则与 cleanup_reminder 同步补"参考段落带编号时句末必附 [n]"
+- **前端链路**：AiPanel `renderInlineCitations` 按 sources 的 index 建映射，`[n]` 渲染为 `.cite-marker` 圆形角标按钮（无编号来源时回落旧书名徽章渲染）；来源芯片加序号圆标与 `data-source-chip`；点击经 `citeJump→onNavigateToSource→App.citeTarget{chapter_id,snippet,nonce}` 透传 ReadingPane，effect 60ms 延迟等异步渲染后在 `[data-p]` 段落上 norm 比对命中→`scrollIntoView(center)`+`.cite-flash`
+- **测试**：pytest 72 passed（新增 `tests/test_citations.py` 8 项：`_source_snippet` 首行/剥前缀/截断/空串、流式帧编号+锚点+指令注入、当前章=1 号 snippet 空、无来源无指令、真实 service 函数对专家 override 也追加指令）；`tests/e2e_citations.cjs` 浏览器级 **12 断言全绿**（真实 LLM：19 个角标编号全在 5 条来源范围内、跳章章名一致、高亮段落命中锚点、无 JS 报错）
+- 踩坑：①给 `stream_chat` 加关键字参数后 test_chat_sessions 的 fake_stream 签名漂移炸 2 例——**加参先搜全部测试 fake/mock 同步**；②Playwright 脚本 require playwright 须走 `../frontend/node_modules/playwright` 相对路径（仓库根 node_modules 无此包）；③测试内嵌套 asyncio.run 收帧会空（须单 asyncio.run 内迭代 body_iterator）；④含 `\u` 字样的中文 docstring 必须 r-docstring 否则 unicodeescape SyntaxError
+
 ## v2.1.1 — 2026-11-04（左栏改目录常驻，会话改抽屉）
 - **布局对调**（慧姐指定）：书内三区从 `[会话侧栏|阅读区|AI区]` 改为 **`[目录侧栏|阅读区|AI区]`**——读书时翻目录比翻历史会话高频，目录常驻左栏（toc 层级/降级平铺 + 本书全文搜索 + 底部书籍摘要，可收起为 36px 细栏，开合态持久化）；会话改顶栏唤出的**左侧满高抽屉**（与工具/收藏同款镜像，按钮带计数角标；新建/选中会话后自动收起）
 - 组件变更：新建 TocRail.jsx（自原 BookReader 内联 TocDrawer 迁移+侧栏化，搜索跳转后自动回目录列表）、SessionDrawer.jsx（列表渲染复用旧 SessionRail 逻辑）；**删 SessionRail.jsx 与 BookReader 内联 TocDrawer**；顶栏「目录」按钮语义=侧栏开合、「会话」=唤出抽屉

@@ -24,6 +24,10 @@
         .text-indent-2 { text-indent: 2em; }
         .book-columns { columns: 2; column-gap: 3rem; column-rule: 1px solid #f4f4f5; }
         @media (max-width: 980px) { .book-columns { columns: 1; } }
+        .cite-marker { display: inline-flex; align-items: center; justify-content: center; min-width: 15px; height: 15px; padding: 0 3px; margin: 0 2px; vertical-align: super; font-size: 10px; line-height: 1; border-radius: 9999px; background: #f4f4f5; color: #52525b; border: 1px solid #e4e4e7; cursor: pointer; transition: all 0.15s ease; }
+        .cite-marker:hover { background: #18181b; color: #fff; border-color: #18181b; }
+        .cite-flash { animation: cite-flash 3.2s ease-out; border-radius: 8px; }
+        @keyframes cite-flash { 0% { background: transparent; } 8% { background: rgba(251, 191, 36, 0.5); } 60% { background: rgba(251, 191, 36, 0.35); } 100% { background: transparent; } }
     </style>
 </head>
 <body class="bg-zinc-50 antialiased">

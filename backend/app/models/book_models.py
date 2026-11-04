@@ -49,3 +49,6 @@ class ChapterSearchResult(BaseModel):
     content_snippet: str
     chapter_index: int
     relevance_score: float
+    # 滑窗块锚点信息：供句内引用跳转到原文段落时定位（chunk 体首行前缀子串）
+    chunk_index: int = 0
+    prefix_len: int = 0

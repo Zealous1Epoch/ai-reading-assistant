@@ -212,9 +212,13 @@ function App() {
         }
     };
 
-    // 从来源标注/引用芯片跳原文
-    const handleNavigateToSource = async (bookId, chapterId) => {
+    // 引用跳章的段落高亮目标（nonce 保证重复点同一处也能重新触发）
+    const [citeTarget, setCiteTarget] = useState(null);
+
+    // 从来源标注/引用芯片跳原文；v2.2 起带 snippet 时跳章后定位段落并闪烁高亮
+    const handleNavigateToSource = async (bookId, chapterId, snippet) => {
         if (!bookId) return;
+        setCiteTarget({ chapter_id: chapterId, snippet: snippet || '', nonce: Date.now() });
         const book = books.find(b => b.book_id === bookId);
         if (!book) return;
         if (currentBook?.book_id !== bookId) {
@@ -709,6 +713,7 @@ function App() {
                 currentChapter={currentChapter}
                 onSelectChapter={handleSelectChapter}
                 onBackToShelf={handleBackToShelf}
+                citeTarget={citeTarget}
                 sessions={sessions}
                 currentSessionId={sessionId}
                 onNewSession={handleNewSession}

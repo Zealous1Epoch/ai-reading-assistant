@@ -124,7 +124,8 @@ class AnalysisService:
         message: str,
         chapter_context: Optional[str] = None,
         chat_history: Optional[list] = None,
-        system_prompt_override: Optional[str] = None
+        system_prompt_override: Optional[str] = None,
+        citation_instruction: Optional[str] = None
     ) -> AsyncGenerator[str, None]:
         """
         流式对话
@@ -133,6 +134,7 @@ class AnalysisService:
         :param chapter_context: 当前章节上下文
         :param chat_history: 历史对话记录
         :param system_prompt_override: 专家模式方法论系统提示词；传入则替换默认读书助手人格
+        :param citation_instruction: 句内引用编号规则；传入则追加到系统提示词末尾（对默认人格与专家人格一致生效）
         """
 
         system_prompt = system_prompt_override or """你是一个专业的智能读书助手，擅长深度分析和清晰表达。
@@ -148,13 +150,17 @@ class AnalysisService:
 
 格式规则：
 1. 请用纯文本回复，不要使用任何Markdown格式符号（如#、*、`等）。
-2. 当引用某个来源时，请用「《书名》·章节名」的格式明确标注出处。
+2. 当引用某个来源时，请用「《书名》·章节名」的格式明确标注出处；若参考段落带有 [n] 编号，句末必须同时附上该编号（如 [1][3]）。
 3. 如果上下文中有多本书的信息，请对比它们的观点差异。
 4. 需要列出内容时可以使用无序列表（用 - 开头即可）。
 5. 重要：当被问到"证据"、"论据"、"证明"、"证实"类问题时，必须提供至少3个具体论据或角度，每个论附上来源。"""
 
+        # 句内引用编号规则：默认人格与专家人格一致追加
+        if citation_instruction:
+            system_prompt = system_prompt + citation_instruction
+
         # 附加清理指令（追加到用户消息之后，作为 reminders）
-        cleanup_reminder = "\n\n（请勿使用Markdown格式。引用来源时请用「《书名》·章节名」格式。）"
+        cleanup_reminder = "\n\n（请勿使用Markdown格式。引用来源时请用「《书名》·章节名」格式，参考段落带编号时句末必附 [n]。）"
 
         messages = [SystemMessage(content=system_prompt)]
 

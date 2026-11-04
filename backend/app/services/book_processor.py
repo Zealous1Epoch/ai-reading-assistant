@@ -1003,6 +1003,8 @@ class BookProcessor:
                     content_snippet=content,
                     chapter_index=metadata.get('chapter_index', 0),
                     relevance_score=max(0.0, min(1.0, 1 - distance)),  # cosine 相似度，诚实刻度
+                    chunk_index=chunk_index,
+                    prefix_len=metadata.get('prefix_len', 0),
                 ))
                 if len(search_results) >= n_results:
                     break

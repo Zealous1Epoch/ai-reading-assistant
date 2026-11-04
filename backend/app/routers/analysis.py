@@ -85,6 +85,14 @@ async def quick_analysis(request: QuickAnalysisRequest):
     return {"result": result}
 
 
+def _source_snippet(chunk_text: str, prefix_len: int = 0) -> str:
+    """取块体首行前缀做段落锚点（剥去滑窗重叠前缀），前端据此定位并高亮段落。
+    取不到（空行等）返回空串，前端自动回落到章首跳转。"""
+    body = chunk_text[prefix_len + 1:] if prefix_len else chunk_text
+    first_line = body.split("\n", 1)[0].strip()
+    return first_line[:24]
+
+
 @router.post("/chat/stream")
 async def stream_chat(request: ChatRequest):
     """
@@ -93,24 +101,28 @@ async def stream_chat(request: ChatRequest):
     支持两种模式：
     1. 当前章节模式：传入 chapter_id，基于该章节内容回答
     2. 整本书模式：传入 book_id，通过 RAG 搜索全书相关章节后回答
+    参考段落统一以 [n] 编号，回答句末用 [n] 标注引用，前端渲染为可点击角标（v2.2）
     返回 SSE 流式数据
     """
 
     chapter_context = None
     sources = []
 
-    # 收集上下文：指定章节 + RAG 搜索结果
+    # 收集上下文：指定章节 + RAG 搜索结果（每段以 [n] 编号，与 sources[i].index 对应）
     context_parts = []
 
     if request.chapter_id:
         chapter = book_processor.get_chapter_by_id(request.chapter_id)
         if chapter:
-            context_parts.append(f"[当前章节：{chapter.title}]\n{chapter.content[:4000]}")
+            n = len(sources) + 1
+            context_parts.append(f"[{n}] [当前章节：{chapter.title}]\n{chapter.content[:4000]}")
             sources.append({
+                "index": n,
                 "book_title": "",
                 "chapter_title": chapter.title,
                 "chapter_id": chapter.chapter_id,
-                "book_id": chapter.book_id
+                "book_id": chapter.book_id,
+                "snippet": ""
             })
 
     if request.book_id:
@@ -120,16 +132,28 @@ async def stream_chat(request: ChatRequest):
             n_results=5
         )
         for r in search_results:
+            n = len(sources) + 1
             source_label = f"[{r.book_title} → {r.title}]" if r.book_title else f"[{r.title}]"
-            context_parts.append(f"{source_label}\n{r.content_snippet}")
+            context_parts.append(f"[{n}] {source_label}\n{r.content_snippet}")
             sources.append({
+                "index": n,
                 "book_title": r.book_title,
                 "chapter_title": r.title,
                 "chapter_id": r.chapter_id,
-                "book_id": r.book_id
+                "book_id": r.book_id,
+                "snippet": _source_snippet(r.content_snippet, r.prefix_len)
             })
 
     chapter_context = "\n\n---\n\n".join(context_parts) if context_parts else None
+
+    # 有编号段落时追加引用规则（对默认人格与专家人格都生效）
+    citation_instruction = None
+    if sources:
+        citation_instruction = (
+            "\n\n引用编号规则：\n"
+            "- 上文参考段落各自带有 [n] 编号。回答中凡引用或转述某段内容，句末必须附上该段编号，如 [1] 或 [2][3]；只能使用本轮真实存在的编号，不得虚构。\n"
+            "- 编号每轮重新分配，历史回答里出现过的旧编号一律不要沿用。"
+        )
 
     # 会话持久化：用户消息先落盘（中途刷新/断流也不丢提问），回答完成后补写
     session = None
@@ -154,7 +178,8 @@ async def stream_chat(request: ChatRequest):
             message=request.message,
             chapter_context=chapter_context,
             chat_history=request.chat_history,
-            system_prompt_override=system_override
+            system_prompt_override=system_override,
+            citation_instruction=citation_instruction
         ):
             full_reply += chunk
             yield f"data: {json.dumps({'content': chunk}, ensure_ascii=False)}\n\n"

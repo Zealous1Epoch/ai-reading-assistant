@@ -72,7 +72,10 @@ let browser = null;
     await page.locator('button[data-listen-chapter]').click();
     await sleep(800);
     const status = await page.locator('[data-listen-status]').innerText().catch(() => '');
-    say('合成状态条出现', /排队|合成/.test(status), status.slice(0, 20));
+    // 温跑兼容：该章 mp3 已在磁盘缓存时后端即时 done+cached，状态条不出现、播放条秒出
+    const cachedFast = /排队|合成/.test(status) ? null
+        : await page.waitForSelector('audio[data-audio-player]', { timeout: 3000 }).catch(() => null);
+    say('合成状态条出现（或缓存命中直出播放条）', /排队|合成/.test(status) || !!cachedFast, status.slice(0, 20));
     const player = await page.waitForSelector('audio[data-audio-player]', { timeout: 300000 }).catch(() => null);
     say('合成完成，播放条出现（真实 edge-tts）', !!player);
     const src = player ? await player.getAttribute('src') : '';
@@ -103,6 +106,14 @@ let browser = null;
     say('主题空时生成按钮禁用', await page.locator('button').filter({ hasText: /^生成$/ }).first().isDisabled());
     await page.fill('[data-podcast-topic]', 'E2E测试主题');
     say('输入主题后解禁', await page.locator('button').filter({ hasText: /^生成$/ }).first().isEnabled());
+    // v2.8-B：重新生成一期开关（默认关，点击后 pressed+高亮，可再点回）
+    const regenBtn = page.locator('[data-podcast-regen]');
+    say('regen 开关存在且默认关', await regenBtn.count() === 1 && await regenBtn.getAttribute('aria-pressed') === 'false');
+    await regenBtn.click();
+    say('点击后 aria-pressed=true 且样式高亮', await regenBtn.getAttribute('aria-pressed') === 'true'
+        && (await regenBtn.getAttribute('class')).includes('bg-amber-50'));
+    await regenBtn.click();
+    say('可再点回关', await regenBtn.getAttribute('aria-pressed') === 'false');
 
     // 关抽屉（顶栏钮被 z-50 面板盖住是已知形态，点背板）
     await page.locator('div.fixed.inset-0.z-40').last().click({ position: { x: 10, y: 10 } });

@@ -42,8 +42,11 @@ class TestTextAndNames:
         assert n1 == tts_service.chapter_audio_name("b", "c", "文本一")
         assert n1 != tts_service.chapter_audio_name("b", "c", "文本二")
         assert len(n1) == 44 and n1.endswith(".mp3")
-        p = tts_service.podcast_audio_name("b", "主题", 20, "{}")
-        assert p != tts_service.podcast_audio_name("b", "主题", 30, "{}")
+        p = tts_service.podcast_audio_name("b", "主题", 20)
+        assert p == tts_service.podcast_audio_name("b", "主题", 20)     # v2.8-B：同书+主题+时长必复用
+        assert p != tts_service.podcast_audio_name("b", "主题", 30)
+        assert p != tts_service.podcast_audio_name("b", "换个主题", 20)
+        assert p != tts_service.podcast_audio_name("b", "主题", 20, nonce="1700000000")  # regen 另起新期
 
 
 class TestScriptParsing:
@@ -78,10 +81,102 @@ class TestRealSynth:
 
         path, progress = asyncio.run(run())
         raw = open(path, "rb").read()
-        assert progress == [(1, 2), (2, 2)]
+        # v2.8-A 并发后完成序≠台词序，只断言进度计数完整
+        assert sorted(i for i, _ in progress) == [1, 2] and all(n == 2 for _, n in progress)
         assert len(raw) > 4000
         # 合法 MP3：ID3 头或帧同步头（ff ex）
         assert raw[:3] == b"ID3" or (raw[0] == 0xFF and (raw[1] & 0xE0) == 0xE0)
+
+
+# ---------------- v2.8-A 并发合成（假合成器，测保序/重试/失败不留半成品） ----------------
+
+class TestSynthConcurrency:
+    def test_out_of_order_completion_concat_in_script_order(self, tmp_data, monkeypatch):
+        """首段故意合成最慢：并发完成序被打乱，成品仍按台词顺序拼字节；非 audio 块被过滤"""
+        class FakeComm:
+            def __init__(self, text, voice, **kw):
+                self.text = text
+            async def stream(self):
+                await asyncio.sleep(0.05 if "慢" in self.text else 0.001)
+                yield {"type": "WordBoundary", "data": b"ignored"}
+                yield {"type": "audio", "data": f"[{self.text}]".encode()}
+        monkeypatch.setattr(tts_service.edge_tts, "Communicate", FakeComm)
+
+        async def run():
+            lines = [("慢段", "A"), ("快段1", "B"), ("快段2", "A")]
+            path = str(tmp_data / "c.mp3")
+            prog = [p async for p in tts_service.stream_synth(lines, path)]
+            return path, prog
+
+        path, prog = asyncio.run(run())
+        assert open(path, "rb").read() == "[慢段][快段1][快段2]".encode("utf-8")
+        assert sorted(i for i, _ in prog) == [1, 2, 3]
+
+    def test_segment_flaky_retry_survives(self, tmp_data, monkeypatch):
+        """段级重试防线保留：瞬断 2 次第 3 次成功，整片照常落盘"""
+        calls = {}
+        class Flaky:
+            def __init__(self, text, voice, **kw):
+                self.text = text
+            async def stream(self):
+                calls[self.text] = calls.get(self.text, 0) + 1
+                if self.text == "坏段" and calls[self.text] < 3:
+                    raise RuntimeError("No audio was received")
+                yield {"type": "audio", "data": self.text.encode()}
+        monkeypatch.setattr(tts_service.edge_tts, "Communicate", Flaky)
+        async def no_wait(_):
+            return
+        monkeypatch.setattr(asyncio, "sleep", no_wait)  # 免等 1s 重试间隔
+
+        async def run():
+            path = str(tmp_data / "r.mp3")
+            _ = [p async for p in tts_service.stream_synth([("坏段", "A"), ("好段", "B")], path)]
+            return path
+        path = asyncio.run(run())
+        assert calls["坏段"] == 3
+        assert open(path, "rb").read() == "坏段好段".encode("utf-8")
+
+    def test_persistent_failure_raises_no_partial_file(self, tmp_data, monkeypatch):
+        """三试全败：整体抛错，正式文件与 .part 都不留"""
+        class Dead:
+            def __init__(self, text, voice, **kw):
+                self.text = text
+            async def stream(self):
+                if self.text == "死段":
+                    raise RuntimeError("boom")
+                yield {"type": "audio", "data": self.text.encode()}
+        monkeypatch.setattr(tts_service.edge_tts, "Communicate", Dead)
+        async def no_wait(_):
+            return
+        monkeypatch.setattr(asyncio, "sleep", no_wait)
+
+        async def run():
+            path = str(tmp_data / "f.mp3")
+            with pytest.raises(RuntimeError):
+                _ = [p async for p in tts_service.stream_synth([("死段", "A"), ("好段", "B")], path)]
+            return path
+        path = asyncio.run(run())
+        assert not os.path.exists(path) and not os.path.exists(path + ".part")
+
+    def test_consumer_close_cancels_without_file(self, tmp_data, monkeypatch):
+        """SSE 断连（消费方提前关闭生成器）：取消在跑任务，不产出半成品文件"""
+        class Slow:
+            def __init__(self, text, voice, **kw):
+                self.text = text
+            async def stream(self):
+                await asyncio.sleep(0.5)
+                yield {"type": "audio", "data": b"X"}
+        monkeypatch.setattr(tts_service.edge_tts, "Communicate", Slow)
+
+        async def run():
+            path = str(tmp_data / "z.mp3")
+            agen = tts_service.stream_synth([("一", "A"), ("二", "B")], path)
+            first = await agen.__anext__()   # 拿到 (1,2) 后立即放弃
+            await agen.aclose()
+            return first, path
+        first, path = asyncio.run(run())
+        assert first == (1, 2)
+        assert not os.path.exists(path) and not os.path.exists(path + ".part")
 
 
 # ---------------- /audio 路由 ----------------
@@ -228,3 +323,27 @@ class TestPodcastTool:
         frames = _parse(_collect(tools._podcast(tools.ToolRequest(**_REQ), chapters, "整本书")))
         assert any("语音合成失败" in f.get("error", "") for f in frames if isinstance(f, dict))
         assert calls["asset"] is None
+
+    def test_cache_reuse_and_regen(self, tmp_data, monkeypatch):
+        """v2.8-B：同书+主题+时长二次运行直接复用（不再合成、不重复归档）；
+        regen=true 跳过复用另起新一期（新文件名、重新合成）"""
+        calls, chapters = self._stub_common(
+            monkeypatch, tmp_data, {"lines": [{"s": "A", "t": "开场"}, {"s": "B", "t": "接话"}]})
+
+        def _audio_url(frames):
+            arts = [f["artifact"] for f in frames if isinstance(f, dict) and f.get("artifact")]
+            assert len(arts) == 1
+            return arts[0]["data"]
+
+        url1 = _audio_url(_parse(_collect(tools._podcast(tools.ToolRequest(**_REQ), chapters, "整本书"))))
+        assert calls["synth"] == 1
+
+        f2 = _parse(_collect(tools._podcast(tools.ToolRequest(**_REQ), chapters, "整本书")))
+        assert _audio_url(f2) == url1                      # 命中缓存同 URL
+        assert calls["synth"] == 1                         # 未再合成
+        assert any("复用" in f.get("status", "") for f in f2 if isinstance(f, dict))
+
+        f3 = _parse(_collect(tools._podcast(tools.ToolRequest(**_REQ, regen=True), chapters, "整本书")))
+        url3 = _audio_url(f3)
+        assert url3 != url1                                # regen 新一期新文件名
+        assert calls["synth"] == 2                         # 重新合成

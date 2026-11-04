@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import json
 import re
+import time
 
 import os
 
@@ -44,6 +45,7 @@ class ToolRequest(BaseModel):
     chapter_id: Optional[str] = None   # 左栏当前选中章；不传即作用范围为整本书
     user_input: Optional[str] = None   # 「与作者对谈」= 读者的问题；「读书播客」= 主题
     minutes: Optional[int] = None      # 仅「读书播客」使用：目标时长（10/20/30）
+    regen: Optional[bool] = None       # 仅「读书播客」使用（v2.8-B）：true=不复用往期，强制新一期
 
 
 def _frame(obj) -> str:
@@ -884,6 +886,19 @@ async def _podcast(request, chapters, scope_desc):
     minutes = request.minutes if request.minutes in tts_service.PODCAST_MINUTES else 20
     target = minutes * tts_service.PODCAST_CHARS_PER_MIN
 
+    # v2.8-B：缓存键 = 书+主题+时长，不再依赖台本 → 命中判定提前到 RAG/LLM 之前，
+    # 同主题复看即时返回且不烧 LLM 额度（v2.5 键含台本哈希，重跑必不命中形同虚设）。
+    # 时长从成品字节数反推（48kbps = 6KB/s）。regen 走 nonce 另起新期，不覆盖旧文件。
+    base_name = tts_service.podcast_audio_name(request.book_id, topic, minutes)
+    if not request.regen:
+        hit = os.path.join(tts_service.audio_dir(), base_name)
+        if os.path.exists(hit):
+            yield _frame({"status": "该主题已有往期成品，直接复用"})
+            est_min = max(1, round(os.path.getsize(hit) / 360000))
+            yield _frame({"content": f"本期播客《{topic}》：双主播对谈，约 {est_min} 分钟。"})
+            yield _frame({"artifact": {"type": "audio", "data": f"/audio/file/{base_name}", "filename": base_name}})
+            return
+
     yield _frame({"status": "检索书中与主题相关的段落"})
     results = await book_processor.search_chapters(
         query=topic, book_ids=[request.book_id], n_results=6)
@@ -915,30 +930,28 @@ async def _podcast(request, chapters, scope_desc):
 
     total_chars = sum(len(t) for t, _ in lines)
     est_min = max(1, round(total_chars / tts_service.PODCAST_CHARS_PER_MIN))
-    name = tts_service.podcast_audio_name(
-        request.book_id, topic, minutes, tts_service.script_json(lines))
+    # regen：时间戳 nonce 另起新期（同秒重复 regen 直接覆盖新期文件，无副作用）
+    nonce = str(int(time.time())) if request.regen else ""
+    name = tts_service.podcast_audio_name(request.book_id, topic, minutes, nonce)
     path = f"{tts_service.audio_dir()}/{name}"
     url = f"/audio/file/{name}"
 
-    if os.path.exists(path):
-        yield _frame({"status": "该主题播客此前已生成过，直接复用成品"})
-    else:
-        yield _frame({"status": f"双主播合成语音：{len(lines)} 段台词（约 {est_min} 分钟音频）"})
-        try:
-            async for done_n, n in tts_service.stream_synth(lines, path):
-                if done_n % 5 == 0 or done_n == n:
-                    yield _frame({"status": f"已合成 {done_n}/{n} 段"})
-        except Exception as e:
-            yield _frame({"error": f"语音合成失败：{e}"})
-            return
-        try:  # 归档语义：新成品自动入资产区，失败不影响播放
-            asset_store.add_asset(
-                request.book_id, "tool", content=url,
-                title=f"播客 · {topic}", tool_id="podcast", tool_name="读书播客",
-                output_type="audio", source=f"约 {est_min} 分钟")
-            yield _frame({"status": "已自动存入本书资产区"})
-        except Exception:
-            pass
+    yield _frame({"status": f"双主播合成语音：{len(lines)} 段台词（约 {est_min} 分钟音频）"})
+    try:
+        async for done_n, n in tts_service.stream_synth(lines, path):
+            if done_n % 5 == 0 or done_n == n:
+                yield _frame({"status": f"已合成 {done_n}/{n} 段"})
+    except Exception as e:
+        yield _frame({"error": f"语音合成失败：{e}"})
+        return
+    try:  # 归档语义：新成品自动入资产区，失败不影响播放
+        asset_store.add_asset(
+            request.book_id, "tool", content=url,
+            title=f"播客 · {topic}", tool_id="podcast", tool_name="读书播客",
+            output_type="audio", source=f"约 {est_min} 分钟")
+        yield _frame({"status": "已自动存入本书资产区"})
+    except Exception:
+        pass
 
     yield _frame({"content": f"本期播客《{topic}》：双主播对谈，约 {est_min} 分钟。"})
     yield _frame({"artifact": {"type": "audio", "data": url, "filename": name}})

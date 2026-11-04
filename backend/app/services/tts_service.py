@@ -23,6 +23,7 @@ VOICE_B = "zh-CN-XiaoyiNeural"   # 女主播
 TTS_CHAR_CAP = 20000             # 听书单章合成字数上限（约 80+ 分钟语量，再长按上限截断）
 PODCAST_CHARS_PER_MIN = 240      # 中文口播约 240 字/分钟，用于时长→字数换算
 PODCAST_MINUTES = (10, 20, 30)   # 时长档
+TTS_CONCURRENCY = 4              # v2.8-A：播客段级并发上限（微软端有瞬时限流，4 路是稳妥值）
 
 
 def audio_dir() -> str:
@@ -61,8 +62,12 @@ def chapter_audio_name(book_id: str, chapter_id: str, spoken_text: str) -> str:
     return _sha1("chapter", book_id, chapter_id, _sha1(spoken_text)) + ".mp3"
 
 
-def podcast_audio_name(book_id: str, topic: str, minutes: int, script_json: str) -> str:
-    return _sha1("podcast", book_id, topic, str(minutes), _sha1(script_json)) + ".mp3"
+def podcast_audio_name(book_id: str, topic: str, minutes: int, nonce: str = "") -> str:
+    """v2.8-B 缓存语义修正：键 = 书+主题+时长。v2.5 曾把台本哈希拼进键——LLM 每次都
+    重写台本，重跑必不命中，缓存形同虚设。"同一期节目"由用户意图（书/主题/时长）
+    决定而非字节。nonce 供"重新生成一期"（regen）另起新文件名，不覆盖旧期；
+    "v2" 前缀与 v2.5 旧键（含台本哈希）区隔，历史成品自然失效。"""
+    return _sha1("podcast", "v2", book_id, topic, str(minutes), nonce) + ".mp3"
 
 
 async def synth_one(text: str, voice: str, path: str) -> None:
@@ -71,26 +76,31 @@ async def synth_one(text: str, voice: str, path: str) -> None:
 
 
 async def stream_synth(lines: List[Tuple[str, str]], path: str):
-    """逐条 (text, voice) 合成并顺序写入同一文件（mp3 帧拼接）。
-    异步生成器：每完成一段 yield (已完成数, 总数) 供调用方发进度帧；
-    消费到耗尽时原子落盘。
-    段级重试：edge-tts 偶发抛 "No audio was received"（微软端瞬时限流/断流），
-    失败重试 2 次、间隔 1s。关键点：单段音频先缓冲进内存、**整段成功后才写入
-    文件**——若直接把 stream 块写进共享文件句柄，中途失败重试会在成品 mp3 里
-    混入半段脏字节（mp3 帧拼接特性下表现为爆音或播放器拒播，且无异常抛出、
-    静默劣化最难查）。"""
+    """分段并发合成、按台词顺序落盘（mp3 帧拼接）。
+    v2.8-A 由串行改 4 路并发：串行实测 ~3s/段、30 分钟档要等近 5 分钟，瓶颈全在
+    逐段等微软往返；并发把等待重叠起来，墙钟约缩 4 倍。所有防线原样保留——
+    段级 3 次重试、单段字节先进内存、**整段成功才收**（若 stream 块直写共享
+    句柄，中途失败重试会在成品里混入半段脏字节：mp3 帧拼接下表现为爆音或拒播，
+    无异常抛出、静默劣化最难查），全部成功后才按台词顺序拼字节原子落盘。
+    代价是整片内存缓冲（30 分钟档 ~10MB 量级，可接受）。
+    异步生成器：每完成一段 yield (已完成数, 总数)——完成序≠台词序，进度计数语义不变。"""
     tmp = path + ".part"
     total = len(lines)
-    with open(tmp, "wb") as f:
-        for i, (text, voice) in enumerate(lines):
+    sem = asyncio.Semaphore(TTS_CONCURRENCY)
+    bufs: List[Optional[bytes]] = [None] * total
+    errs: List[Optional[Exception]] = [None] * total
+    finished: asyncio.Queue = asyncio.Queue()
+
+    async def _one(i: int, text: str, voice: str) -> None:
+        async with sem:
             last_err: Optional[Exception] = None
-            for attempt in range(3):  # 首次 + 2 次重试
+            for attempt in range(3):  # 首次 + 2 次重试：edge-tts 偶发 "No audio was received"
                 buf = bytearray()
                 try:
                     async for chunk in edge_tts.Communicate(text=text, voice=voice).stream():
                         if chunk["type"] == "audio":
                             buf.extend(chunk["data"])
-                    f.write(buf)
+                    bufs[i] = bytes(buf)
                     last_err = None
                     break
                 except Exception as e:  # noqa: BLE001 — edge-tts 异常类型杂，一律按段重试
@@ -98,9 +108,27 @@ async def stream_synth(lines: List[Tuple[str, str]], path: str):
                     if attempt < 2:
                         await asyncio.sleep(1.0)
             if last_err is not None:
-                raise last_err
-            yield i + 1, total
-    os.replace(tmp, path)
+                errs[i] = last_err
+            await finished.put(i)
+
+    tasks = [asyncio.ensure_future(_one(i, t, v)) for i, (t, v) in enumerate(lines)]
+    done = 0
+    try:
+        while done < total:
+            await finished.get()
+            done += 1
+            yield done, total
+        first_err = next((e for e in errs if e is not None), None)
+        if first_err is not None:  # 任何一段三试仍失败 → 整片不落盘，调用方报错
+            raise first_err
+        with open(tmp, "wb") as f:
+            for b in bufs:
+                f.write(b or b"")
+        os.replace(tmp, path)
+    finally:
+        for tk in tasks:  # 出错或消费方提前断开（SSE 断连）时收敛仍在跑的任务
+            if not tk.done():
+                tk.cancel()
 
 
 def lines_from_obj(obj) -> Optional[List[Tuple[str, str]]]:

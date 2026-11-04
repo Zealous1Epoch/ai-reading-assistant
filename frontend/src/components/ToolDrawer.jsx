@@ -8,6 +8,7 @@ function ToolDrawer({ disabled, busyToolId, onRunTool, scopeLabel, scopeAll, onS
     const [talkInput, setTalkInput] = useState('');
     const [pcTopic, setPcTopic] = useState('');
     const [pcMinutes, setPcMinutes] = useState(20);
+    const [pcRegen, setPcRegen] = useState(false);   // v2.8-B：不复用往期，强制新一期
     const inputRef = useRef(null);
 
     useEffect(() => {
@@ -35,8 +36,9 @@ function ToolDrawer({ disabled, busyToolId, onRunTool, scopeLabel, scopeAll, onS
     const submitPodcast = () => {
         if (!pcTopic.trim()) return;
         // 播客以整本书为素材面，作用范围固定整本书；minutes 决定台本目标字数
-        onRunTool('podcast', pcTopic.trim(), true, pcMinutes);
+        onRunTool('podcast', pcTopic.trim(), true, pcMinutes, { regen: pcRegen });
         setPcTopic('');
+        setPcRegen(false);
         setOpenInput(null);
         onClose();
     };
@@ -124,6 +126,15 @@ function ToolDrawer({ disabled, busyToolId, onRunTool, scopeLabel, scopeAll, onS
                                                     >{m} 分钟</button>
                                                 ))}
                                             </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setPcRegen(v => !v)}
+                                                aria-pressed={pcRegen}
+                                                data-podcast-regen
+                                                className={`px-2 py-1 rounded-lg border text-[11px] transition-colors flex-shrink-0 ${pcRegen ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50'}`}
+                                            >
+                                                重新生成一期
+                                            </button>
                                             <button
                                                 onClick={submitPodcast}
                                                 disabled={!pcTopic.trim() || disabled}

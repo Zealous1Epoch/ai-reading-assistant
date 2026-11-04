@@ -31,6 +31,10 @@ class AnalysisService:
                 openai_api_key=settings.deepseek_api_key,
                 openai_api_base=settings.deepseek_base_url,
                 temperature=0.7,
+                # 内部 vLLM 部署（qwen 系推理模型）必须关思考：平铺 enable_thinking 会被
+                # 忽略，只认 chat_template_kwargs 嵌套写法，否则思考吃满 max_tokens
+                # 导致 JSON 腰斩（招聘系统 2026-10-16 事故教训）
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
         return self._llm
 
@@ -46,6 +50,7 @@ class AnalysisService:
                 openai_api_base=settings.deepseek_base_url,
                 temperature=0.7,
                 streaming=True,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
         return self._streaming_llm
 
@@ -168,7 +173,9 @@ class AnalysisService:
         if chapter_context:
             context_msg = f"[参考内容]\n{chapter_context[:4000]}\n\n请基于以上内容回答用户问题。引用时请标注来源。若参考内容与问题明显无关，请先说明书中未涉及该主题，不要勉强引用无关内容。"
             messages.append(HumanMessage(content=context_msg))
-            messages.append(SystemMessage(content="好的，我已了解参考内容，会标注来源。请提问。"))
+            # 必须是 AIMessage 而非 SystemMessage：内部 vLLM 严格校验"system 消息只能在
+            # 首位"，中位 SystemMessage 会 400（DeepSeek 此前容忍所以没暴露）
+            messages.append(AIMessage(content="好的，我已了解参考内容，会标注来源。请提问。"))
 
         # 添加历史对话
         if chat_history:

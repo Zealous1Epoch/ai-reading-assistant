@@ -20,6 +20,8 @@ class AIService:
                 model=settings.deepseek_model,
                 openai_api_key=settings.deepseek_api_key,
                 openai_api_base=settings.deepseek_base_url,
+                # 内部 vLLM 推理模型须关思考，见 analysis_service 注释
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
         return self._llm
 

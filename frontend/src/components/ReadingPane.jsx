@@ -80,7 +80,7 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget 
     const [summary, setSummary] = useState(null);
     const [summaryLoading, setSummaryLoading] = useState(false);
     const [summaryOpen, setSummaryOpen] = useState(true);
-    // 听本章（v2.5）：POST /audio/chapter → 任务轮询 → mp3 播放条。edge-tts 免费接口，不占 DeepSeek 额度
+    // 听本章（v2.5）：POST /audio/chapter → 任务轮询 → mp3 播放条。edge-tts 免费接口，不占内部模型算力
     const [listen, setListen] = useState({ st: 'idle', msg: '', url: '' });
     const listenReqRef = useRef(0);
 

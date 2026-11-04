@@ -5,6 +5,7 @@ edge-tts 走微软 Edge 在线神经网络语音——免费、无独立 key，*
 - 播客：双主播按台词逐段合成拼接（A=云希 男 / B=晓伊 女），同码率 mp3 帧拼接可直接播放
 缓存文件在 data/audio/，文件名 sha1(范围|书|章/主题|内容哈希)——内容没变重复合成直接命中。
 """
+import asyncio
 import hashlib
 import json
 import os
@@ -72,15 +73,32 @@ async def synth_one(text: str, voice: str, path: str) -> None:
 async def stream_synth(lines: List[Tuple[str, str]], path: str):
     """逐条 (text, voice) 合成并顺序写入同一文件（mp3 帧拼接）。
     异步生成器：每完成一段 yield (已完成数, 总数) 供调用方发进度帧；
-    消费到耗尽时原子落盘。"""
+    消费到耗尽时原子落盘。
+    段级重试：edge-tts 偶发抛 "No audio was received"（微软端瞬时限流/断流），
+    失败重试 2 次、间隔 1s。关键点：单段音频先缓冲进内存、**整段成功后才写入
+    文件**——若直接把 stream 块写进共享文件句柄，中途失败重试会在成品 mp3 里
+    混入半段脏字节（mp3 帧拼接特性下表现为爆音或播放器拒播，且无异常抛出、
+    静默劣化最难查）。"""
     tmp = path + ".part"
     total = len(lines)
     with open(tmp, "wb") as f:
         for i, (text, voice) in enumerate(lines):
-            com = edge_tts.Communicate(text=text, voice=voice)
-            async for chunk in com.stream():
-                if chunk["type"] == "audio":
-                    f.write(chunk["data"])
+            last_err: Optional[Exception] = None
+            for attempt in range(3):  # 首次 + 2 次重试
+                buf = bytearray()
+                try:
+                    async for chunk in edge_tts.Communicate(text=text, voice=voice).stream():
+                        if chunk["type"] == "audio":
+                            buf.extend(chunk["data"])
+                    f.write(buf)
+                    last_err = None
+                    break
+                except Exception as e:  # noqa: BLE001 — edge-tts 异常类型杂，一律按段重试
+                    last_err = e
+                    if attempt < 2:
+                        await asyncio.sleep(1.0)
+            if last_err is not None:
+                raise last_err
             yield i + 1, total
     os.replace(tmp, path)
 

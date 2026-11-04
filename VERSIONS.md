@@ -1,5 +1,17 @@
 # 智能读书助手 — 版本历史
 
+## v2.6 — 2026-11-04（LLM 换成公司内部部署——DeepSeek → qwen3.8-flash-next @ vLLM，零代码换源 + 三处严格性适配）
+- **换源兑现"只改 .env 三行"承诺**：`config.py` 三变量 `deepseek_api_key/base_url/model` 全走环境变量、两处 `ChatOpenAI`（`analysis_service`/`ai_service`/`book_processor`）本就是通用 OpenAI 兼容客户端。仅改仓库根 + `backend/` **两份** .env：`DEEPSEEK_BASE_URL=http://110.90.4.74:26030/v1`、`DEEPSEEK_MODEL=qwen3.8-flash-next`（与 WorkBuddy 会话同模型）、key 与公司招聘系统共用（均 gitignored、明文不入仓库，`.env.example` 只留内部端点模板）。变量名 `DEEPSEEK_` 前缀**保留不改**（历史兼容，避免全仓 import 震荡）
+- **推理模型/vLLM 严格性逼出三处真适配**（都是"换端点才暴露的既有隐患"）：
+  1. **全局关思考**：4 个 `ChatOpenAI` 构造器加 `extra_body={"chat_template_kwargs":{"enable_thinking":False}}`——qwen3.8-flash-next 默认开思考，会把 `max_tokens` 预算吃光导致 JSON 输出腰斩（公司招聘系统 2026-10-16 事故同款教训）；平铺 `enable_thinking` 被 vLLM 忽略，**只认 `chat_template_kwargs` 嵌套写法**（curl 实锤 `reasoning_tokens:0`）
+  2. **bind 整体替换语义**：`tools._bounded_llm` 用 `.bind(extra_body=...)` 传 `max_tokens`，而 langchain_openai 的 payload 构建是 kwargs 覆盖 default——bind 的 extra_body 会**整体替换**构造器上的，故 `max_tokens` 与 `chat_template_kwargs` 必须并进同一个 dict，否则关思考失效
+  3. **中位 SystemMessage → AIMessage**：`stream_chat` 拼接 RAG 上下文时用了假 `SystemMessage("好的，我已了解…")` 做占位；vLLM 严格校验"system 消息只能在首位"直接 400 `System message must be at the beginning`，DeepSeek 此前容忍所以从未暴露——语义本就是 assistant 应答，改 `AIMessage`（全仓 grep 确认仅此一处非首位）
+- **顺带硬化 `stream_synth`（v2.5 遗留可靠性）**：段级重试（首试 + 2 次、间隔 1s）。真实播客首次合成在第 25/48 段撞 edge-tts `No audio was received`（微软端偶发断流，与换模型无关——LLM 台本已正常产出 48 段）；关键：单段音频**先缓冲进内存、整段成功后才写入文件**，否则中途失败重试会把半段脏字节静默混进拼接 mp3（爆音/拒播且不抛异常，最难查）
+- **全量真实 LLM 回归（内部模型，替换此前被 402 欠费阻塞的 #35）**：`v20_browser` **24/24**（含真实工具产出落盘 847 字 + 追问落盘）、`e2e_mindmap` **25/25**（全书 16 章结构树 + 按需展开 + JSON 落盘 2021 字 + 基于导图追问）、`e2e_citations` **12/12**（真实问答 11 个 `[n]` 句内引用、编号均对应真实 sources、点击跳章高亮）、`e2e_cards` **16/16**（真实抽卡 8 张全归所选章）、`e2e_assets` **21/21**（零 LLM）、真实 `cards/stream` 冒烟 JSON 完整、真实播客 64 段双声合成产出 mp3 + 自动归档资产区；pytest **107 passed**
+- 卡片 E2E 首跑 `评分落盘 box=2` FAIL 与换模型无关：该测试**非自包含**——依赖外部预置的"非暴力沟通第三章 8 张种子卡"（作者注释自述），且本会话真实 `cards/stream` 冒烟（产出即入库）往**魔鬼家书**落了 8 张卡抢占全局复习队列首位，而评分断言去非暴力沟通库找 `front0` → 跨书落空。清残留 + 重建第三章基线后 16/16。教训固化：**冒烟工具调用在共享 `data/` 库留真实副作用，跨书 UI 测试前必须清场**
+- **文档/表述**：README、`.env.example`、`ReadingPane` 注释全面去 DeepSeek 字样改「公司内部部署大模型（OpenAI 兼容 / vLLM）」；文档改动一律 python 码点布尔探针裁决字节（沿用显示层字形抖动铁律）
+- 已知边界：变量名仍叫 `DEEPSEEK_*`（纯历史包袱，语义已泛化为「OpenAI 兼容端点」）；内部端点 `http://110.90.4.74:26030` 须在公司内网/VPN 内可达
+
 ## v2.5 — 2026-11-04（听书 + 读书播客——edge-tts 免费语音，双主播定制时长）
 - **语音层 `tts_service.py`（edge-tts 7.3.1，微软在线神经网络语音）**：免费、无独立 key、**完全不依赖 DeepSeek 余额**；男声 `zh-CN-YunxiNeural` / 女声 `zh-CN-XiaoyiNeural`；`clean_for_tts` 剥 markdown 行首符/内联符/分隔线、压空白，超 2 万字截断并补口语化收尾；缓存文件名 sha1(范围|书|章|正文哈希)——内容未变秒回，重切章自动失效；成品落 `data/audio/`（已 gitignore）
 - **章节听书 `/audio` 3 端点**：POST /chapter（孤章 404、空章 400；已缓存直接 `{done,url,cached}`，否则 `asyncio.create_task` 后台合成返回 task_id）→ GET /task/{id} 轮询 → GET /file/{name}（限定 40 位 hex 防路径穿越，`audio/mpeg`）。任务表纯内存：重启丢任务无妨，成品在盘上重新请求即命中

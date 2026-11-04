@@ -1,6 +1,6 @@
 # 智能读书助手
 
-基于 DeepSeek API 的智能读书助手，支持 PDF、TXT、EPUB 格式书籍的智能问答和总结。
+基于公司内部部署大模型（OpenAI 兼容协议，vLLM）的智能读书助手，支持 PDF、TXT、EPUB 格式书籍的智能问答和总结。
 
 ## 页面与使用（v2.0 两级结构）
 
@@ -21,7 +21,7 @@
 ### 1. 智能书籍解析
 - 支持 PDF、EPUB、TXT 格式（上传时做扩展名白名单 + 文件头魔数校验，伪装文件直接拒收）
 - **EPUB 优先原生目录切分**：读取 NCX/nav 目录精确切章，零 AI 成本；无目录时降级 AI 辅助切分
-- **AI 辅助章节切分**：提取前5000字让 DeepSeek 识别目录结构，智能切分章节
+- **AI 辅助章节切分**：提取前5000字让大模型识别目录结构，智能切分章节
 - TXT 编码自动探测（UTF-8 / GB18030 / Big5 / Shift_JIS）
 - **内容去重**：上传即计算 SHA-256，重复内容返回已有书籍，不产生冗余文件
 - 每个章节包含：标题、内容、字数、章节索引
@@ -59,7 +59,7 @@
 │       │   ├── book_processor.py # 书籍处理分析
 │       │   └── search.py         # 智能搜索
 │       └── services/     # 业务服务
-│           ├── ai_service.py       # DeepSeek AI 服务
+│           ├── ai_service.py       # AI 服务（内部部署模型）
 │           ├── document_service.py # 文档处理服务
 │           └── book_processor.py   # 书籍解析核心模块
 ├── frontend/             # Vite + React 18 + Tailwind 前端（hash 路由：#/ 书架、#/book/{id} 书内；dist 随仓库提交）
@@ -89,9 +89,12 @@ Demo 会依次演示：文本提取 → AI 目录识别 → 置信度打分切�
 # 复制环境变量模板
 cp .env.example .env
 
-# 编辑 .env 文件，填入你的 DeepSeek API Key
-# DEEPSEEK_API_KEY=your_api_key_here
-# DEEPSEEK_MODEL=deepseek-chat
+# 编辑 .env 文件，指向公司内部部署模型（OpenAI 兼容端点，向管理员索取 key）
+# DEEPSEEK_API_KEY=<内部模型 key>
+# DEEPSEEK_BASE_URL=http://<内部端点>/v1
+# DEEPSEEK_MODEL=qwen3.8-flash-next
+# 变量名保留 DEEPSEEK_ 前缀（历史兼容）；推理模型须在代码侧经
+# chat_template_kwargs 关思考，见 analysis_service.py 注释
 ```
 
 ### 2. 安装依赖
@@ -145,11 +148,11 @@ python -m app.main
 
 ### AI 工具（SSE 流式）
 - `POST /api/tools/{tool_id}/stream` - 运行工具，SSE 帧协议：`{"status"}` 进度 / `{"content"}` 正文增量 / `{"sources"}` 引用章节 / `{"artifact"}` HTML 产物 / `[DONE]`
-- 请求体：`book_id` 必填；`chapter_id` 传了则作用范围为该章，否则整本书（工具抽屉顶部可切换）；`user_input` 仅 `author-talk` 使用（读者的问题）
-- 工具：`summarize` 总结（全书走 map-reduce 全章覆盖）、`questions` 读书十问、`mindmap` 思维导图（JSON 结构树，见下）、`author-talk` 与作者对谈（语义检索书中论点 grounding）、`knowledge-graph` 精读笔记（HTML 产物）、`cards` 知识卡片（提炼问题/答案/原文引证卡，产出即入复习库，见「知识卡片」节）
+- 请求体：`book_id` 必填；`chapter_id` 传了则作用范围为该章，否则整本书（工具抽屉顶部可切换）；`user_input` 仅 `author-talk`（读者的问题）与 `podcast`（本期主题）使用；`minutes` 仅 `podcast` 使用（10/20/30）
+- 工具：`summarize` 总结（全书走 map-reduce 全章覆盖）、`questions` 读书十问、`mindmap` 思维导图（JSON 结构树，见下）、`author-talk` 与作者对谈（语义检索书中论点 grounding）、`knowledge-graph` 精读笔记（HTML 产物）、`cards` 知识卡片（提炼问题/答案/原文引证卡，产出即入复习库，见「知识卡片」节）、`podcast` 读书播客（双主播台本 + edge-tts 合成，见「听书与播客」节）
 - **思维导图（v2.1）**：产出 `artifact {type:"mindmap", data:节点 JSON}`，节点 `{t:标题, c:子节点, cid:章节id}`。全书范围按 8 章/组生成三级骨架（书→章→主题），章节点由服务端按真实目录组装——结构性零漏章；单章一次生成四级树（章→主题→论点→论据）。前端自绘可折叠树：点章名跳原文、章节点可「展开详分支」
 - `POST /api/tools/mindmap/expand/stream` - 章节按需展开：请求 `{book_id, chapter_id}`，按该章全文生成深层子树，SSE 返回 `artifact {type:"mindmap-subtree"}`；章节不存在 404
-- LLM 输出上限经 `extra_body {"max_tokens":8192}` 透传（langchain-openai 1.x 会把 max_tokens 改名成 DeepSeek 不认的键，导图漏章根因之一）
+- LLM 输出上限经 `extra_body {"max_tokens":8192, "chat_template_kwargs":{"enable_thinking":false}}` 透传（langchain-openai 1.x 会把 max_tokens 改名成端点不认的键，导图漏章根因之一；bind 的 extra_body 整体替换构造器值，故内部 vLLM 必需的关思考参数必须在此一并带上）
 - 背景调研 / 书籍推荐已下线（泛化搜索类，不基于馆藏内容，与读书助手定位弱相关）
 
 ### 知识卡片（v2.3）
@@ -162,7 +165,7 @@ python -m app.main
 - 抽卡入口 = AI 工具 `cards`（`POST /api/tools/cards/stream`，artifact `{type:"cards"}`，产出即入库）
 
 ### 听书与播客（v2.5）
-语音全部走 edge-tts（微软在线神经网络语音，免费、无需 key，**不占 DeepSeek 额度**）；成品按内容哈希落盘 `data/audio/`，重复请求秒回缓存。
+语音全部走 edge-tts（微软在线神经网络语音，免费、无需 key，**不占内部模型算力**）；成品按内容哈希落盘 `data/audio/`，重复请求秒回缓存。
 - `POST /audio/chapter` `{book_id, chapter_id}` - 整章听书：已缓存返回 `{status:"done", url, cached:true}`，否则建后台任务返回 `{task_id}`
 - `GET /audio/task/{task_id}` - 任务轮询：`{status: running|done|error, progress | url | error}`
 - `GET /audio/file/{name}` - mp3 流（文件名限定 40 位 sha1 hex，防路径穿越）
@@ -267,7 +270,7 @@ server {
 ## 技术栈
 
 - **后端**: FastAPI + Uvicorn
-- **AI**: LangChain + DeepSeek API
+- **AI**: LangChain + 公司内部部署大模型（OpenAI 兼容 / vLLM）+ 本地 bge-small-zh 向量模型
 - **文档处理**: PyMuPDF + EbookLib
 - **向量数据库**: ChromaDB
 - **前端**: React + Tailwind CSS（计划中）

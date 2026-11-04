@@ -170,14 +170,22 @@ async def _questions(request, chapters, scope_desc):
 
 
 # ---------- 思维导图 JSON 生成（v2.1 M1） ----------
-# 输出上限必须经 extra_body 透传给 DeepSeek：
-# langchain-openai 1.x 会把 max_tokens 改名成 max_completion_tokens，而 DeepSeek 不认后者；
-# extra_body 由 OpenAI SDK 原样并入请求体，实测生效（截断时 finish_reason=length）
+# 输出上限必须经 extra_body 透传给模型端点：
+# langchain-openai 1.x 会把 max_tokens 改名成 max_completion_tokens，而 DeepSeek/内部 vLLM 不认后者；
+# extra_body 由 OpenAI SDK 原样并入请求体，实测生效（截断时 finish_reason=length）。
+# 注意：bind 的 extra_body 会**整体替换**构造器上的 extra_body（langchain_openai
+# payload 构建时 kwargs 覆盖 default），所以内部 vLLM 必需的 chat_template_kwargs
+# 关思考参数必须在这里一起带上，否则 JSON 调用会因思考吃满 max_tokens 被腰斩。
 MINDMAP_TOKENS = 8192
 
 
 def _bounded_llm(max_tokens: int = MINDMAP_TOKENS):
-    return analysis_service.llm.bind(extra_body={"max_tokens": max_tokens})
+    return analysis_service.llm.bind(
+        extra_body={
+            "max_tokens": max_tokens,
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+    )
 
 
 def _extract_json_obj(text: str):

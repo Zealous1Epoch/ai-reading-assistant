@@ -4,7 +4,7 @@ import SessionDrawer from './SessionDrawer.jsx';
 import ReadingPane from './ReadingPane.jsx';
 import AiPanel from './AiPanel.jsx';
 import ToolDrawer from './ToolDrawer.jsx';
-import FavoritesDrawer from './FavoritesDrawer.jsx';
+import AssetsDrawer from './AssetsDrawer.jsx';
 import CardsDrawer from './CardsDrawer.jsx';
 
 function ToggleButton({ active, onClick, label, badge, children }) {
@@ -114,7 +114,7 @@ function BookReader({
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                         </svg>
                     </ToggleButton>
-                    <ToggleButton active={favOpen} onClick={() => setFavOpen(o => !o)} label="收藏" badge={favorites.length}>
+                    <ToggleButton active={favOpen} onClick={() => setFavOpen(o => !o)} label="资产" badge={favorites.length}>
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
                         </svg>
@@ -183,10 +183,13 @@ function BookReader({
                     onClose={() => setToolOpen(false)}
                 />
             )}
-            {favOpen && (
-                <FavoritesDrawer
-                    favorites={favorites}
-                    onRemoveFavorite={onRemoveFavorite}
+            {favOpen && currentBook && (
+                <AssetsDrawer
+                    assets={favorites}
+                    bookId={currentBook.book_id}
+                    bookTitle={currentBook.title}
+                    onRemove={onRemoveFavorite}
+                    onNavigateToSource={onNavigateToSource}
                     onClose={() => setFavOpen(false)}
                 />
             )}

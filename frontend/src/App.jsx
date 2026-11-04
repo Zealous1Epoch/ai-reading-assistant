@@ -6,6 +6,32 @@ import { TOOL_LABELS } from './tools.js';
 
 const API_BASE = '';
 
+// 资产区（v2.4）：后端 asset ↔ 组件侧收藏形态 双向映射（note↔qa 保持旧调用点零改动）
+function apiToFav(a) {
+    return {
+        id: a.asset_id,
+        type: a.type === 'note' ? 'qa' : a.type,
+        toolId: a.tool_id || undefined,
+        toolLabel: a.tool_name || undefined,
+        outputType: a.output_type || 'text',
+        question: a.title || '',
+        answer: a.content || '',
+        savedAt: (a.created_at || '').replace('T', ' ').slice(0, 16),
+    };
+}
+function favToApi(f, bookId) {
+    return {
+        book_id: bookId,
+        type: f.type === 'qa' ? 'note' : f.type,
+        content: f.answer || '',
+        title: f.question || f.toolLabel || '收藏',
+        tool_id: f.toolId || null,
+        tool_name: f.toolLabel || null,
+        output_type: f.outputType || 'text',
+        source: f.source || null,
+    };
+}
+
 // hash 路由：#/ 书架；#/book/{id} 书内；#/review 复习页（v2.3）
 function parseHash() {
     const m = (window.location.hash || '').match(/^#\/book\/(.+)$/);
@@ -41,10 +67,9 @@ function App() {
     const [isStreaming, setIsStreaming] = useState(false);
     const [busyToolId, setBusyToolId] = useState(null);
     const [aiOpen, setAiOpen] = useState(() => window.innerWidth >= 1280);
-    const [favorites, setFavorites] = useState(() => {
-        try { return JSON.parse(localStorage.getItem('reading_favorites') || '[]'); }
-        catch { return []; }
-    });
+    // 资产区（v2.4）：收藏后端化按书归属；旧 localStorage 收藏首次进书一次性迁移
+    const [favorites, setFavorites] = useState([]);
+    const favMigratedRef = useRef(false);
     // 专家模式：专家包列表 / 当前会话绑定的专家 / 起手式生成中
     const [experts, setExperts] = useState([]);
     const [activeExpertId, setActiveExpertId] = useState(null);
@@ -64,10 +89,33 @@ function App() {
     // 竞态：仅接受最后一次请求的章节内容
     const loadingChapterRef = useRef(null);
 
-    // 收藏持久化
+    // 资产区（v2.4）：进书拉取本书资产；首次进书把旧 localStorage 收藏一次性迁移到后端
+    // （全部成功才清旧 key，失败条目写回等下次进书重试）
+    const loadAssets = useCallback((bookId) => {
+        fetch(`${API_BASE}/assets?book_id=${encodeURIComponent(bookId)}`)
+            .then(r => r.json())
+            .then(d => setFavorites((d.assets || []).map(apiToFav)))
+            .catch(() => {});
+    }, []);
     useEffect(() => {
-        localStorage.setItem('reading_favorites', JSON.stringify(favorites));
-    }, [favorites]);
+        if (route.view !== 'book' || !currentBook) return;
+        const bookId = currentBook.book_id;
+        if (favMigratedRef.current) { loadAssets(bookId); return; }
+        let legacy = [];
+        try { legacy = JSON.parse(localStorage.getItem('reading_favorites') || '[]'); } catch { legacy = []; }
+        if (!Array.isArray(legacy) || legacy.length === 0) { favMigratedRef.current = true; loadAssets(bookId); return; }
+        favMigratedRef.current = true;
+        Promise.allSettled(legacy.map(f => fetch(`${API_BASE}/assets`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(favToApi(f, bookId)),
+        }))).then(rs => {
+            const failed = legacy.filter((_, i) => rs[i].status !== 'fulfilled' || !rs[i].value.ok);
+            if (failed.length === 0) localStorage.removeItem('reading_favorites');
+            else localStorage.setItem('reading_favorites', JSON.stringify(failed));
+            loadAssets(bookId);
+        });
+    }, [route.view, currentBook?.book_id, loadAssets]);
 
     // hash 路由同步
     useEffect(() => {
@@ -703,18 +751,38 @@ function App() {
         }
     };
 
-    // 收藏（按内容去重，持久化到 localStorage）
-    const handleToggleFavorite = (qa) => {
-        setFavorites(prev => {
-            const existing = prev.find(f => f.question === qa.question && f.answer === qa.answer);
-            if (existing) return prev.filter(f => f.id !== existing.id);
-            const entry = { ...qa, id: 'fav-' + Date.now(), savedAt: new Date().toLocaleString() };
-            return [entry, ...prev];
-        });
+    // 收藏 toggle → 后端资产（v2.4）。匹配：tool 按 toolId+内容，其余按标题+内容
+    // （title 后端截 200 字，比对用同长前缀避免截断误判重复收藏）
+    const handleToggleFavorite = async (qa) => {
+        const bookId = currentBook?.book_id;
+        if (!bookId) return;
+        const isSame = (f) => f.type === qa.type && (f.answer || '') === (qa.answer || '')
+            && (qa.type === 'tool' ? f.toolId === qa.toolId
+                : (f.question || '').slice(0, 200) === (qa.question || '').slice(0, 200));
+        const existing = favorites.find(isSame);
+        if (existing) {
+            setFavorites(prev => prev.filter(f => f.id !== existing.id));
+            fetch(`${API_BASE}/assets/${existing.id}`, { method: 'DELETE' })
+                .catch(() => loadAssets(bookId));
+            return;
+        }
+        try {
+            const res = await fetch(`${API_BASE}/assets`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(favToApi(qa, bookId)),
+            });
+            if (!res.ok) return;
+            const { asset } = await res.json();
+            setFavorites(prev => [apiToFav(asset), ...prev]);
+        } catch { /* 网络失败不落脏状态 */ }
     };
 
     const handleRemoveFavorite = (id) => {
+        const bookId = currentBook?.book_id;
         setFavorites(prev => prev.filter(f => f.id !== id));
+        fetch(`${API_BASE}/assets/${id}`, { method: 'DELETE' })
+            .catch(() => { if (bookId) loadAssets(bookId); });
     };
 
     const activeExpert = experts.find(e => e.expert_id === activeExpertId) || null;

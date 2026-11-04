@@ -1,5 +1,15 @@
 # 智能读书助手 — 版本历史
 
+## v2.4 — 2026-11-04（收藏升级"本书资产区"——后端化 + 三类资产 + 导图重放/HTML 预览 + Markdown 导出）
+- **资产存储 `data/assets.json`**（`asset_store.py`）：chat/card 同款单文件 + `threading.Lock` + tmp/replace 原子写；三类 `type`：`note` 文字 / `tool` AI 产出 / `report` 报告；`output_type`：`text|html|mindmap|cards`（非法值静默降 text）；title 回落 `title→tool_name→"收藏"` 且 cap 200、content cap 30 万、正文空/未知 type/book_id 空 → `ValueError`（路由转 400）
+- **4 端点**：`GET /assets?book_id&type&q`（q=标题+正文小写包含、created_at 倒序）、`POST /assets`、`DELETE /assets/{asset_id}`（404）、`GET /assets/export?book_id=&ids=`（ids 逗号分隔子集**保序**，否则按书全量；空 404；`text/markdown; charset=utf-8` + `filename*=UTF-8''`）；**路由前缀共存**：`/assets` API 先注册、dist 静态 `/assets/{filename:path}` 兜底不冲突（运行时路由枚举裁决）
+- **归档语义**：删会话不级联删资产，删书才级联（`delete_assets_for_book` 挂 book_processor 卡片级联之后）
+- **前端 AssetsDrawer**（替换删除的 FavoritesDrawer）：顶栏「资产」按钮带计数角标；类型 chips（`data-assets-tab`）+ 搜索 + 展开三分支——**mindmap JSON→复用 MindmapTree 树重放（点章跳原文后自动关抽屉）**、**html→`iframe sandbox=""` 沙箱预览**、text→pre-wrap；条目动作 复制/下载单条 md/hover 移除；顶栏开合钮被 z-50 面板盖住，面板内关闭钮补 `title="关闭"`（与 SessionDrawer 同款锚点）
+- **收藏 API 化**（App.jsx）：`apiToFav`/`favToApi` 字段映射（`note↔'qa'` 保持旧调用点零改动）；`handleToggleFavorite` 改 POST/DELETE + 乐观更新，去重匹配用**同长 200 前缀**比对（防后端 title cap 截断错位）；工具卡收藏放开 mindmap/html 产出（携带 `outputType`）；报告卡头新增「归档报告」按钮
+- **旧收藏自动迁移**：首次进书读 `reading_favorites` → `Promise.allSettled` 逐条 POST → **全部成功才 removeItem，失败条目写回等下次重试**；`favMigratedRef` 防重复触发
+- **测试**：pytest **92 passed**（新增 `test_assets.py` 7 项：字段与三类 ValueError+非法 output_type 降级/筛选/删除与删书级联/导出 ids 保序/路由直调+400·404/export 响应头与正文）；`tests/e2e_assets.cjs` **21 断言全绿**且**零 LLM 设计**（注入数据全走 API：3 资产 + 假会话两条消息分别 POST `/sessions/{sid}/messages`（单消息端点）、localStorage 预置旧收藏验迁移、进书自动恢复注入会话验收藏结果/归档报告按钮、计数与 API 对账、筛选/搜索、导图重放 nodes=3、iframe srcdoc 预览、收藏+归档增删往返、移除计数 (6)→(5)、导出 MD 不含已删条目、无 JS 报错、清理 0 残留）——DeepSeek 402 欠费窗口也能跑
+- 踩坑：① **AssetsDrawer 判分支用 `a.output_type`（snake），但 App 传入的是 `apiToFav` 后的 camelCase（`outputType`）——导图重放与 HTML 预览两分支从未命中**。API 层 curl 亲验数据完全正常，实锤靠浏览器级断言 `nodes=0`：**接口数据对≠前端渲染对，跨层字段命名（camel/snake 转换点）是重灾区**；② 顶栏「资产」按钮在抽屉打开后位于 z-50 面板之下，Playwright `intercepts pointer events` 拒绝点击——关抽屉必须走面板内关闭钮，补 title 锚点而非绕过测试；③ BSD grep `\|` 静默无匹配再踩一次（一律 `-E`）；④ E2E 脚本 `node --check` 先行：非 async 箭头函数里 await、CSS 选择器少 `]` 两处低级错都在跑前拦下
+
 ## v2.3 — 2026-11-04（知识卡片——抽卡入库 + Leitner 间隔复习 + 测验 + Anki 导出）
 - **抽卡=第 6 个 AI 工具 `cards`**（产出即入库，无"保存"按钮）：单章一次 ≤8 张、全书 8 章/组×每组 3 张、`CARDS_TOTAL_CAP=40` 封顶；LLM 输出 `{"cards":[{front,back,cite}]}` 包裹数组（`_extract_json_obj` 只认 dict），cite 要求原文真实存在 ≤60 字；**每组 `_clean_cards(obj)[:n]` 代码侧硬截断——数量约束不能只靠 prompt 自觉**（fake 单测实证：每组返 10 张入库恰 6）；artifact `{type:"cards"}` 落会话，ToolMessageCard 渲染卡正反+引文预览（JSON 解析失败降级纯文本）
 - **Leitner 五盒间隔重复**：`LEITNER_DAYS=(1,2,4,7,15)`；评分 again→盒1（明天）、good→+1 盒、easy→+2 盒（均 cap 盒5）；**新卡 `next_review`=当天**——抽完当天即进入复习队列；按日粒度排期（date 字符串比较）；到期队列排序 box 升序→next_review 升序（难卡优先）

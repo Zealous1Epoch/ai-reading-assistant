@@ -502,6 +502,10 @@ async def delete_book(book_id: str):
     from app.services import card_store
     card_store.delete_cards_for_book(book_id)
 
+    # 级联清理该书的资产区（v2.4）
+    from app.services import asset_store
+    asset_store.delete_assets_for_book(book_id)
+
     _save_books_index()
 
     return {"message": "书籍已删除", "book_id": book_id}

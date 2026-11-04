@@ -165,18 +165,18 @@ let browser = null;
     say('对话流中存在工具卡片头', cardInFlow);
     await page.screenshot({ path: '/tmp/v20_toolcard.png' });
 
-    // ---- 6.5 收藏抽屉（顶栏「收藏」，与工具并排） ----
-    await page.locator('button[title="收藏"]').click();
+    // ---- 6.5 资产区抽屉（顶栏「资产」，v2.4 由收藏升级） ----
+    await page.locator('button[title="资产"]').click();
     let favDrawer = false;
     for (let i = 0; i < 10 && !favDrawer; i++) {
         await sleep(300);
-        favDrawer = await page.evaluate(() => Array.from(document.querySelectorAll('h3')).some(h => h.textContent.trim() === '收藏'));
+        favDrawer = await page.evaluate(() => Array.from(document.querySelectorAll('h3')).some(h => h.textContent.trim() === '资产区'));
     }
-    say('收藏抽屉打开（带标题）', favDrawer);
+    say('资产抽屉打开（带标题）', favDrawer);
     await page.screenshot({ path: '/tmp/v20_fav.png' });
     await page.mouse.click(300, 450); // 背板关闭
     await sleep(400);
-    say('收藏抽屉可关闭', await page.evaluate(() => !Array.from(document.querySelectorAll('h3')).some(h => h.textContent.trim() === '收藏')));
+    say('资产抽屉可关闭', await page.evaluate(() => !Array.from(document.querySelectorAll('h3')).some(h => h.textContent.trim() === '资产区')));
 
     // ---- 7 刷新恢复（networkidle 在有并发 LLM 流时不收敛，用 load + 轮询兜底） ----
     await page.reload({ waitUntil: 'load' });

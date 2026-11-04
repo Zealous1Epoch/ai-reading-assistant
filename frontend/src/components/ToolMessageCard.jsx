@@ -210,7 +210,7 @@ function MindmapOverlay({ data, onClose }) {
 }
 
 // ---------- 思维导图 JSON 结构树（v2.1 M1：章节跳原文 / 按需展开详分支 / 全屏） ----------
-function parseMindmapJson(raw) {
+export function parseMindmapJson(raw) {
     const t = (raw || '').trim();
     if (!t.startsWith('{')) return null;
     try {
@@ -219,7 +219,7 @@ function parseMindmapJson(raw) {
     } catch { return null; }
 }
 
-function MindmapTree({ root, bookId, onNavigateToSource }) {
+export function MindmapTree({ root, bookId, onNavigateToSource }) {
     const [open, setOpen] = useState(() => new Set(['0']));       // 节点路径键集合，默认只展开根
     const [subtrees, setSubtrees] = useState({});                  // cid → 按需展开的深层子树（替换该章 children）
     const [loadingCid, setLoadingCid] = useState(null);
@@ -419,7 +419,8 @@ function ToolMessageCard({ msg, bookId, favorites, onToggleFavorite, onNavigateT
     // 思维导图双路径：v2.1 起为 JSON 结构树；存量旧消息是 Markdown，继续走 markmap
     const mmRoot = msg.tool_id === 'mindmap' && !streaming ? parseMindmapJson(content) : null;
 
-    const canFavorite = !streaming && !msg.error && msg.output_type !== 'html' && msg.tool_id !== 'mindmap' && content.trim();
+    // v2.4 资产区：html artifact 与导图 JSON 也可归档（资产区分别走 iframe 与树重放）
+    const canFavorite = !streaming && !msg.error && content.trim();
     const alreadyFav = favorites?.some(f => f.type === 'tool' && f.toolId === msg.tool_id && f.answer === content);
 
     return (
@@ -440,7 +441,7 @@ function ToolMessageCard({ msg, bookId, favorites, onToggleFavorite, onNavigateT
                     )}
                     {canFavorite && (
                         <button
-                            onClick={() => onToggleFavorite({ type: 'tool', toolId: msg.tool_id, toolLabel: msg.tool_name, question: msg.scope || '整本书', answer: content })}
+                            onClick={() => onToggleFavorite({ type: 'tool', toolId: msg.tool_id, toolLabel: msg.tool_name, outputType: msg.output_type || 'text', question: msg.scope || '整本书', answer: content })}
                             className={`ml-auto p-1 rounded-lg transition-all flex-shrink-0 ${alreadyFav ? 'text-zinc-500 bg-zinc-100' : 'text-zinc-300 hover:text-zinc-500 hover:bg-zinc-100'}`}
                             title={alreadyFav ? '取消收藏' : '收藏结果'}
                         >

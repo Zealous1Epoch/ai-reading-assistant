@@ -88,12 +88,17 @@ function App() {
         loadingChapterRef.current = chapterId;
         try {
             const res = await fetch(`${API_BASE}/books/chapters/${chapterId}`);
+            if (!res.ok) throw new Error(String(res.status));
             const data = await res.json();
             if (loadingChapterRef.current === chapterId) {
                 setCurrentChapter(data);
             }
         } catch (err) {
-            console.error('获取章节失败:', err);
+            console.warn('获取章节失败（可能为未入索引的孤章）:', err.message);
+            // 孤章（目录有、内容未入索引，如非暴力沟通"译序"）：明示缺失，不再无限"加载中"
+            if (loadingChapterRef.current === chapterId) {
+                setCurrentChapter({ ...chapter, content: '', loadError: true });
+            }
         }
     };
 
@@ -368,6 +373,17 @@ function App() {
                 }
                 const text = (m.content || '').trim();
                 if (!text) return null;
+                // 思维导图 JSON 结构树截断无意义，给一行结构摘要（章数 + 有主题的章数）
+                if (m.tool_id === 'mindmap' && text.startsWith('{')) {
+                    let desc = '已生成思维导图结构树';
+                    try {
+                        const tree = JSON.parse(text);
+                        const chs = tree.c || [];
+                        const withThemes = chs.filter(n => (n.c || []).length > 0).length;
+                        if (chs.length) desc = `已生成思维导图结构树（${chs.length} 章，其中 ${withThemes} 章已提炼主题）`;
+                    } catch { /* 保持兜底描述 */ }
+                    return { role: 'assistant', content: `【AI 工具产出 · ${name}】${desc}` };
+                }
                 const excerpt = text.length > 600 ? text.slice(0, 600) + '…（截断）' : text;
                 return { role: 'assistant', content: `【AI 工具产出 · ${name}】\n${excerpt}` };
             }
@@ -448,14 +464,15 @@ function App() {
     };
 
     // AI 工具：产出即消息（v2.0）——结果作为 kind=tool 消息流进当前对话末尾，完成后可被追问
-    const handleRunTool = async (toolId, userInput) => {
+    // scopeAll=true 时作用范围为整本书（chapter_id 不下发），否则为左栏当前选中章
+    const handleRunTool = async (toolId, userInput, scopeAll) => {
         if (!currentBook || isStreaming || busyToolId) return;
         setAiOpen(true);
         setBusyToolId(toolId);
 
         const sid = await ensureSession();
         const toolName = TOOL_LABELS[toolId] || toolId;
-        const scope = (userInput || '').trim() || (currentChapter ? currentChapter.title : '整本书');
+        const scope = (userInput || '').trim() || (scopeAll || !currentChapter ? '整本书' : currentChapter.title);
         const tid = `${toolId}-${Date.now()}`;
 
         setMessages(prev => [...prev, {
@@ -472,7 +489,7 @@ function App() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     book_id: currentBook.book_id,
-                    chapter_id: currentChapter?.chapter_id,
+                    chapter_id: scopeAll ? null : (currentChapter?.chapter_id ?? null),
                     user_input: userInput || null
                 })
             });
@@ -517,7 +534,7 @@ function App() {
                 }
             }
 
-            const outputType = artifact ? 'html' : (toolId === 'mindmap' ? 'mindmap' : 'text');
+            const outputType = artifact ? (artifact.type === 'mindmap' ? 'mindmap' : 'html') : 'text';
             const finalContent = artifact ? artifact.data : text;
 
             if (streamError) {

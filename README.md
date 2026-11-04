@@ -8,7 +8,7 @@
 - **书内三区（`#/book/{id}`）**：`[会话侧栏 | 阅读区 | AI 区]`，侧栏与 AI 区可独立收起（收为 36px 图标细栏）；顶栏五个开关：目录 / 会话 / AI / 工具 / 收藏，后三者按需唤出。
   - **阅读区**：顶栏「目录」抽屉含本书全文搜索；正文在宽屏（AI 区收起、容器 ≥900px）自动双栏排版，像翻书一样；章头带字数与上一章/下一章翻页。
   - **AI 区**：对话与工具产出统一时间线（工具结果是 `kind=tool` 消息卡片，可直接追问），SSE 流式输出，来源芯片逐条标注。
-  - **工具抽屉**（顶栏「工具」）：带标题与范围提示，5 个 AI 工具（总结 / 读书十问 / 思维导图 / 与作者对谈 / 精读笔记）逐行显示名称和说明，点击即跑、产出并入对话流。
+  - **工具抽屉**（顶栏「工具」）：带标题与范围切换（当前章 / 整本书），5 个 AI 工具（总结 / 读书十问 / 思维导图 / 与作者对谈 / 精读笔记）逐行显示名称和说明，点击即跑、产出并入对话流。
   - **收藏抽屉**（顶栏「收藏」，按钮带计数角标）：收藏问答与工具产出统一列表，勾选导出 txt、hover 删除。
 - 阅读进度、界面开合状态存 localStorage；对话历史按书隔离持久化在后端，刷新自动恢复。
 
@@ -134,8 +134,11 @@ python -m app.main
 
 ### AI 工具（SSE 流式）
 - `POST /api/tools/{tool_id}/stream` - 运行工具，SSE 帧协议：`{"status"}` 进度 / `{"content"}` 正文增量 / `{"sources"}` 引用章节 / `{"artifact"}` HTML 产物 / `[DONE]`
-- 请求体：`book_id` 必填；`chapter_id` 传了则作用范围为该章，否则整本书（范围不再由用户打字描述）；`user_input` 仅 `author-talk` 使用（读者的问题）
-- 工具：`summarize` 总结（全书走 map-reduce 全章覆盖）、`questions` 读书十问、`mindmap` 思维导图（章节锚定用真实标题）、`author-talk` 与作者对谈（语义检索书中论点 grounding）、`knowledge-graph` 精读笔记（HTML 产物）
+- 请求体：`book_id` 必填；`chapter_id` 传了则作用范围为该章，否则整本书（工具抽屉顶部可切换）；`user_input` 仅 `author-talk` 使用（读者的问题）
+- 工具：`summarize` 总结（全书走 map-reduce 全章覆盖）、`questions` 读书十问、`mindmap` 思维导图（JSON 结构树，见下）、`author-talk` 与作者对谈（语义检索书中论点 grounding）、`knowledge-graph` 精读笔记（HTML 产物）
+- **思维导图（v2.1）**：产出 `artifact {type:"mindmap", data:节点 JSON}`，节点 `{t:标题, c:子节点, cid:章节id}`。全书范围按 8 章/组生成三级骨架（书→章→主题），章节点由服务端按真实目录组装——结构性零漏章；单章一次生成四级树（章→主题→论点→论据）。前端自绘可折叠树：点章名跳原文、章节点可「展开详分支」
+- `POST /api/tools/mindmap/expand/stream` - 章节按需展开：请求 `{book_id, chapter_id}`，按该章全文生成深层子树，SSE 返回 `artifact {type:"mindmap-subtree"}`；章节不存在 404
+- LLM 输出上限经 `extra_body {"max_tokens":8192}` 透传（langchain-openai 1.x 会把 max_tokens 改名成 DeepSeek 不认的键，导图漏章根因之一）
 - 背景调研 / 书籍推荐已下线（泛化搜索类，不基于馆藏内容，与读书助手定位弱相关）
 
 ### 专家模式

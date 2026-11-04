@@ -209,12 +209,191 @@ function MindmapOverlay({ data, onClose }) {
     );
 }
 
+// ---------- 思维导图 JSON 结构树（v2.1 M1：章节跳原文 / 按需展开详分支 / 全屏） ----------
+function parseMindmapJson(raw) {
+    const t = (raw || '').trim();
+    if (!t.startsWith('{')) return null;
+    try {
+        const o = JSON.parse(t);
+        return (o && typeof o.t === 'string') ? o : null;
+    } catch { return null; }
+}
+
+function MindmapTree({ root, bookId, onNavigateToSource }) {
+    const [open, setOpen] = useState(() => new Set(['0']));       // 节点路径键集合，默认只展开根
+    const [subtrees, setSubtrees] = useState({});                  // cid → 按需展开的深层子树（替换该章 children）
+    const [loadingCid, setLoadingCid] = useState(null);
+    const [expandErrors, setExpandErrors] = useState({});
+    const [fullscreen, setFullscreen] = useState(false);
+
+    const toggle = (key) => setOpen(prev => {
+        const n = new Set(prev);
+        if (n.has(key)) n.delete(key); else n.add(key);
+        return n;
+    });
+
+    const childrenOf = (node) => {
+        if (node.cid && subtrees[node.cid]) return subtrees[node.cid].c || [];
+        return node.c || [];
+    };
+
+    // 按需展开：调 expand SSE 拿该章深层子树，成功后自动展开该节点
+    const expandChapter = async (node, key) => {
+        if (!node.cid || loadingCid) return;
+        setLoadingCid(node.cid);
+        setExpandErrors(prev => ({ ...prev, [node.cid]: null }));
+        try {
+            const res = await fetch('/api/tools/mindmap/expand/stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ book_id: bookId, chapter_id: node.cid }),
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = '';
+            let subtree = null;
+            let err = null;
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buf += decoder.decode(value, { stream: true });
+                const lines = buf.split('\n');
+                buf = lines.pop();
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    const payload = line.slice(6);
+                    if (payload === '[DONE]') continue;
+                    try {
+                        const f = JSON.parse(payload);
+                        if (f.artifact && f.artifact.data) subtree = JSON.parse(f.artifact.data);
+                        else if (f.error) err = f.error;
+                    } catch { /* 半截帧丢弃 */ }
+                }
+            }
+            if (subtree) {
+                setSubtrees(prev => ({ ...prev, [node.cid]: subtree }));
+                setOpen(prev => new Set(prev).add(key));
+            } else {
+                setExpandErrors(prev => ({ ...prev, [node.cid]: err || '展开结果解析失败，请重试' }));
+            }
+        } catch (e) {
+            setExpandErrors(prev => ({ ...prev, [node.cid]: `展开失败: ${e.message}` }));
+        } finally {
+            setLoadingCid(null);
+        }
+    };
+
+    const renderNode = (node, key, depth) => {
+        const children = childrenOf(node);
+        const hasKids = children.length > 0;
+        const isOpen = open.has(key);
+        const expanded = !!(node.cid && subtrees[node.cid]);
+        // 章节节点（非根）未展开过 → 提供按需生成本章深层分支
+        const canExpand = !!node.cid && !expanded && depth > 0;
+        const isLoading = !!node.cid && loadingCid === node.cid;
+        const err = node.cid ? expandErrors[node.cid] : null;
+        const labelCls = depth === 0
+            ? 'text-[15px] font-semibold text-zinc-900'
+            : depth === 1 ? 'text-sm font-medium text-zinc-800'
+            : depth === 2 ? 'text-[13px] text-zinc-600'
+            : 'text-xs text-zinc-500';
+
+        return (
+            <div className="mm-node">
+                <div className="flex items-start gap-1 group" style={{ paddingLeft: depth * 16 }}>
+                    {hasKids ? (
+                        <button
+                            onClick={() => toggle(key)}
+                            className="mt-0.5 p-1 -ml-1 rounded text-zinc-300 hover:text-zinc-600 transition-colors"
+                            aria-label={isOpen ? '折叠' : '展开'}
+                        >
+                            <svg className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                        </button>
+                    ) : <span className="w-3 mt-1 flex-shrink-0"></span>}
+                    {node.cid ? (
+                        <button
+                            data-mm-jump={node.cid}
+                            onClick={() => onNavigateToSource?.(bookId, node.cid)}
+                            className={`text-left rounded px-1 -mx-0.5 hover:bg-zinc-50 hover:underline decoration-zinc-300 underline-offset-2 transition-colors min-w-0 ${labelCls}`}
+                            title="跳到原文"
+                        >
+                            {node.t}
+                        </button>
+                    ) : (
+                        <span className={`px-1 min-w-0 ${labelCls}`}>{node.t}</span>
+                    )}
+                    {canExpand && (
+                        <button
+                            data-mm-expand={node.cid}
+                            onClick={() => expandChapter(node, key)}
+                            disabled={isLoading}
+                            className="ml-1 flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded-full border border-zinc-200 text-zinc-400 hover:text-zinc-700 hover:border-zinc-400 disabled:opacity-60 transition-colors"
+                        >
+                            {isLoading ? '展开中…' : '展开详分支'}
+                        </button>
+                    )}
+                </div>
+                {err && (
+                    <div className="text-[11px] text-red-400 mt-0.5" style={{ paddingLeft: (depth + 1) * 16 }}>
+                        {err}
+                    </div>
+                )}
+                {isOpen && hasKids && (
+                    <div>{children.map((c, i) => renderNode(c, `${key}.${i}`, depth + 1))}</div>
+                )}
+            </div>
+        );
+    };
+
+    const treeBody = renderNode(root, '0', 0);
+    const chapterCount = root.c?.length || 0;
+
+    return (
+        <div data-mindmap="json" data-mm-chapters={chapterCount}>
+            <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[11px] text-zinc-400 tabular-nums">
+                    {chapterCount > 1 ? `${chapterCount} 章` : ''}
+                </span>
+                <button
+                    onClick={() => setFullscreen(true)}
+                    className="text-xs font-medium text-zinc-500 hover:text-zinc-700 bg-zinc-100 hover:bg-zinc-200 px-3 py-1 rounded-full transition-all"
+                >
+                    放大
+                </button>
+            </div>
+            <div className="bg-white rounded-xl border border-zinc-100 px-3 py-2 max-h-[420px] overflow-y-auto scrollbar-thin">
+                {treeBody}
+            </div>
+            {fullscreen && (
+                <div onClick={() => setFullscreen(false)} className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', animation: 'fade-in 0.2s ease-out' }}>
+                    <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl shadow-2xl border border-zinc-200 flex flex-col overflow-hidden" style={{ width: '92vw', height: '90vh' }}>
+                        <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between flex-shrink-0">
+                            <h2 className="text-base font-serif-heading font-semibold text-zinc-800 truncate">{root.t}</h2>
+                            <button onClick={() => setFullscreen(false)} className="p-2 rounded-full hover:bg-zinc-100 text-zinc-400 hover:text-zinc-600 transition-all">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto scrollbar-thin px-8 py-5">{treeBody}</div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 // ---------- 工具产出消息卡（v2.0：产出即消息，流进对话流） ----------
-function ToolMessageCard({ msg, favorites, onToggleFavorite, onNavigateToSource }) {
+function ToolMessageCard({ msg, bookId, favorites, onToggleFavorite, onNavigateToSource }) {
     const [mindmapExpanded, setMindmapExpanded] = useState(false);
     const [htmlExpanded, setHtmlExpanded] = useState(false);
     const streaming = !!msg.streaming;
     const content = msg.content || '';
+    // 思维导图双路径：v2.1 起为 JSON 结构树；存量旧消息是 Markdown，继续走 markmap
+    const mmRoot = msg.tool_id === 'mindmap' && !streaming ? parseMindmapJson(content) : null;
 
     const canFavorite = !streaming && !msg.error && msg.output_type !== 'html' && msg.tool_id !== 'mindmap' && content.trim();
     const alreadyFav = favorites?.some(f => f.type === 'tool' && f.toolId === msg.tool_id && f.answer === content);
@@ -282,7 +461,9 @@ function ToolMessageCard({ msg, favorites, onToggleFavorite, onNavigateToSource 
                             </div>
                         </div>
                     ) : msg.tool_id === 'mindmap' && !streaming && content.trim() ? (
-                        <MindmapSvg data={content} onExpand={() => setMindmapExpanded(true)} />
+                        mmRoot
+                            ? <MindmapTree root={mmRoot} bookId={bookId} onNavigateToSource={onNavigateToSource} />
+                            : <MindmapSvg data={content} onExpand={() => setMindmapExpanded(true)} />
                     ) : (
                         <div className="space-y-3">
                             {content.trim()

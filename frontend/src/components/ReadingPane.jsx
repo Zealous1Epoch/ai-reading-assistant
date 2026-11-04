@@ -199,6 +199,8 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter }) {
                                     <ChapterParagraphs text={currentChapter.content} />
                                 </div>
                             </div>
+                        ) : currentChapter.loadError ? (
+                            <p className="text-zinc-300 text-sm py-8 text-center">本章内容缺失</p>
                         ) : (
                             <p className="text-zinc-300 text-sm py-8 text-center">章节加载中…</p>
                         )

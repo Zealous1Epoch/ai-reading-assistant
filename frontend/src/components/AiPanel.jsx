@@ -128,7 +128,7 @@ function AiPanel({
                     <div className="space-y-4">
                         {messages.map((msg, i) => {
                             if (msg.kind === 'tool') {
-                                return <ToolMessageCard key={i} msg={msg} favorites={favorites} onToggleFavorite={onToggleFavorite} onNavigateToSource={onNavigateToSource} />;
+                                return <ToolMessageCard key={i} msg={msg} bookId={currentBook?.book_id} favorites={favorites} onToggleFavorite={onToggleFavorite} onNavigateToSource={onNavigateToSource} />;
                             }
                             if (msg.kind === 'report') {
                                 return (

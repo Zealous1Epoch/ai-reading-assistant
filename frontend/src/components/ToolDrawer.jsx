@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { TOOLS, TOOL_NEEDS_INPUT } from '../tools.js';
 
-// 工具抽屉：顶栏「工具」唤出（右侧满高，与目录抽屉镜像），带标题、工具名与说明；
+// 工具抽屉：顶栏「工具」唤出（右侧满高，与目录抽屉镜像），带标题、范围切换、工具名与说明；
 // 点击工具即运行（产出落进对话流并自动展开 AI 区），作者对谈先内联输入问题
-function ToolDrawer({ disabled, busyToolId, onRunTool, scopeLabel, onClose }) {
+function ToolDrawer({ disabled, busyToolId, onRunTool, scopeLabel, scopeAll, onScopeChange, hasChapter, onClose }) {
     const [talkOpen, setTalkOpen] = useState(false);
     const [talkInput, setTalkInput] = useState('');
     const inputRef = useRef(null);
@@ -17,14 +17,14 @@ function ToolDrawer({ disabled, busyToolId, onRunTool, scopeLabel, onClose }) {
         if (TOOL_NEEDS_INPUT[tool.id]) {
             setTalkOpen(o => !o);
         } else {
-            onRunTool(tool.id, null);
+            onRunTool(tool.id, null, scopeAll);
             onClose();
         }
     };
 
     const submitTalk = () => {
         if (!talkInput.trim()) return;
-        onRunTool('author-talk', talkInput.trim());
+        onRunTool('author-talk', talkInput.trim(), scopeAll);
         setTalkInput('');
         setTalkOpen(false);
         onClose();
@@ -44,7 +44,21 @@ function ToolDrawer({ disabled, busyToolId, onRunTool, scopeLabel, onClose }) {
                             </svg>
                         </button>
                     </div>
-                    <p className="text-[11px] text-zinc-400 mt-1 truncate">范围：{scopeLabel}</p>
+                    <div className="mt-2 flex items-center gap-2">
+                        <span className="text-[11px] text-zinc-400 flex-shrink-0">范围</span>
+                        <div className="flex rounded-lg border border-zinc-200 overflow-hidden text-[11px] flex-shrink-0" data-testid="tool-scope">
+                            <button
+                                onClick={() => onScopeChange(false)}
+                                disabled={!hasChapter}
+                                className={`px-2.5 py-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${!scopeAll ? 'bg-zinc-800 text-white' : 'bg-white text-zinc-500 hover:bg-zinc-50'}`}
+                            >当前章</button>
+                            <button
+                                onClick={() => onScopeChange(true)}
+                                className={`px-2.5 py-1 transition-colors ${scopeAll ? 'bg-zinc-800 text-white' : 'bg-white text-zinc-500 hover:bg-zinc-50'}`}
+                            >整本书</button>
+                        </div>
+                        {!scopeAll && hasChapter && <span className="text-[11px] text-zinc-400 truncate">{scopeLabel}</span>}
+                    </div>
                 </div>
 
                 {/* 工具列表：图标 + 名称 + 说明 */}
@@ -56,7 +70,7 @@ function ToolDrawer({ disabled, busyToolId, onRunTool, scopeLabel, onClose }) {
                                 <button
                                     onClick={() => handleToolClick(tool)}
                                     disabled={disabled}
-                                    title={`${tool.label} · ${scopeLabel}`}
+                                    title={`${tool.label} · ${scopeAll ? '整本书' : scopeLabel}`}
                                     className={`w-full flex items-center gap-3 px-2.5 py-2.5 rounded-xl text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed ${busy ? 'bg-zinc-100' : 'hover:bg-zinc-50'} ${TOOL_NEEDS_INPUT[tool.id] && talkOpen ? 'bg-zinc-50' : ''}`}
                                 >
                                     <span className={`w-8 h-8 rounded-lg border flex items-center justify-center flex-shrink-0 ${busy ? 'bg-zinc-800 border-zinc-800 text-white' : 'border-zinc-200 text-zinc-500'}`}>

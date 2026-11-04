@@ -10,7 +10,7 @@ SSE 帧协议（与 /analysis/chat/stream 同款 data: 行）：
   data: {"status": "..."}    进度提示（全书分段通读等）
   data: {"content": "..."}   正文增量
   data: {"sources": [...]}   引用章节（与作者对谈）
-  data: {"artifact": {...}}  非文本产物（精读笔记 HTML）
+  data: {"artifact": {...}}  非文本产物（精读笔记 HTML / 思维导图 JSON 结构树）
   data: {"error": "..."}     执行失败
   data: [DONE]
 """
@@ -20,6 +20,7 @@ from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 from typing import List, Optional
 import json
+import re
 
 from app.services.book_processor import book_processor
 from app.services.analysis_service import analysis_service
@@ -164,13 +165,197 @@ async def _questions(request, chapters, scope_desc):
         yield frame
 
 
+# ---------- 思维导图 JSON 生成（v2.1 M1） ----------
+# 输出上限必须经 extra_body 透传给 DeepSeek：
+# langchain-openai 1.x 会把 max_tokens 改名成 max_completion_tokens，而 DeepSeek 不认后者；
+# extra_body 由 OpenAI SDK 原样并入请求体，实测生效（截断时 finish_reason=length）
+MINDMAP_TOKENS = 8192
+
+
+def _bounded_llm(max_tokens: int = MINDMAP_TOKENS):
+    return analysis_service.llm.bind(extra_body={"max_tokens": max_tokens})
+
+
+def _extract_json_obj(text: str):
+    """从模型输出中提取完整 JSON 对象（容忍代码围栏与前后杂话）；失败返回 None"""
+    if not text:
+        return None
+    t = text.strip()
+    if t.startswith("```"):
+        t = re.sub(r"^```[a-zA-Z]*\s*", "", t)
+        t = re.sub(r"\s*```\s*$", "", t)
+    i, j = t.find("{"), t.rfind("}")
+    if i < 0 or j <= i:
+        return None
+    try:
+        obj = json.loads(t[i:j + 1])
+    except json.JSONDecodeError:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _norm_title(title: str) -> str:
+    """标题归一化：去空白与常见标点，用于 LLM 回填时的容错匹配"""
+    return re.sub(r"[\s《》〈〉「」【】()（）.、,，:：;；\-—_·]+", "", title or "")
+
+
+def _clean_node(node, depth: int = 0, max_depth: int = 6, max_children: int = 12):
+    """递归校验/规范 {t, c} 结构：去空标题、限深度、限子数、限单节点字数"""
+    if not isinstance(node, dict) or depth > max_depth:
+        return None
+    t = str(node.get("t", "")).strip().strip("#").strip()
+    if not t:
+        return None
+    out = {"t": t[:80]}
+    children = node.get("c")
+    if isinstance(children, list):
+        cleaned = [c for c in (_clean_node(x, depth + 1, max_depth, max_children) for x in children[:max_children]) if c]
+        if cleaned:
+            out["c"] = cleaned
+    return out
+
+
+async def _llm_json(prompt: str, attempts: int = 2):
+    """调用 LLM 并解析 JSON 对象；解析不出重试。返回 dict 或 None"""
+    for _ in range(attempts):
+        try:
+            resp = await _bounded_llm().ainvoke([HumanMessage(content=prompt)])
+        except Exception:
+            continue
+        obj = _extract_json_obj(resp.content if isinstance(resp.content, str) else "")
+        if obj is not None:
+            return obj
+    return None
+
+
+def _themes_from_response(obj, wanted_keys):
+    """解析 {"nodes":[{t,c}]} → {归一化章题: [主题节点]}；不属于本批真实章的回填全部丢弃"""
+    themes_map = {}
+    nodes = obj.get("nodes") if isinstance(obj, dict) else None
+    if not isinstance(nodes, list):
+        return themes_map
+    for nd in nodes:
+        cc = _clean_node(nd, max_depth=2)
+        if not cc:
+            continue
+        key = _norm_title(cc["t"])
+        if key in wanted_keys:
+            themes_map.setdefault(key, []).extend(cc.get("c") or [])
+    return themes_map
+
+
+async def _gen_themes_batch(book: str, grp) -> dict:
+    """一批章节 → {归一化章题: [三级主题]}（思维导图骨架）"""
+    titles = "\n".join(f"{i + 1}. {ch.title}" for i, ch in enumerate(grp))
+    prompt = f"""下面是《{book}》的若干章节，请为每一章提炼 2-4 个核心主题（作为思维导图的第三级节点）。
+
+【章节列表——标题必须逐字使用】
+{titles}
+
+【章节内容】
+{_context(grp, budget=MAP_CHUNK)}
+
+严格输出 JSON（只输出 JSON 本身，不要 Markdown 代码块、不要任何说明文字）：
+{{"nodes":[{{"t":"章节原标题","c":[{{"t":"主题"}}]}}]}}
+
+要求：
+- 每章一条 nodes，顺序与列表一致，章标题逐字照抄
+- 主题不超过 12 字，是能概括该章核心内容的名词短语
+- JSON 字符串里不要出现 Markdown 符号"""
+    obj = await _llm_json(prompt)
+    if not obj:
+        return {}
+    return _themes_from_response(obj, {_norm_title(ch.title) for ch in grp})
+
+
+def _build_book_tree(book_title: str, chapters, themes_map: dict) -> dict:
+    """服务端组装骨架：逐真实章节建节点（cid 用真实 chapter_id），主题按标题匹配挂上。
+    章节 100% 覆盖由本函数结构性保证——LLM 漏写、改写、幻觉出的章都不影响节点集合。"""
+    root = {"t": f"《{book_title}》", "c": []}
+    for ch in chapters:
+        node = {"t": ch.title, "cid": ch.chapter_id, "c": []}
+        key = _norm_title(ch.title)
+        themes = list(themes_map.get(key) or [])
+        if not themes and key:
+            # 精确归一化没中 → 找唯一包含关系兜底（LLM 偶尔多写/少写几个字）
+            for k, v in themes_map.items():
+                if k and (k in key or key in k):
+                    themes = list(v)
+                    break
+        seen = set()
+        for th in themes:
+            if th["t"] not in seen:
+                seen.add(th["t"])
+                node["c"].append({"t": th["t"][:40]})
+        root["c"].append(node)
+    return root
+
+
+async def _gen_chapter_subtree(book: str, ch):
+    """单章深层结构树：章→主题→论点→论据（论据只准用原文真实内容）；失败返回 None"""
+    prompt = f"""根据以下章节内容，生成思维导图的一棵结构子树：该章的知识骨架（主题 → 论点 → 论据）。
+
+【书名】《{book}》
+【章节】{ch.title}
+【章节内容】
+{ch.content[:CHAPTER_CAP]}
+
+严格输出 JSON（只输出 JSON 本身，不要 Markdown 代码块、不要任何说明文字）：
+{{"t":"章节标题","c":[{{"t":"核心主题","c":[{{"t":"关键论点","c":[{{"t":"论据/案例/数据/关键引文"}}]}}]}}]}}
+
+要求：
+- 主题 3-6 个，覆盖本章论证脉络
+- 每个主题下 1-4 个论点；每个论点下 0-3 条论据
+- 论据必须是章节原文中真实出现过的内容（人名、事件、数据、引文），不得编造
+- 节点文字不超过 40 字；不要出现 Markdown 符号"""
+    obj = await _llm_json(prompt)
+    node = _clean_node(obj, max_depth=4) if obj else None
+    if not node:
+        return None
+    node["t"] = ch.title  # 标题服务端锚定，防 LLM 改写
+    node["cid"] = ch.chapter_id
+    return node
+
+
 async def _mindmap(request, chapters, scope_desc):
-    """思维导图 —— 章节锚定用左栏选中的真实标题，不再正则猜编号"""
+    """思维导图（v2.1 M1）—— JSON 结构树：
+    - 全书：分组生成三级骨架（书→章→主题），章节点由服务端按真实目录组装，结构性零漏章
+    - 单章：整章一次生成四级结构树（章→主题→论点→论据）
+    - 更深层级由前端点「展开详分支」调 /mindmap/expand/stream 按需生成
+    - JSON 解析失败时退回旧版 Markdown 大纲（前端仍用 markmap 渲染，向后兼容）
+    """
+    book = _book_title(request.book_id)
+
+    if len(chapters) == 1:
+        yield _frame({"status": "生成结构树"})
+        node = await _gen_chapter_subtree(book, chapters[0])
+        if node:
+            yield _frame({"artifact": {"type": "mindmap", "data": json.dumps(node, ensure_ascii=False)}})
+            return
+        yield _frame({"status": "结构树解析失败，改用大纲模式"})
+        async for frame in _mindmap_markdown(request, chapters, scope_desc):
+            yield frame
+        return
+
+    groups = [chapters[i:i + MAP_GROUP_SIZE] for i in range(0, len(chapters), MAP_GROUP_SIZE)]
+    themes_map = {}
+    for i, grp in enumerate(groups, 1):
+        yield _frame({"status": f"生成骨架 {i}/{len(groups)} 段"})
+        seg = await _gen_themes_batch(book, grp)
+        for k, v in seg.items():
+            themes_map.setdefault(k, []).extend(v)
+    yield _frame({"status": "组装结构树"})
+    root = _build_book_tree(book, chapters, themes_map)
+    yield _frame({"artifact": {"type": "mindmap", "data": json.dumps(root, ensure_ascii=False)}})
+
+
+async def _mindmap_markdown(request, chapters, scope_desc):
+    """旧版 Markdown 思维导图（仅作 JSON 生成失败时的降级路径）"""
     book = _book_title(request.book_id)
     context = _context(chapters)
 
     if len(chapters) == 1:
-        anchor_rule = f"- # 一级：《{book}》→「{chapters[0].title}」\n- ## 二级：该章的核心小节/主题\n- ### 三级：每个主题下的关键论点\n- #### 四级：支撑论点的具体论据、案例、数据\n- ##### 五级：论据的展开——原文中的具体例子、关键引文、数据细节、作者的推理步骤"
+        anchor_rule = f"- # 一级：《{book}》→「{chapters[0].title}」\n- ## 二级：该章的核心小节/主题\n- ### 三级：每个主题下的关键论点\n- #### 四级：支撑论点的具体论据、案例、数据"
     else:
         title_lines = "\n".join(f"{i + 1}. {ch.title}" for i, ch in enumerate(chapters))
         anchor_rule = f"""- # 一级：《{book}》
@@ -180,7 +365,7 @@ async def _mindmap(request, chapters, scope_desc):
 - #### 四级：每个主题下的关键论点（作者的主张是什么）
 - ##### 五级：支撑该论点的具体论据、案例、数据"""
 
-    prompt = f"""请为《{book}》（作用范围：{scope_desc}）生成一份极其详尽的思维导图。
+    prompt = f"""请为《{book}》（作用范围：{scope_desc}）生成一份详尽的思维导图。
 
 使用 Markdown 标题层级（# 一级 ## 二级 ### 三级 #### 四级 ##### 五级）：
 
@@ -188,11 +373,9 @@ async def _mindmap(request, chapters, scope_desc):
 {anchor_rule}
 
 核心要求：
-- 必须深入到第四级和第五级，把每个论点的论据说透
-- 不要写"15字以内"这种限制，每个节点写出完整意思
+- 深入到第四级和第五级，把每个论点的论据说透
 - 第五级要包含书中真实出现过的具体内容，如：人名、事件、数据、引文原文、比喻或故事
 - 结构要反映作者的论证逻辑链条，而非简单的要点罗列
-- 确保覆盖范围内所有主要论点，不要遗漏重要内容
 
 书籍内容：
 {context}
@@ -607,10 +790,49 @@ async def run_tool_stream(tool_id: str, request: ToolRequest):
 
     async def generate():
         try:
+            # chapter_id 传了却没命中（孤章：目录有、内容未入索引）→ 静默回退整本书会让用户困惑，显式说明
+            if request.chapter_id and len(chapters) > 1:
+                yield _frame({"status": "当前章内容未入索引，范围已自动回退为整本书"})
             async for frame in fn(request, chapters, scope_desc):
                 yield frame
         except Exception as e:
             yield _frame({"error": f"工具执行失败: {e}"})
+        yield DONE_FRAME
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+class MindmapExpandRequest(BaseModel):
+    book_id: str
+    chapter_id: str
+
+
+@router.post("/mindmap/expand/stream")
+async def mindmap_expand_stream(request: MindmapExpandRequest):
+    """思维导图章节按需展开（v2.1 M1）：按该章全文生成深层结构子树。
+    SSE：status 帧 + artifact 帧 {type:"mindmap-subtree", data:<节点 JSON>}；章节不存在 404"""
+    chapter = book_processor.get_chapter_by_id(request.chapter_id)
+    if not chapter or chapter.book_id != request.book_id:
+        raise HTTPException(status_code=404, detail="找不到该章节")
+
+    async def generate():
+        try:
+            yield _frame({"status": "通读全章，展开分支"})
+            node = await _gen_chapter_subtree(_book_title(request.book_id), chapter)
+            if node:
+                yield _frame({"artifact": {"type": "mindmap-subtree", "data": json.dumps(node, ensure_ascii=False)}})
+            else:
+                yield _frame({"error": "展开结果未能解析，请重试"})
+        except Exception as e:
+            yield _frame({"error": f"展开失败: {e}"})
         yield DONE_FRAME
 
     return StreamingResponse(

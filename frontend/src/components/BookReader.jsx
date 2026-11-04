@@ -182,6 +182,8 @@ function BookReader({
     const [toolOpen, setToolOpen] = useState(false);
     const [favOpen, setFavOpen] = useState(false);
     const [tocOpen, setTocOpen] = useState(false);
+    // 工具作用范围：默认当前章；「整本书」供全书思维导图/总结等使用（瞬时态，不持久化）
+    const [toolScopeAll, setToolScopeAll] = useState(false);
 
     useEffect(() => {
         try {
@@ -288,6 +290,9 @@ function BookReader({
                     busyToolId={busyToolId}
                     onRunTool={onRunTool}
                     scopeLabel={scopeLabel}
+                    scopeAll={toolScopeAll}
+                    onScopeChange={setToolScopeAll}
+                    hasChapter={!!currentChapter}
                     onClose={() => setToolOpen(false)}
                 />
             )}

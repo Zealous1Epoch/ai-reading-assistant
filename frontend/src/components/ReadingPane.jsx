@@ -20,7 +20,67 @@ function cleanChapterContent(text) {
         .trim();
 }
 
-function ChapterParagraphs({ text }) {
+// —— v2.7 划线高亮辅助 ——
+// 渲染文本会经过 trim/清洗，与选区文本比对统一去掉全部空白再匹配（偏移映射回原文）
+const normWs = s => (s || '').replace(/\s+/g, '');
+
+// 计算选区端点 (node, offset) 在 root 纯文本中的偏移（跨 mark 等子节点也准）
+function textOffsetIn(root, node, offset) {
+    let acc = 0;
+    let found = false;
+    const walk = (n) => {
+        if (found) return;
+        if (n === node) {
+            if (n.nodeType === 3) {
+                acc += offset;
+            } else {
+                for (let i = 0; i < offset && i < n.childNodes.length; i++) {
+                    acc += (n.childNodes[i].textContent || '').length;
+                }
+            }
+            found = true;
+            return;
+        }
+        if (n.nodeType === 3) { acc += n.length; return; }
+        for (const c of n.childNodes) { if (found) return; walk(c); }
+    };
+    if (root.contains(node)) walk(root);
+    return found ? acc : -1;
+}
+
+// 把 raw 渲染串中命中的划线片段包成 <mark data-hl>；去空白匹配、匹配不到优雅跳过
+function wrapHighlights(raw, hls) {
+    if (!raw || !hls || hls.length === 0) return raw;
+    const chars = [];
+    const idx = [];
+    for (let i = 0; i < raw.length; i++) {
+        if (!/\s/.test(raw[i])) { chars.push(raw[i]); idx.push(i); }
+    }
+    const hay = chars.join('');
+    if (!hay) return raw;
+    const spans = [];
+    for (const h of hls) {
+        const needle = normWs(h.text);
+        if (!needle) continue;
+        const at = hay.indexOf(needle);
+        if (at === -1) continue;   // 书重切/文本改版：匹配不到就跳过，绝不错位包半截
+        spans.push([idx[at], idx[at + needle.length - 1] + 1, h]);
+    }
+    if (spans.length === 0) return raw;
+    spans.sort((a, b) => a[0] - b[0]);
+    const out = [];
+    let cur = 0;
+    for (const [s, e, h] of spans) {
+        if (s < cur) continue;     // 重叠片段只保留先匹配的
+        if (s > cur) out.push(raw.slice(cur, s));
+        out.push(<mark key={h.highlight_id} className="hl-mark" data-hl={h.highlight_id}>{raw.slice(s, e)}</mark>);
+        cur = e;
+    }
+    if (cur < raw.length) out.push(raw.slice(cur));
+    return out;
+}
+
+function ChapterParagraphs({ text, hlsByP }) {
     const cleaned = cleanChapterContent(text);
     let blocks = cleaned.split(/\n\n+/).filter(p => p.trim());
     // PDF 提取的书普遍没有空行（每个单换行就是一段）：此时整章会被并成一个巨型 block，
@@ -28,6 +88,7 @@ function ChapterParagraphs({ text }) {
     if (blocks.length === 1 && blocks[0].includes('\n')) {
         blocks = blocks[0].split('\n').filter(b => b.trim());
     }
+    const hlOf = i => (hlsByP && hlsByP[i]) || [];
     return (
         <>
             {blocks.map((block, i) => {
@@ -42,16 +103,16 @@ function ChapterParagraphs({ text }) {
                     const bodyLines = lines.slice(1).filter(l => l.trim());
                     return (
                         <div key={i} data-p={i} className={`${avoid} mb-5`}>
-                            <p className="text-lg font-serif-heading font-bold text-zinc-900 mb-2" style={{ breakAfter: 'avoid' }}>{firstLine}</p>
+                            <p className="text-lg font-serif-heading font-bold text-zinc-900 mb-2" style={{ breakAfter: 'avoid' }}>{wrapHighlights(firstLine, hlOf(i))}</p>
                             {bodyLines.map((l, j) => (
-                                <p key={j} className="text-[15px] text-zinc-700 leading-8 mb-2" style={{ textIndent: '2em' }}>{l.trim()}</p>
+                                <p key={j} className="text-[15px] text-zinc-700 leading-8 mb-2" style={{ textIndent: '2em' }}>{wrapHighlights(l.trim(), hlOf(i))}</p>
                             ))}
                         </div>
                     );
                 }
                 return (
                     <p key={i} data-p={i} className={`text-[15px] text-zinc-700 leading-8 mb-3 ${avoid}`} style={{ textIndent: '2em' }}>
-                        {block.trim()}
+                        {wrapHighlights(block.trim(), hlOf(i))}
                     </p>
                 );
             })}
@@ -76,10 +137,16 @@ function ChapterNavButton({ dir, disabled, title, onClick }) {
 
 // 阅读区：摘要条全宽置顶 + 正文；容器宽 >= 900px 时正文自动双栏（书页模式）
 // citeTarget：句内引用跳章后的段落高亮目标 {chapter_id, snippet, nonce}
-function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget }) {
+// v2.7 划线：highlights=当前书全部划线；onAddHighlights(frags)/onRemoveHighlight(id)/onQuoteToChat({text,chapter_id,...})
+function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget,
+                       highlights, onAddHighlights, onRemoveHighlight, onQuoteToChat }) {
     const [summary, setSummary] = useState(null);
     const [summaryLoading, setSummaryLoading] = useState(false);
     const [summaryOpen, setSummaryOpen] = useState(true);
+    const [selBar, setSelBar] = useState(null);   // 选区操作条 {top,left,frags,text}
+    const [hlMenu, setHlMenu] = useState(null);   // 点已划线弹层 {top,left,id}
+    const [hlBusy, setHlBusy] = useState(false);
+    const rootRef = useRef(null);
     // 听本章（v2.5）：POST /audio/chapter → 任务轮询 → mp3 播放条。edge-tts 免费接口，不占内部模型算力
     const [listen, setListen] = useState({ st: 'idle', msg: '', url: '' });
     const listenReqRef = useRef(0);
@@ -181,6 +248,113 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget 
         return () => ro.disconnect();
     }, [colBoxEl]);
 
+    // 滚动时收起浮层（选区条/划线菜单是视口定位，滚动后位置会失真）。
+    // 依赖恒空：ref 在挂载 effect 前已就位，若依赖 scrollRef.current 则值变化不会触发重跑（永不挂载）
+    useEffect(() => {
+        const box = scrollRef.current;
+        if (!box) return;
+        const hide = () => { setSelBar(null); setHlMenu(null); };
+        box.addEventListener('scroll', hide, { passive: true });
+        return () => box.removeEventListener('scroll', hide);
+    }, []);
+
+    // 把当前选区拆成「逐渲染叶子 <p> 的片段」：锚点 = 所属块索引(data-p) + 片段原文。
+    // 不用字符偏移——cleanChapterContent 会改写文本，偏移必然对不上（设计依据见 highlight_store 注释）
+    const collectSelection = () => {
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+        const range = sel.getRangeAt(0);
+        const raw = sel.toString().trim();
+        const box = scrollRef.current;
+        if (!raw || !box || !box.contains(range.commonAncestorContainer)) return null;
+        const frags = [];
+        for (const leaf of box.querySelectorAll('p[data-p], [data-p] p')) {
+            if (!range.intersectsNode(leaf)) continue;
+            const full = leaf.textContent || '';
+            if (!full.trim()) continue;
+            let s = 0, e = full.length;
+            if (leaf.contains(range.startContainer)) {
+                const o = textOffsetIn(leaf, range.startContainer, range.startOffset);
+                if (o > s) s = Math.min(o, full.length);
+            }
+            if (leaf.contains(range.endContainer)) {
+                const o = textOffsetIn(leaf, range.endContainer, range.endOffset);
+                if (o >= 0 && o < e) e = o;
+            }
+            const frag = full.slice(s, e).trim();
+            if (!frag) continue;
+            const block = leaf.closest('[data-p]');
+            frags.push({ p: Number(block ? block.dataset.p : 0), text: frag });
+        }
+        return frags.length ? { frags, text: raw } : null;
+    };
+
+    const handleMouseUp = () => {
+        if (hlBusy) return;
+        setHlMenu(null);
+        const got = collectSelection();
+        if (!got) { setSelBar(null); return; }
+        const rect = window.getSelection().getRangeAt(0).getBoundingClientRect();
+        const rr = rootRef.current && rootRef.current.getBoundingClientRect();
+        if (!rr) return;
+        setSelBar({
+            top: Math.max(6, rect.top - rr.top - 40),
+            left: Math.max(8, Math.min(rect.left - rr.left + rect.width / 2 - 95, rr.width - 198)),
+            ...got,
+        });
+    };
+
+    const doHighlight = async () => {
+        if (!selBar || !currentBook || !currentChapter || hlBusy) return;
+        setHlBusy(true);
+        try {
+            await onAddHighlights?.(selBar.frags.map(f => ({ start_p: f.p, text: f.text })));
+            window.getSelection()?.removeAllRanges();
+            setSelBar(null);
+        } finally {
+            setHlBusy(false);
+        }
+    };
+
+    const doQuoteToChat = () => {
+        if (!selBar || !currentChapter) return;
+        onQuoteToChat?.({
+            text: selBar.text,
+            chapter_id: currentChapter.chapter_id,
+            chapter_title: currentChapter.title,
+        });
+        window.getSelection()?.removeAllRanges();
+        setSelBar(null);
+    };
+
+    const doCopy = () => {
+        if (!selBar) return;
+        try { navigator.clipboard?.writeText(selBar.text); } catch { /* 非安全上下文静默 */ }
+        setSelBar(null);
+    };
+
+    const handleBodyClick = (e) => {
+        if (e.target.closest?.('[data-sel-bar],[data-hl-menu]')) return;
+        const mark = e.target.closest?.('[data-hl]');
+        if (!mark) { setHlMenu(null); return; }
+        const rr = rootRef.current && rootRef.current.getBoundingClientRect();
+        const rect = mark.getBoundingClientRect();
+        if (!rr) return;
+        setSelBar(null);
+        setHlMenu({
+            id: mark.dataset.hl,
+            top: Math.min(rect.bottom - rr.top + 6, rr.height - 52),
+            left: Math.max(8, Math.min(rect.left - rr.left, rr.width - 118)),
+        });
+    };
+
+    // 本章划线按块索引分组，供 ChapterParagraphs 逐段匹配渲染
+    const hlsByP = {};
+    for (const h of (highlights || [])) {
+        if (h.chapter_id !== currentChapter?.chapter_id) continue;
+        (hlsByP[h.start_p] = hlsByP[h.start_p] || []).push(h);
+    }
+
     if (!currentBook) {
         return (
             <div className="flex-1 bg-white rounded-2xl border border-zinc-200 flex items-center justify-center min-w-0">
@@ -197,7 +371,7 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget 
     const next = chapterIdx >= 0 && chapterIdx < chapters.length - 1 ? chapters[chapterIdx + 1] : null;
 
     return (
-        <div className="flex-1 min-w-0 bg-white rounded-2xl border border-zinc-200 flex flex-col overflow-hidden">
+        <div ref={rootRef} onClick={handleBodyClick} className="relative flex-1 min-w-0 bg-white rounded-2xl border border-zinc-200 flex flex-col overflow-hidden">
             {/* 章头：标题 + 字数 + 翻页 */}
             <div className="px-6 pt-4 pb-3 border-b border-zinc-100 flex-shrink-0">
                 <div className="flex items-center gap-3 min-w-0">
@@ -240,7 +414,7 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget 
                 )}
             </div>
 
-            <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin">
+            <div ref={scrollRef} onMouseUp={handleMouseUp} className="flex-1 overflow-y-auto scrollbar-thin">
                 {/* 摘要条：全宽（不随双栏断开） */}
                 {(summaryLoading || summary) && (
                     <div className="px-6 pt-4">
@@ -287,7 +461,7 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget 
                         currentChapter.content ? (
                             <div ref={setColBoxEl}>
                                 <div className={twoCol ? 'book-columns' : ''}>
-                                    <ChapterParagraphs text={currentChapter.content} />
+                                    <ChapterParagraphs text={currentChapter.content} hlsByP={hlsByP} />
                                 </div>
                             </div>
                         ) : currentChapter.loadError ? (
@@ -302,6 +476,40 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget 
                     )}
                 </div>
             </div>
+
+            {/* v2.7 选区操作条：划线 / 加入对话 / 复制 */}
+            {selBar && (
+                <div data-sel-bar
+                     className="absolute z-30 flex items-center gap-0.5 px-1 py-0.5 rounded-lg bg-zinc-900 shadow-xl animate-fade-in"
+                     style={{ top: selBar.top, left: selBar.left }}
+                     onMouseUp={e => e.stopPropagation()}>
+                    <button onMouseDown={e => e.preventDefault()} onClick={doHighlight} disabled={hlBusy}
+                            data-sel-hl className="px-2 py-1 rounded-md text-[12px] text-amber-300 hover:bg-zinc-700 disabled:opacity-50">划线</button>
+                    <button onMouseDown={e => e.preventDefault()} onClick={doQuoteToChat}
+                            data-sel-quote className="px-2 py-1 rounded-md text-[12px] text-sky-300 hover:bg-zinc-700">加入对话</button>
+                    <button onMouseDown={e => e.preventDefault()} onClick={doCopy}
+                            data-sel-copy className="px-2 py-1 rounded-md text-[12px] text-zinc-300 hover:bg-zinc-700">复制</button>
+                </div>
+            )}
+
+            {/* 点已有划线弹层：取消划线 / 加入对话 */}
+            {hlMenu && (
+                <div data-hl-menu
+                     className="absolute z-30 flex items-center gap-0.5 px-1 py-0.5 rounded-lg bg-zinc-900 shadow-xl animate-fade-in"
+                     style={{ top: hlMenu.top, left: hlMenu.left }}
+                     onMouseUp={e => e.stopPropagation()}>
+                    <button onMouseDown={e => e.preventDefault()}
+                            onClick={async () => { await onRemoveHighlight?.(hlMenu.id); setHlMenu(null); }}
+                            data-hl-remove className="px-2 py-1 rounded-md text-[12px] text-red-300 hover:bg-zinc-700">取消划线</button>
+                    <button onMouseDown={e => e.preventDefault()}
+                            onClick={() => {
+                                const h = (highlights || []).find(x => x.highlight_id === hlMenu.id);
+                                if (h) onQuoteToChat?.({ text: h.text, chapter_id: h.chapter_id, chapter_title: h.chapter_title });
+                                setHlMenu(null);
+                            }}
+                            data-hl-quote className="px-2 py-1 rounded-md text-[12px] text-sky-300 hover:bg-zinc-700">加入对话</button>
+                </div>
+            )}
         </div>
     );
 }

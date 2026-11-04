@@ -12,6 +12,12 @@ from app.services import experts as experts_svc
 router = APIRouter(prefix="/analysis", tags=["AI分析"])
 
 
+class QuotePayload(BaseModel):
+    """v2.7 读者划线选区引用：text=摘录原文，chapter_id=出处章节（可空）"""
+    text: str
+    chapter_id: Optional[str] = None
+
+
 class ChatRequest(BaseModel):
     """聊天请求"""
     message: str
@@ -20,6 +26,7 @@ class ChatRequest(BaseModel):
     chat_history: Optional[List[dict]] = None
     session_id: Optional[str] = None  # 传入则本次问答自动持久化到该会话
     expert_id: Optional[str] = None   # 专家模式：用该方法论 playbook 替换默认人格
+    quote: Optional[QuotePayload] = None  # v2.7 随提问附带的书中摘录引用
 
 
 class QuickAnalysisRequest(BaseModel):
@@ -108,6 +115,31 @@ async def stream_chat(request: ChatRequest):
     chapter_context = None
     sources = []
 
+    # v2.7 划线选区引用：把摘录与提问包成一条给 LLM 的消息。
+    # 在路由侧拼装、不改 analysis_service.stream_chat 签名——服务函数加参数
+    # 需要同步测试里全部 fake（项目记忆教训），能不碰就不碰。
+    question = (request.message or "").strip()
+    quote_text = (request.quote.text or "").strip() if request.quote else ""
+    quote_meta = None
+    effective_message = request.message
+    if quote_text:
+        quote_title = ""
+        if request.quote.chapter_id:
+            qchap = book_processor.get_chapter_by_id(request.quote.chapter_id)
+            if qchap:
+                quote_title = qchap.title or ""
+        source_note = f"（出处：《{quote_title}》）" if quote_title else ""
+        question = question or "请帮我解读这段摘录。"
+        effective_message = (
+            f"读者在书中划了一段{source_note}：\n「{quote_text[:2000]}」\n\n"
+            f"读者的问题：\n{question}"
+        )
+        quote_meta = {
+            "text": quote_text[:2000],
+            "chapter_id": request.quote.chapter_id,
+            "chapter_title": quote_title,
+        }
+
     # 收集上下文：指定章节 + RAG 搜索结果（每段以 [n] 编号，与 sources[i].index 对应）
     context_parts = []
 
@@ -127,7 +159,7 @@ async def stream_chat(request: ChatRequest):
 
     if request.book_id:
         search_results = await book_processor.search_chapters(
-            query=request.message,
+            query=effective_message,
             book_ids=[request.book_id],
             n_results=5
         )
@@ -160,7 +192,10 @@ async def stream_chat(request: ChatRequest):
     if request.session_id:
         session = chat_store.get_session(request.session_id)
         if session:
-            chat_store.append_messages(request.session_id, [{"role": "user", "content": request.message}])
+            user_msg = {"role": "user", "content": question or request.message}
+            if quote_meta:
+                user_msg["quote"] = quote_meta
+            chat_store.append_messages(request.session_id, [user_msg])
         else:
             request.session_id = None
 
@@ -175,7 +210,7 @@ async def stream_chat(request: ChatRequest):
     async def generate():
         full_reply = ""
         async for chunk in analysis_service.stream_chat(
-            message=request.message,
+            message=effective_message,
             chapter_context=chapter_context,
             chat_history=request.chat_history,
             system_prompt_override=system_override,

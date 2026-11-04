@@ -151,6 +151,9 @@ def append_messages(session_id: str, messages: List[Dict[str, Any]]) -> Optional
             for key in _TOOL_META_KEYS:
                 if m.get(key):
                     entry[key] = m[key]
+            # v2.7 划线引用：用户消息可携带 {text, chapter_id, chapter_title}
+            if m.get("quote"):
+                entry["quote"] = m["quote"]
             session.setdefault("messages", []).append(entry)
         if session.get("title") in (None, "新对话"):
             first_user = next((m for m in session["messages"] if m.get("role") == "user"), None)

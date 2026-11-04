@@ -75,6 +75,50 @@ function App() {
     const [activeExpertId, setActiveExpertId] = useState(null);
     const [expertOpening, setExpertOpening] = useState(false);
     const [progressMap, setProgressMap] = useState(loadProgressMap);
+    // v2.7 划线：按书加载全部划线；quoteDraft=「加入对话」暂存的选区引用（发问/切书/切会话时清除）
+    const [highlights, setHighlights] = useState([]);
+    const [quoteDraft, setQuoteDraft] = useState(null);
+    useEffect(() => {
+        if (!currentBook?.book_id) { setHighlights([]); return; }
+        setQuoteDraft(null);
+        fetch(`${API_BASE}/highlights?book_id=${currentBook.book_id}`).then(r => r.json())
+            .then(d => setHighlights(d.highlights || [])).catch(() => {});
+    }, [currentBook?.book_id]);
+
+    const handleAddHighlights = async (frags) => {
+        if (!currentBook || !currentChapter) return;
+        const created = [];
+        for (const f of frags) {
+            try {
+                const res = await fetch(`${API_BASE}/highlights`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        book_id: currentBook.book_id,
+                        chapter_id: currentChapter.chapter_id,
+                        start_p: f.start_p,
+                        text: f.text,
+                        chapter_title: currentChapter.title,
+                    })
+                });
+                const d = await res.json().catch(() => ({}));
+                if (res.ok && d.highlight) created.push(d.highlight);
+            } catch { /* 单段网络失败跳过，其余照常 */ }
+        }
+        if (created.length) {
+            setHighlights(prev => {
+                const seen = new Set(prev.map(h => h.highlight_id));
+                return [...prev, ...created.filter(h => !seen.has(h.highlight_id))];
+            });
+        }
+    };
+
+    const handleRemoveHighlight = async (id) => {
+        try {
+            const res = await fetch(`${API_BASE}/highlights/${id}`, { method: 'DELETE' });
+            if (res.ok) setHighlights(prev => prev.filter(h => h.highlight_id !== id));
+        } catch { /* 后端未删：保留划线，下次进书状态仍一致 */ }
+    };
     // 知识卡片统计（v2.3）：书架徽标 + 书内抽屉徽标共用；复习/抽卡/删卡后刷新
     const [cardStats, setCardStats] = useState({ total: 0, due: 0, stats: {} });
     const loadCardStats = useCallback(() => {
@@ -451,17 +495,22 @@ function App() {
                 return { role: 'assistant', content: `【AI 工具产出 · ${name}】\n${excerpt}` };
             }
             if (m.kind === 'opening' || m.kind === 'report' || !m.kind) {
-                return { role: m.role, content: m.content };
+                // v2.7 带划线引用的用户消息：把摘录前缀进历史，追问时模型知道「这段」指什么
+                const content = m.quote?.text
+                    ? `读者从书中摘录了一段${m.quote.chapter_title ? `（《${m.quote.chapter_title}》）` : ''}：「${m.quote.text}」\n\n${m.content}`
+                    : m.content;
+                return { role: m.role, content };
             }
             return null;
         })
         .filter(m => m && m.content && m.content.trim());
 
-    // 流式发送消息（后端按 session_id 自动落盘，刷新不丢）
-    const handleSendMessage = async (message) => {
+    // 流式发送消息（后端按 session_id 自动落盘，刷新不丢）；quote=v2.7 划线引用随消息附带
+    const handleSendMessage = async (message, quote) => {
         if (!currentBook || isStreaming) return;
         setIsStreaming(true);
         setAiOpen(true);
+        if (quote?.text) setQuoteDraft(null);
 
         const sid = await ensureSession();
 
@@ -473,8 +522,13 @@ function App() {
         };
         if (currentChapter?.chapter_id) body.chapter_id = currentChapter.chapter_id;
         if (activeExpertId) body.expert_id = activeExpertId;
+        if (quote?.text) body.quote = { text: quote.text, chapter_id: quote.chapter_id || null };
 
-        setMessages(prev => [...prev, { role: 'user', content: message }, { role: 'assistant', content: '' }]);
+        // 只发引用不问问题时，本地气泡文案与后端落盘的兜底提问保持一致
+        const displayMessage = message || (quote?.text ? '请帮我解读这段摘录。' : '');
+        setMessages(prev => [...prev,
+            { role: 'user', content: displayMessage, quote: quote?.text ? quote : undefined },
+            { role: 'assistant', content: '' }]);
 
         const patchLast = (patchFn) => setMessages(prev => {
             const next = [...prev];
@@ -639,6 +693,7 @@ function App() {
         setSessionId(null);
         setMessages([]);
         setActiveExpertId(null);
+        setQuoteDraft(null);
         setAiOpen(true);
     };
 
@@ -650,6 +705,7 @@ function App() {
             setSessionId(full.session_id);
             setMessages(full.messages || []);
             setActiveExpertId(full.expert_id || null);
+            setQuoteDraft(null);
             setAiOpen(true);
         } catch (err) {
             console.error('加载会话失败:', err);
@@ -659,7 +715,7 @@ function App() {
     const handleDeleteSession = async (id) => {
         try {
             await fetch(`${API_BASE}/sessions/${id}`, { method: 'DELETE' });
-            if (id === sessionId) { setSessionId(null); setMessages([]); setActiveExpertId(null); }
+            if (id === sessionId) { setSessionId(null); setMessages([]); setActiveExpertId(null); setQuoteDraft(null); }
             fetchSessions(scopeKey);
         } catch (err) {
             console.error('删除会话失败:', err);
@@ -829,6 +885,12 @@ function App() {
                 setAiOpen={setAiOpen}
                 cardDue={(cardStats.stats[currentBook?.book_id] || {}).due || 0}
                 onCardsStatsChanged={loadCardStats}
+                highlights={highlights}
+                onAddHighlights={handleAddHighlights}
+                onRemoveHighlight={handleRemoveHighlight}
+                onQuoteToChat={setQuoteDraft}
+                quoteDraft={quoteDraft}
+                onClearQuote={() => setQuoteDraft(null)}
             />
         );
     }

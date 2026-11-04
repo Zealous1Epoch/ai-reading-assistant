@@ -1,5 +1,15 @@
 # 智能读书助手 — 版本历史
 
+## v2.7 — 2026-11-04（鼠标划线高亮 + 选区引用进对话——阅读区第一次能「指给 AI 看」）
+- **锚定设计（核心决策）**：不用字符偏移——`cleanChapterContent` 渲染前会剥页码/乱码行/压缩空格，偏移与渲染文本必然对不上。改存 `{chapter_id, start_p(段落块 data-p 索引), text(选区原文)}`，渲染时对每块做**去空白 indexOf 匹配**包 `<mark class="hl-mark" data-hl>`（原文偏移映射：逐字符建 norm→raw 索引表，空白不参与匹配但切片还原原文）；匹配不到优雅跳过——书重切/文本改版后划线自然失效但**绝不错位标半截**。跨段选区按渲染叶子 `<p>` 逐段拆分入库（`textOffsetIn` 把 Range 端点映射进叶子纯文本偏移，含已包 mark 的子节点也准）
+- **后端**：`highlight_store.py`（chat/card 同款单文件 JSON+锁+原子写；text cap 2000；同书同章同段同文去空白**幂等去重**——重复划线返回既有条目）+ `routers/highlights.py` 4 端点（POST 验章存在并自动补 `chapter_title`）+ main 注册 + **删书级联** `delete_for_book`（挂资产级联之后）+ `GET /highlights/count` 预留书架徽标
+- **选区操作条**：ReadingPane `mouseup` → `collectSelection()`（滚动容器内 `[data-p] p, p[data-p]` 叶子 ∩ `range.intersectsNode`）→ 视口坐标浮层 `data-sel-bar`：**划线 / 加入对话 / 复制** 三键（`onMouseDown preventDefault` 防点按钮时选区被清）；点已有划线弹 `data-hl-menu`（取消划线/加入对话）；滚动即收起浮层
+- **引用进对话（不动服务签名）**：`ChatRequest.quote {text, chapter_id}` → **路由侧**拼 `读者在书中划了一段（出处：《章题》）：「…」\n\n读者的问题：…` 喂 `stream_chat`（教训执行：给服务函数加参数要同步全部测试 fake，能不碰就不碰）；摘录并入 RAG query 提升检索相关性；未带问题时后端兜底「请帮我解读这段摘录。」。落盘：`chat_store.append_messages` 白名单加 `quote` 字段、`AppendMessageRequest` 同步加——用户消息 content 只存问题本体、引用独立字段（含 chapter_title），刷新恢复气泡渲染 `data-msg-quote` 琥珀引用块；`buildHistory` 把带引用的历史消息前缀摘录文本，追问时模型知道"这段"指什么
+- **前端状态**：App 持 `highlights`（进书 GET、增删乐观+对账）与 `quoteDraft`（切书/切会话/删除会话即清；发问即清 chip）；AiPanel 输入框上方 chip（90 字截断+出处+可移除）、发送钮允许**只发引用不带问题**；`/highlights` 进 vite proxy
+- **测试**：pytest **115 passed**（新增 `test_highlights.py` 8 项：字段/空文拒收/幂等去重/cap/过滤/计数/删除/级联 + 路由直调 400·404·补章题·往返）；`e2e_selection.cjs` **17/17 零 LLM**——程序化 Range+mouseup → 操作条 → 划线 mark 与 API 对账 → **reload 持久** → 点 mark 取消 → chip 出现/移除 → API 注入带 quote 的会话消息 → reload 选会话渲染 `data-msg-quote` → 自清理；真实 LLM 冒烟：quote+提问 854 字回答直扣摘录语义、落盘 quote 含章题、RAG 5 来源正常
+- 踩坑：① JSX 用了 `doCopy` 但函数漏定义——**vite build 不报**，浏览器渲染期 ReferenceError 才炸（React 整树卸载、浮层不出现），浏览器 E2E 第一时间拦住：静态构建不是 UI 功能的终点判据；② SessionDrawer 会话条目是 `div.group` 整行 onClick 而非 button，E2E 猜选择器落空 30s 超时——**读组件源码再写断言**；③ E2E api helper 从此带状态码诊断（非 2xx 打印响应体），防 JSON.parse 出 undefined 静默续跑
+- 已知边界：划线是"存在即渲染"级匹配，同一段内完全相同的重复句会先匹配到前者（可接受）；书架徽标 count API 已留、UI 未接；划线批注笔记/多色分类/汇总导出为后续方向
+
 ## v2.6 — 2026-11-04（LLM 换成公司内部部署——DeepSeek → qwen3.8-flash-next @ vLLM，零代码换源 + 三处严格性适配）
 - **换源兑现"只改 .env 三行"承诺**：`config.py` 三变量 `deepseek_api_key/base_url/model` 全走环境变量、两处 `ChatOpenAI`（`analysis_service`/`ai_service`/`book_processor`）本就是通用 OpenAI 兼容客户端。仅改仓库根 + `backend/` **两份** .env：`DEEPSEEK_BASE_URL=http://110.90.4.74:26030/v1`、`DEEPSEEK_MODEL=qwen3.8-flash-next`（与 WorkBuddy 会话同模型）、key 与公司招聘系统共用（均 gitignored、明文不入仓库，`.env.example` 只留内部端点模板）。变量名 `DEEPSEEK_` 前缀**保留不改**（历史兼容，避免全仓 import 震荡）
 - **推理模型/vLLM 严格性逼出三处真适配**（都是"换端点才暴露的既有隐患"）：

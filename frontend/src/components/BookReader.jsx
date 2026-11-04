@@ -40,6 +40,8 @@ function BookReader({
     aiOpen, setAiOpen,
     // 知识卡片（v2.3）：该书今日到期数 + 复习/删卡后的徽标刷新
     cardDue, onCardsStatsChanged,
+    // v2.7 划线高亮 + 选区引用进对话
+    highlights, onAddHighlights, onRemoveHighlight, onQuoteToChat, quoteDraft, onClearQuote,
 }) {
     // 目录侧栏开合（持久化；旧键 railOpen 曾是会话侧栏，作一次性回落）
     const [tocOpen, setTocOpen] = useState(() => {
@@ -138,6 +140,10 @@ function BookReader({
                     currentChapter={currentChapter}
                     onSelectChapter={onSelectChapter}
                     citeTarget={citeTarget}
+                    highlights={highlights}
+                    onAddHighlights={onAddHighlights}
+                    onRemoveHighlight={onRemoveHighlight}
+                    onQuoteToChat={onQuoteToChat}
                 />
                 <AiPanel
                     open={aiOpen}
@@ -156,6 +162,8 @@ function BookReader({
                     onGenerateReport={onGenerateReport}
                     currentSessionId={currentSessionId}
                     onNewSession={onNewSession}
+                    quoteDraft={quoteDraft}
+                    onClearQuote={onClearQuote}
                 />
             </div>
 

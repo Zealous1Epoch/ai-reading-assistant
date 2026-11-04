@@ -19,6 +19,7 @@ export default defineConfig({
       '/cards': 'http://localhost:8000',
       '/assets': 'http://localhost:8000',
       '/audio': 'http://localhost:8000',
+      '/highlights': 'http://localhost:8000',
     },
   },
 })

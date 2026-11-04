@@ -23,6 +23,7 @@ class AppendMessageRequest(BaseModel):
     filename: Optional[str] = None
     scope: Optional[str] = None  # 作用范围文案（整本书 / 章节名 / 用户输入），收藏时用
     sources: Optional[List[Dict[str, Any]]] = None
+    quote: Optional[Dict[str, Any]] = None  # v2.7 划线引用 {text, chapter_id, chapter_title}
 
 
 @router.get("")

@@ -91,6 +91,7 @@ function AiPanel({
     favorites, onToggleFavorite, onNavigateToSource,
     experts = [], activeExpert, expertOpening = false, onOpenExpert, onGenerateReport,
     currentSessionId, onNewSession,
+    quoteDraft, onClearQuote,
 }) {
     const [input, setInput] = useState('');
     const [plusOpen, setPlusOpen] = useState(false);
@@ -109,8 +110,11 @@ function AiPanel({
     }, [messages, open]);
 
     const handleSend = () => {
-        if (!input.trim() || isStreaming) return;
-        onSendMessage(input.trim());
+        if (isStreaming) return;
+        const text = input.trim();
+        // v2.7：只带引用不带问题也允许发送（后端有兜底提问）
+        if (!text && !quoteDraft?.text) return;
+        onSendMessage(text, quoteDraft?.text ? quoteDraft : undefined);
         setInput('');
     };
 
@@ -191,7 +195,17 @@ function AiPanel({
                                 <div key={i} className={`message-enter flex gap-2 items-start ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                     <div className={`max-w-[85%] min-w-0 px-4 py-2.5 ${msg.role === 'user' ? 'bg-zinc-100 text-zinc-700 rounded-2xl rounded-br-md' : 'bg-white text-zinc-700 rounded-2xl rounded-bl-md border border-zinc-100'}`}>
                                         {msg.role === 'user' ? (
-                                            <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                                            <>
+                                                {msg.quote?.text && (
+                                                    <div data-msg-quote className="mb-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50 border-l-2 border-amber-300 text-[12px] text-amber-800 leading-relaxed max-h-28 overflow-hidden">
+                                                        <span>「{msg.quote.text.length > 160 ? msg.quote.text.slice(0, 160) + '…' : msg.quote.text}」</span>
+                                                        {msg.quote.chapter_title && (
+                                                            <div className="mt-0.5 text-[10px] text-amber-500">—— {msg.quote.chapter_title}</div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                                <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                                            </>
                                         ) : (
                                             renderMessageParagraphs(msg.content, msg.sources, citeJump)
                                         )}
@@ -273,6 +287,26 @@ function AiPanel({
                         )}
                     </div>
                 )}
+                {/* v2.7 划线引用 chip：随下一条提问一起送出 */}
+                {quoteDraft?.text && (
+                    <div data-quote-chip className="mb-2 flex items-start gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 min-w-0">
+                        <svg className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                        </svg>
+                        <div className="min-w-0 flex-1">
+                            <p className="text-[12px] text-amber-800 leading-snug max-h-10 overflow-hidden">「{quoteDraft.text.length > 90 ? quoteDraft.text.slice(0, 90) + '…' : quoteDraft.text}」</p>
+                            {quoteDraft.chapter_title && (
+                                <p className="text-[10px] text-amber-500 mt-0.5 truncate">—— {quoteDraft.chapter_title}</p>
+                            )}
+                        </div>
+                        <button onClick={onClearQuote} data-quote-clear title="移除引用"
+                                className="p-0.5 rounded text-amber-400 hover:text-amber-700 hover:bg-amber-100 transition-colors flex-shrink-0">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                )}
                 <div className="flex gap-2 items-end">
                     {/* + 二级级联菜单（专家模式入口） */}
                     <div className="relative flex-shrink-0">
@@ -351,7 +385,7 @@ function AiPanel({
                     </div>
                     <button
                         onClick={handleSend}
-                        disabled={!input.trim() || isStreaming || !currentBook}
+                        disabled={(!input.trim() && !quoteDraft?.text) || isStreaming || !currentBook}
                         className="w-10 h-10 flex items-center justify-center bg-zinc-800 text-white rounded-full hover:bg-zinc-900 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 transition-all flex-shrink-0"
                     >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

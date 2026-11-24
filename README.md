@@ -150,7 +150,7 @@ python -m app.main
 - `POST /api/tools/{tool_id}/stream` - 运行工具，SSE 帧协议：`{"status"}` 进度 / `{"content"}` 正文增量 / `{"sources"}` 引用章节 / `{"artifact"}` HTML 产物 / `[DONE]`
 - 请求体：`book_id` 必填；`chapter_id` 传了则作用范围为该章，否则整本书（工具抽屉顶部可切换）；`user_input` 仅 `author-talk`（读者的问题）与 `podcast`（本期主题）使用；`minutes` 仅 `podcast` 使用（10/20/30）
 - 工具：`summarize` 总结（全书走 map-reduce 全章覆盖）、`questions` 读书十问、`mindmap` 思维导图（JSON 结构树，见下）、`author-talk` 与作者对谈（语义检索书中论点 grounding）、`knowledge-graph` 精读笔记（HTML 产物）、`cards` 知识卡片（提炼问题/答案/原文引证卡，产出即入复习库，见「知识卡片」节）、`podcast` 读书播客（双主播台本 + edge-tts 合成，见「听书与播客」节）
-- **思维导图（v2.1）**：产出 `artifact {type:"mindmap", data:节点 JSON}`，节点 `{t:标题, c:子节点, cid:章节id}`。全书范围按 8 章/组生成三级骨架（书→章→主题），章节点由服务端按真实目录组装——结构性零漏章；单章一次生成四级树（章→主题→论点→论据）。前端自绘可折叠树：点章名跳原文、章节点可「展开详分支」
+- **思维导图（v2.1 数据结构 / v2.9 markmap 画布）**：产出 `artifact {type:"mindmap", data:节点 JSON}`，节点 `{t:标题, c:子节点, cid:章节id}`。全书范围按 8 章/组生成三级骨架（书→章→主题），章节点由服务端按真实目录组装——结构性零漏章；单章一次生成四级树（章→主题→论点→论据）。前端以 markmap 渲染为图形画布（拖拽平移、滚轮缩放、点圆圈折叠），工具栏支持展开到章/主题/全部三档、回中、SVG/PNG 导出与全屏；点章名跳原文、章节点可「展开详分支」（v2.9 起借鉴社区 markmap 方案替换自绘缩进树）
 - `POST /api/tools/mindmap/expand/stream` - 章节按需展开：请求 `{book_id, chapter_id}`，按该章全文生成深层子树，SSE 返回 `artifact {type:"mindmap-subtree"}`；章节不存在 404
 - LLM 输出上限经 `extra_body {"max_tokens":8192, "chat_template_kwargs":{"enable_thinking":false}}` 透传（langchain-openai 1.x 会把 max_tokens 改名成端点不认的键，导图漏章根因之一；bind 的 extra_body 整体替换构造器值，故内部 vLLM 必需的关思考参数必须在此一并带上）
 - 背景调研 / 书籍推荐已下线（泛化搜索类，不基于馆藏内容，与读书助手定位弱相关）

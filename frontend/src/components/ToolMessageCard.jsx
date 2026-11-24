@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 // markmap：迁移 Vite 后直接 import 打包（不依赖 CDN 全局变量）
 import { Transformer } from 'markmap-lib';
 import { Markmap } from 'markmap-view';
@@ -209,7 +209,7 @@ function MindmapOverlay({ data, onClose }) {
     );
 }
 
-// ---------- 思维导图 JSON 结构树（v2.1 M1：章节跳原文 / 按需展开详分支 / 全屏） ----------
+// ---------- 思维导图 JSON → markmap 画布（v2.9：借鉴 markmap 渲染，保留跳原文/按需展开/全屏） ----------
 export function parseMindmapJson(raw) {
     const t = (raw || '').trim();
     if (!t.startsWith('{')) return null;
@@ -219,34 +219,116 @@ export function parseMindmapJson(raw) {
     } catch { return null; }
 }
 
-export function MindmapTree({ root, bookId, onNavigateToSource }) {
-    const [open, setOpen] = useState(() => new Set(['0']));       // 节点路径键集合，默认只展开根
-    const [subtrees, setSubtrees] = useState({});                  // cid → 按需展开的深层子树（替换该章 children）
+// Markdown 转义：标题文本可能含 * _ [ ] ` 等，防止被 remark 解析成强调/链接；<> 转实体防误触 HTML
+const mmEscape = (s) => String(s ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/[\\`*_~[\]()#|]/g, (c) => '\\' + c);
+
+// JSON 树 → Markdown（根=标题，子孙=嵌套列表项）。章节点嵌 <a data-mm-jump>，详分支按钮嵌 <a data-mm-expand>，
+// markmap 节点支持内联 HTML，点击由外层容器事件委托接回 React（markmap 官方 REPL/博客同款做法）
+function mmNodeToMd(node, depth, ctx) {
+    let label = mmEscape(node.t);
+    if (node.cid) label = `<a data-mm-jump="${node.cid}">${label}</a>`;
+    const loaded = node.cid ? ctx.subtrees[node.cid] : null;
+    let extra = '';
+    if (node.cid && !loaded && depth > 0) {
+        if (ctx.loadingCid === node.cid) extra = ` <span data-mm-loading="${node.cid}">⏳生成中…</span>`;
+        else if (ctx.errors[node.cid]) extra = ` <a data-mm-expand="${node.cid}" style="color:#ef4444">⚠${mmEscape(ctx.errors[node.cid])}·重试</a>`;
+        else extra = ` <a data-mm-expand="${node.cid}">⤢展开详分支</a>`;
+    }
+    let line;
+    if (depth === 0) line = `# ${label}${extra}`;
+    else line = `${'  '.repeat(depth - 1)}- ${label}${extra}`;
+    const children = (loaded && loaded.c) || node.c || [];
+    for (const c of children) line += '\n' + mmNodeToMd(c, depth + 1, ctx);
+    return line;
+}
+
+const mmFindNodeByCid = (node, cid) => {
+    if (node.cid === cid) return node;
+    for (const c of (node.c || [])) {
+        const hit = mmFindNodeByCid(c, cid);
+        if (hit) return hit;
+    }
+    return null;
+};
+
+// 一级分支按色相轮转着色（colorFreeze 效果：path 以 . 分隔且含祖先 id，seg[1]=所属一级分支 id，同章同色），根 zinc-900
+const mmHueColor = (n) => {
+    const seg = String((n && n.state && n.state.path) || '').split('.').filter(Boolean);
+    if (seg.length <= 1) return '#18181b';
+    const idx = Number(seg[1]) || 0;
+    return `hsl(${(idx * 47) % 360}, 42%, 45%)`;
+};
+
+const mmTransformer = new Transformer();
+
+export function MindmapTree({ root, bookId, onNavigateToSource, height = 400 }) {
+    const [subtrees, setSubtrees] = useState({});   // cid → 按需展开的深层子树
     const [loadingCid, setLoadingCid] = useState(null);
     const [expandErrors, setExpandErrors] = useState({});
     const [fullscreen, setFullscreen] = useState(false);
+    // 展开层级基线：1=到章 2=到主题 Infinity=全部 → markmap initialExpandLevel（折叠 depth>=该值；-1 全展开）
+    const MM_LEVEL = { 1: 2, 2: 3 };
+    const [level, setLevel] = useState(1);
+    const [rebuildKey, setRebuildKey] = useState(0);
+    const [ready, setReady] = useState(false);
+    const svgRef = useRef(null);
+    const mmRef = useRef(null);
 
-    const toggle = (key) => setOpen(prev => {
-        const n = new Set(prev);
-        if (n.has(key)) n.delete(key); else n.add(key);
-        return n;
-    });
+    const md = useMemo(
+        () => mmNodeToMd(root, 0, { subtrees, loadingCid, errors: expandErrors }),
+        [root, subtrees, loadingCid, expandErrors]
+    );
 
-    const childrenOf = (node) => {
-        if (node.cid && subtrees[node.cid]) return subtrees[node.cid].c || [];
-        return node.c || [];
-    };
+    // 渲染：rebuildKey/level 变 → 重建实例（手动折叠态回到基线）；仅 md 变 → setData 增量（保留手动折叠）
+    useEffect(() => {
+        if (!svgRef.current) return;
+        const expandLevel = level === Infinity ? -1 : (MM_LEVEL[level] ?? 2);
+        let mm = mmRef.current;
+        if (mm && mm._mmExpandLevel !== expandLevel) { try { mm.destroy(); } catch { /* noop */ } mm = null; }
+        if (!mm) {
+            svgRef.current.innerHTML = '';
+            mm = Markmap.create(svgRef.current, {
+                maxWidth: 320,
+                initialExpandLevel: expandLevel,
+                color: mmHueColor,
+                spacingHorizontal: 64,
+                spacingVertical: 6,
+                paddingX: 8,
+            });
+            mm._mmExpandLevel = expandLevel;
+            mmRef.current = mm;
+        }
+        try {
+            // markmap-lib 0.18：transform() 是同步 API，setData() 才是异步
+            const { root: r } = mmTransformer.transform(md);
+            mm.setData(r).then(() => setReady(true)).catch(e => console.error('markmap setData 失败:', e));
+        } catch (e) {
+            console.error('markmap 渲染失败:', e);
+        }
+    }, [md, level, rebuildKey]);
 
-    // 按需展开：调 expand SSE 拿该章深层子树，成功后自动展开该节点
-    const expandChapter = async (node, key) => {
-        if (!node.cid || loadingCid) return;
-        setLoadingCid(node.cid);
-        setExpandErrors(prev => ({ ...prev, [node.cid]: null }));
+    useEffect(() => () => { try { mmRef.current?.destroy(); } catch { /* 已销毁 */ } mmRef.current = null; }, []);
+
+    // 全屏只是给同一容器换类名（实例不重建不闪），换完 fit 一次
+    useEffect(() => {
+        const timer = setTimeout(() => { mmRef.current?.fit().catch(() => {}); }, fullscreen ? 350 : 60);
+        return () => clearTimeout(timer);
+    }, [fullscreen]);
+
+    // 按需展开：SSE 拿该章深层子树，成功后合入 subtrees 触发 setData
+    const expandChapter = async (cid) => {
+        if (!cid || loadingCid) return;
+        const node = mmFindNodeByCid(root, cid);
+        if (!node) return;
+        setLoadingCid(cid);
+        setExpandErrors(prev => ({ ...prev, [cid]: null }));
         try {
             const res = await fetch('/api/tools/mindmap/expand/stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ book_id: bookId, chapter_id: node.cid }),
+                body: JSON.stringify({ book_id: bookId, chapter_id: cid }),
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const reader = res.body.getReader();
@@ -272,116 +354,119 @@ export function MindmapTree({ root, bookId, onNavigateToSource }) {
                 }
             }
             if (subtree) {
-                setSubtrees(prev => ({ ...prev, [node.cid]: subtree }));
-                setOpen(prev => new Set(prev).add(key));
+                setSubtrees(prev => ({ ...prev, [cid]: subtree }));
             } else {
-                setExpandErrors(prev => ({ ...prev, [node.cid]: err || '展开结果解析失败，请重试' }));
+                setExpandErrors(prev => ({ ...prev, [cid]: err || '展开结果解析失败' }));
             }
         } catch (e) {
-            setExpandErrors(prev => ({ ...prev, [node.cid]: `展开失败: ${e.message}` }));
+            setExpandErrors(prev => ({ ...prev, [cid]: `展开失败: ${e.message}` }));
         } finally {
             setLoadingCid(null);
         }
     };
 
-    const renderNode = (node, key, depth) => {
-        const children = childrenOf(node);
-        const hasKids = children.length > 0;
-        const isOpen = open.has(key);
-        const expanded = !!(node.cid && subtrees[node.cid]);
-        // 章节节点（非根）未展开过 → 提供按需生成本章深层分支
-        const canExpand = !!node.cid && !expanded && depth > 0;
-        const isLoading = !!node.cid && loadingCid === node.cid;
-        const err = node.cid ? expandErrors[node.cid] : null;
-        const labelCls = depth === 0
-            ? 'text-[15px] font-semibold text-zinc-900'
-            : depth === 1 ? 'text-sm font-medium text-zinc-800'
-            : depth === 2 ? 'text-[13px] text-zinc-600'
-            : 'text-xs text-zinc-500';
-
-        return (
-            <div className="mm-node">
-                <div className="flex items-start gap-1 group" style={{ paddingLeft: depth * 16 }}>
-                    {hasKids ? (
-                        <button
-                            onClick={() => toggle(key)}
-                            className="mt-0.5 p-1 -ml-1 rounded text-zinc-300 hover:text-zinc-600 transition-colors"
-                            aria-label={isOpen ? '折叠' : '展开'}
-                        >
-                            <svg className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                            </svg>
-                        </button>
-                    ) : <span className="w-3 mt-1 flex-shrink-0"></span>}
-                    {node.cid ? (
-                        <button
-                            data-mm-jump={node.cid}
-                            onClick={() => onNavigateToSource?.(bookId, node.cid)}
-                            className={`text-left rounded px-1 -mx-0.5 hover:bg-zinc-50 hover:underline decoration-zinc-300 underline-offset-2 transition-colors min-w-0 ${labelCls}`}
-                            title="跳到原文"
-                        >
-                            {node.t}
-                        </button>
-                    ) : (
-                        <span className={`px-1 min-w-0 ${labelCls}`}>{node.t}</span>
-                    )}
-                    {canExpand && (
-                        <button
-                            data-mm-expand={node.cid}
-                            onClick={() => expandChapter(node, key)}
-                            disabled={isLoading}
-                            className="ml-1 flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded-full border border-zinc-200 text-zinc-400 hover:text-zinc-700 hover:border-zinc-400 disabled:opacity-60 transition-colors"
-                        >
-                            {isLoading ? '展开中…' : '展开详分支'}
-                        </button>
-                    )}
-                </div>
-                {err && (
-                    <div className="text-[11px] text-red-400 mt-0.5" style={{ paddingLeft: (depth + 1) * 16 }}>
-                        {err}
-                    </div>
-                )}
-                {isOpen && hasKids && (
-                    <div>{children.map((c, i) => renderNode(c, `${key}.${i}`, depth + 1))}</div>
-                )}
-            </div>
-        );
+    // 事件委托：节点内 HTML <a>（foreignObject 内是 HTML，closest 可用）
+    const handleCanvasClick = (e) => {
+        const jump = e.target.closest?.('[data-mm-jump]');
+        if (jump) { onNavigateToSource?.(bookId, jump.getAttribute('data-mm-jump')); return; }
+        const exp = e.target.closest?.('[data-mm-expand]');
+        if (exp) expandChapter(exp.getAttribute('data-mm-expand'));
     };
 
-    const treeBody = renderNode(root, '0', 0);
+    // 导出：markmap 自带 embedGlobalCSS，样式在 svg 内，序列化即可独立打开
+    const serializeSvg = () => {
+        const svg = svgRef.current;
+        if (!svg) return null;
+        const clone = svg.cloneNode(true);
+        const rect = svg.getBoundingClientRect();
+        clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        clone.setAttribute('width', Math.max(rect.width, 1));
+        clone.setAttribute('height', Math.max(rect.height, 1));
+        return new XMLSerializer().serializeToString(clone);
+    };
+    const download = (href, name) => {
+        const a = document.createElement('a');
+        a.href = href; a.download = name; a.click();
+    };
+    const filename = (root.t || '思维导图').replace(/[\\/:*?"<>|]/g, '_');
+    const exportSvg = () => {
+        const s = serializeSvg();
+        if (!s) return;
+        const url = URL.createObjectURL(new Blob([s], { type: 'image/svg+xml;charset=utf-8' }));
+        download(url, `${filename}.svg`);
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+    };
+    const exportPng = () => {
+        const s = serializeSvg();
+        if (!s) return;
+        const rect = svgRef.current.getBoundingClientRect();
+        const scale = 2;
+        const img = new Image();
+        // 必须用 data: URL —— Chrome 下 blob:/objectURL 的含 foreignObject SVG 绘入 canvas 会污染画布，toDataURL 抛 SecurityError
+        const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s);
+        img.onload = () => {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = rect.width * scale; canvas.height = rect.height * scale;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                download(canvas.toDataURL('image/png'), `${filename}.png`);
+            } catch (e) {
+                console.error('PNG 导出失败，改用 SVG：', e);
+                exportSvg();
+            } finally { /* noop */ }
+        };
+        img.onerror = () => { console.error('PNG 导出失败，改用 SVG'); exportSvg(); };
+        img.src = url;
+    };
+
     const chapterCount = root.c?.length || 0;
+    const btn = 'text-[11px] px-2 py-0.5 rounded-full border transition-colors';
+    const btnOn = 'border-zinc-700 bg-zinc-800 text-white';
+    const btnOff = 'border-zinc-200 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700';
 
     return (
-        <div data-mindmap="json" data-mm-chapters={chapterCount}>
-            <div className="flex items-center justify-between mb-1.5">
+        <div data-mindmap="json" data-mm-chapters={chapterCount} data-mm-ready={ready ? '1' : '0'}>
+            <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
                 <span className="text-[11px] text-zinc-400 tabular-nums">
-                    {chapterCount > 1 ? `${chapterCount} 章` : ''}
+                    {chapterCount > 1 ? `${chapterCount} 章 · 拖拽平移 · 滚轮缩放 · 点圆圈折叠` : ''}
                 </span>
-                <button
-                    onClick={() => setFullscreen(true)}
-                    className="text-xs font-medium text-zinc-500 hover:text-zinc-700 bg-zinc-100 hover:bg-zinc-200 px-3 py-1 rounded-full transition-all"
-                >
-                    放大
-                </button>
-            </div>
-            <div className="bg-white rounded-xl border border-zinc-100 px-3 py-2 max-h-[420px] overflow-y-auto scrollbar-thin">
-                {treeBody}
-            </div>
-            {fullscreen && (
-                <div onClick={() => setFullscreen(false)} className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', animation: 'fade-in 0.2s ease-out' }}>
-                    <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl shadow-2xl border border-zinc-200 flex flex-col overflow-hidden" style={{ width: '92vw', height: '90vh' }}>
-                        <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between flex-shrink-0">
-                            <h2 className="text-base font-serif-heading font-semibold text-zinc-800 truncate">{root.t}</h2>
-                            <button onClick={() => setFullscreen(false)} className="p-2 rounded-full hover:bg-zinc-100 text-zinc-400 hover:text-zinc-600 transition-all">
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </div>
-                        <div className="flex-1 overflow-y-auto scrollbar-thin px-8 py-5">{treeBody}</div>
-                    </div>
+                <div className="flex items-center gap-1 flex-wrap" data-mm-toolbar>
+                    {[1, 2].map(lv => (
+                        <button key={lv} className={`${btn} ${level === lv ? btnOn : btnOff}`}
+                            onClick={() => { setLevel(lv); setRebuildKey(k => k + 1); }}>
+                            {lv === 1 ? '展开到章' : '展开到主题'}
+                        </button>
+                    ))}
+                    <button className={`${btn} ${level === Infinity ? btnOn : btnOff}`}
+                        onClick={() => { setLevel(Infinity); setRebuildKey(k => k + 1); }}>全部</button>
+                    <button className={`${btn} ${btnOff}`} onClick={() => mmRef.current?.fit().catch(() => {})}>回中</button>
+                    <button className={`${btn} ${btnOff}`} onClick={exportSvg} title="导出可在任意软件缩放的矢量图">SVG</button>
+                    <button className={`${btn} ${btnOff}`} onClick={exportPng} title="导出 2x 位图">PNG</button>
+                    <button className={`${btn} ${btnOff}`} onClick={() => setFullscreen(true)}>放大</button>
                 </div>
-            )}
+            </div>
+            <div
+                onClick={handleCanvasClick}
+                className={fullscreen
+                    ? 'fixed inset-0 z-50 bg-white'
+                    : 'relative bg-white rounded-xl border border-zinc-100 overflow-hidden'}
+                style={fullscreen ? undefined : { height }}
+            >
+                {fullscreen && (
+                    <div className="absolute top-0 inset-x-0 z-10 flex items-center justify-between px-6 py-3 bg-white/85 backdrop-blur border-b border-zinc-100">
+                        <h2 className="text-base font-serif-heading font-semibold text-zinc-800 truncate">{root.t}</h2>
+                        <button onClick={() => setFullscreen(false)} className="p-2 rounded-full hover:bg-zinc-100 text-zinc-400 hover:text-zinc-600 transition-all" title="关闭">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                )}
+                <svg ref={svgRef} className="w-full h-full" style={{ display: 'block' }}></svg>
+            </div>
         </div>
     );
 }

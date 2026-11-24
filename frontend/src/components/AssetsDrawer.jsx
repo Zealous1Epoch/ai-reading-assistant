@@ -123,6 +123,7 @@ function AssetsDrawer({ assets, bookId, bookTitle, onClose, onRemove, onNavigate
                                                 <MindmapTree
                                                     root={mm}
                                                     bookId={bookId}
+                                                    height={280}
                                                     onNavigateToSource={(bid, cid) => { onNavigateToSource?.(bid, cid); onClose(); }}
                                                 />
                                             </div>

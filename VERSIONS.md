@@ -1,5 +1,14 @@
 # 智能读书助手 — 版本历史
 
+## v2.9 — 2026-11-24（思维导图渲染换 markmap 画布——调研借鉴社区方案替换自绘树：平移缩放/折叠圆点/三档展开/SVG/PNG 导出）
+- **调研结论先行**：只读+按需展开场景下社区最成熟的是 markmap（13k★、MIT、活跃，且依赖里早就装着——旧 Markdown 导图路径一直在用）；同场景开源项目「拾语」(Vue3+markmap-lib/view) 与 Ebook-Assistant(epub.js+markmap) 验证了这条路。可编辑需求才考虑 mind-elixir；simple-mind-map 功能最全但官方自述低维护+1000 节点性能墙，只抄产品点子（层级控制/导出/小地图思路）
+- **MindmapTree 重写为画布**（数据格式与 expand SSE **零改动**，资产区/落盘链路无感）：JSON 树 → Markdown（根=标题、子孙=嵌套列表项），章节点内嵌 `<a data-mm-jump>`、详分支按钮 `<a data-mm-expand>`、加载态 `<span data-mm-loading>`——markmap 节点支持内联 HTML，点击由外层容器事件委托 `closest` 接回 React；工具栏 = 展开到章/展开到主题/全部（重建实例回折叠基线）+ 回中(fit) + SVG 导出 + PNG 导出(2x) + 放大（**fixed 换容器不换实例，切完 fit**，不闪不重拉）；一级分支按 path 色相轮转着色（同章同色）；节点文本全量 Markdown 转义 + `<>` 转实体防注入
+- **markmap 0.18 API 实锤**（读 dist 源码而非猜）：`Transformer.transform()` 是**同步**返回 ITransformResult（`.then` 写法当场炸），`setData()` 才是异步；`initialExpandLevel` 语义=**折叠 depth≥该值**——想显示章节层要传 2、全展开传 -1（默认值），传 1 只剩根；`INode.state.path` 为**点分**全树递增 id（seg[1]=所属一级分支 id，可作分支配色键）
+- **PNG 导出 canvas taint**：`blob:`/objectURL 的含 foreignObject SVG 绘入 canvas 后 toDataURL 抛 SecurityError（SVG 路径正常）→ 改 **data: URL**（encodeURIComponent）解决；PNG 失败自动降级 SVG
+- **测试**：`e2e_mindmap.cjs` 按画布 DOM 契约重写（`data-mm-ready` 就绪信号、可见节点数=`.markmap-foreign` 计数——markmap 折叠子树不进 DOM）真实 LLM **26/26**（17→66→90 三档展开、点章跳原文、按需展开子树注入、全屏开合、SVG 下载、JSON 落盘、基于导图追问、零 JS 报错）；新增 `e2e_mindmap_render.cjs` **11/11 零 LLM**（复用存量旧会话导图 JSON 白嫖渲染验证，含 PNG/SVG 双导出）；`e2e_assets.cjs` 导图重放断言 `.mm-node`→ready+foreignObject，**21/21**；pytest **127 passed**
+- 踩坑：① **详分支展开轮询只查 `data-mm-expand` 消失是假阳性**——加载期按钮被 `⏳ data-mm-loading` 替换也满足条件，子树未合入就读计数导致断言连挂三次；完成判定必须 expand+loading **双消失**。② 沙箱内 chromium `page.goto` 127.0.0.1 **随机偶发挂死**（curl 4ms 正常、NO_PROXY 无效）→ launch args `--no-proxy-server` + goto 15s×3 重试包装。③ 字形变形连 shell/python 字符串里的 `.` 与中文都攻击：heredoc 中文替换串静默失配（`old in s` 当场 False 是唯一防线）、`page.evaluate` 被写成 `page_evaluate`——含中文的批量改写一律锚 ASCII 结构正则 + 码点（chr）构造期望串回读布尔验证
+- 已知边界：切档/注入新子树后手动折叠状态回基线（可接受预期）；折叠基线与展开进度未持久化（P1，可 localStorage 记 level）；资产区重放画布高度 280px
+
 ## v2.8 — 2026-11-04（播客提速提质：并发合成 + 语义缓存 + 台本审核——30 分钟档 ~5min→~1.5min，同主题复跑 0 秒）
 - **A 并发合成**（`tts_service.stream_synth` 重写）：串行 ~3s/段（30 分钟档 60+ 段要等近 5 分钟，瓶颈全在逐段等微软往返）→ `Semaphore(4)` 段级并发；所有防线原样保留——段级 3 试、单段字节先进内存**整段成功才收**、全部成功后按台词顺序拼字节原子落盘（完成序≠台词序，进度计数语义不变；代价整片内存缓冲，30 分钟档 ~10MB 可接受）；消费方提前断开（SSE 断连）`finally` 取消在跑任务、不留半成品。实测 10 分钟档 41 段全程 46s（v2.5 同档需 ~2min）
 - **B 缓存语义修正**：v2.5 键含台本哈希——LLM 每次重写台本、重跑必不命中，缓存形同虚设。改 `podcast_audio_name(书, 主题, 时长, nonce="")`（版本前缀 v3），**命中判定提前到 RAG/LLM 之前**：同主题复看 0.0 秒即时返回、完全不动 LLM 额度（时长从成品字节反推，48kbps=6KB/s）；`ToolRequest.regen`（时间戳 nonce 另起新一期、不覆盖旧文件）；前端播客面板新增「重新生成一期」开关（`data-podcast-regen`，默认关）

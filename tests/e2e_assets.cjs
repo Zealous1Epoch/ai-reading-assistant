@@ -66,13 +66,14 @@ let browser = null;
     await api('POST', `/sessions/${sid}/messages`, { role: 'assistant', kind: 'report', content: 'E2E收束报告正文，验证归档报告按钮链路。' });
 
     // ---- 3 浏览器：书架预置旧 localStorage 收藏 2 条 → 进书 ----
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({ headless: true, args: ['--no-proxy-server'] });
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     const errors = [];
     page.on('pageerror', e => errors.push(String(e)));
     page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text()); });
 
-    await page.goto(BASE + '/#/', { waitUntil: 'networkidle' });
+
+    for (let g = 0; ; g++) { try { await page.goto(BASE + '/#/', { waitUntil: 'domcontentloaded', timeout: 15000 }); break } catch (e) { if (g >= 2) throw e; await sleep(1500); } }
     await page.evaluate(() => localStorage.setItem('reading_favorites', JSON.stringify([
         { id: 'legacy1', type: 'qa', question: 'E2E旧问答', answer: 'E2E旧问答的答案内容', savedAt: '2026-11-01 10:00' },
         { id: 'legacy2', type: 'tool', toolId: 'summary', toolLabel: '总结', question: 'E2E旧工具产出', answer: 'E2E旧工具产出的内容', savedAt: '2026-11-02 09:00' },
@@ -121,7 +122,9 @@ let browser = null;
     // ---- 8 导图重放：展开注入的 JSON 资产 → 树节点渲染 ----
     await page.locator('[data-asset-item]').filter({ hasText: 'E2E测试导图' }).first().click();
     await sleep(500);
-    say('导图资产重放（≥2 节点）', await page.locator('.mm-node').count() >= 2, 'nodes=' + await page.locator('.mm-node').count());
+    await page.waitForSelector('[data-mindmap="json"][data-mm-ready="1"]', { timeout: 15000 }).catch(() => {});
+    const mmFo = await page.evaluate(() => document.querySelectorAll('[data-mindmap="json"] .markmap-foreign').length);
+    say('导图资产重放（≥2 节点，markmap 画布）', mmFo >= 2, 'nodes=' + mmFo);
     // ---- 9 HTML 预览：iframe srcdoc ----
     await page.locator('[data-asset-item]').filter({ hasText: 'E2E演示页' }).first().click();
     await sleep(500);

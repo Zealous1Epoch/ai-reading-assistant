@@ -47,7 +47,8 @@ function Cover({ book }) {
 }
 
 // 书架首页：网格封面 + 全局语义搜索 + 上传（含右下角进度浮层）+ hover 删除
-function Bookshelf({ books, progressMap, uploading, cardDue, onOpenReview, onEnterBook, onUploadMultiple, onDeleteBook }) {
+// drafts=二期待核对草稿（不进书架，通过徽标/横幅进入核对弹层）
+function Bookshelf({ books, progressMap, uploading, cardDue, drafts = [], onOpenDraftReview, onOpenReview, onEnterBook, onUploadMultiple, onDeleteBook }) {
     const [query, setQuery] = useState('');
     const [results, setResults] = useState(null);
     const [searching, setSearching] = useState(false);
@@ -113,6 +114,21 @@ function Bookshelf({ books, progressMap, uploading, cardDue, onOpenReview, onEnt
                         <p className="text-xs text-zinc-400 mt-1 tabular-nums">{books.length} 本</p>
                     </div>
                     <div className="flex items-center gap-2">
+                        {drafts.length > 0 && (
+                            <button
+                                onClick={() => onOpenDraftReview(drafts[0].book_id)}
+                                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-200 bg-amber-50 text-xs font-medium text-amber-700 hover:border-amber-400 transition-all"
+                                data-testid="draft-review-entry"
+                            >
+                                <svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                                待核对
+                                <span className="min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-white text-[10px] leading-4 text-center tabular-nums">
+                                    {drafts.length}
+                                </span>
+                            </button>
+                        )}
                         <button
                             onClick={onOpenReview}
                             className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-zinc-200 bg-white text-xs font-medium text-zinc-600 hover:border-zinc-400 transition-all"
@@ -156,6 +172,30 @@ function Bookshelf({ books, progressMap, uploading, cardDue, onOpenReview, onEnt
                         <input ref={fileRef} type="file" accept=".pdf,.epub,.txt" multiple className="hidden" onChange={e => { pickFiles(e.target.files); e.target.value = ''; }} />
                     </div>
                 </div>
+
+                {/* 待核对横幅：解析可疑的草稿不进书架，在此逐本进入核对 */}
+                {drafts.length > 0 && results === null && (
+                    <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/60 px-4 py-3" data-testid="draft-banner">
+                        <p className="text-xs text-amber-700 font-medium mb-2">
+                            {drafts.length} 本书解析结果可疑，核对确认后才会进入书架
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                            {drafts.map(d => (
+                                <button
+                                    key={d.book_id}
+                                    onClick={() => onOpenDraftReview(d.book_id)}
+                                    className="flex items-center gap-1.5 pl-2.5 pr-3 py-1.5 rounded-lg bg-white border border-amber-200 hover:border-amber-400 transition-all"
+                                >
+                                    {d.blocking && <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" title="存在阻断性问题"></span>}
+                                    <span className="text-xs text-zinc-700 max-w-[10em] truncate">{d.title || d.book_id.slice(0, 8)}</span>
+                                    <span className="text-[10px] text-zinc-400 tabular-nums">{d.total_chapters} 章</span>
+                                    {d.warning_count > 0 && <span className="text-[10px] text-amber-500 tabular-nums">{d.warning_count} 项可疑</span>}
+                                    {d.resegmented && <span className="text-[10px] text-indigo-400">AI已重切</span>}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 {/* 搜索结果 */}
                 {results !== null ? (

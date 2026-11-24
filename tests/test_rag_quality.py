@@ -127,6 +127,54 @@ async def test_golden_query_top3_hit(q, bid, book, keys):
     assert hit, f"{book}《{q}》 top-3 未命中期望关键词 {keys}；实际={top}"
 
 
+# ── 馆藏结构黄金断言（二期：解析准确率的持久回归防线）──────────
+#
+# 每次修复存量后收严一次：这三条断言把"索引==向量、无吞书、无空章壳"
+# 变成永久契约，任何解析改动跑一遍 pytest 就能看出有没有把书解析坏。
+
+def _chroma_chapter_ids(book_id: str):
+    import chromadb
+    col = chromadb.PersistentClient(
+        path=str(Path(settings.data_dir) / "chroma_db")).get_collection("book_chapters_v2")
+    return {m["chapter_id"] for m in
+            col.get(where={"book_id": book_id}, include=["metadatas"])["metadatas"]}
+
+
+@pytest.mark.skipif(not _INDEX, reason="本机无馆藏索引")
+def test_index_chroma_consistency_all_books():
+    """每本书：索引章节集合必须与向量库完全一致——孤章/幽灵块永绝后迹"""
+    for bid, entry in _INDEX.items():
+        ids = {c["chapter_id"] for c in entry.get("chapters", [])}
+        vids = _chroma_chapter_ids(bid)
+        assert ids == vids, (
+            f"《{entry.get('title')}》孤章 {sorted(ids - vids)} / "
+            f"幽灵块章 {sorted(vids - ids)}")
+
+
+@pytest.mark.skipif(not _INDEX, reason="本机无馆藏索引")
+def test_no_chapter_swallows_book():
+    """无 R1 形态复发：任何单章清洗后字数占比不得超过全书 60%"""
+    for bid, entry in _INDEX.items():
+        chs = entry.get("chapters", [])
+        total = sum(c.get("cleaned_word_count") or c.get("word_count") or 0 for c in chs)
+        if total < 5000:  # 极小样本书不判
+            continue
+        mx = max((c.get("cleaned_word_count") or c.get("word_count") or 0) for c in chs)
+        assert mx / total < 0.60, (
+            f"《{entry.get('title')}》最大章占 {mx/total:.0%}（{mx}/{total}），疑似章节被吞回")
+
+
+@pytest.mark.skipif(not _INDEX, reason="本机无馆藏索引")
+def test_no_effectively_empty_chapter():
+    """无 R4 形态复发：入库章清洗后不得为空壳（页码残留等）"""
+    for bid, entry in _INDEX.items():
+        for c in entry.get("chapters", []):
+            cw = c.get("cleaned_word_count")
+            if cw is None:
+                continue  # 旧索引未回填口径的跳过，新解析全有
+            assert cw >= 30, f"《{entry.get('title')}》章「{c['title']}」清洗后仅 {cw} 字"
+
+
 @pytest.mark.asyncio(loop_scope="session")
 @pytest.mark.skipif("非暴力沟通" not in _TITLES, reason="馆藏缺书")
 async def test_irrelevant_query_returns_few_or_low_scores():

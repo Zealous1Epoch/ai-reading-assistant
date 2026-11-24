@@ -8,6 +8,7 @@ import json
 import uuid
 import os
 import io
+import shutil
 from typing import List, Optional, Tuple
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -20,6 +21,7 @@ from PIL import Image
 
 from app.config import get_settings
 from app.models.book_models import Chapter, TocItem, BookAnalysisResult, ChapterSearchResult
+from app.services.quality_check import run_quality_check
 
 # ChromaDB
 import chromadb
@@ -33,6 +35,10 @@ except ImportError:
     HAS_OCR = False
 
 settings = get_settings()
+
+# 触发 AI 兜底重切的结构性质检规则。
+# R3 版权页 / R4 空章 / R5 章节页 / R6 层级压平 重切治不了，不值得烧调用。
+RESEG_TRIGGERS = frozenset({"R1", "R2", "R7", "R8", "R9", "R10"})
 
 
 class BookProcessor:
@@ -105,16 +111,26 @@ class BookProcessor:
         text_chars = len(full_text.strip())
         needs_ocr = total_pages > 0 and (text_chars // total_pages) < 20
 
-        if needs_ocr and HAS_OCR:
+        if needs_ocr:
+            # 环境预检：pytesseract 可 import ≠ tesseract 二进制可用。
+            # 缺二进制时若不拦，4 线程池里 TesseractNotFoundError 直接炸穿
+            # process_book 且 _ocr_progress 残留、status 永返 ocr_processing。
+            if not HAS_OCR or shutil.which("tesseract") is None:
+                doc.close()
+                raise ValueError(
+                    f"检测到扫描版 PDF（{total_pages} 页仅 {text_chars} 文字），需要 OCR 才能解析。"
+                    "请先安装系统二进制 tesseract 及中文语言包"
+                    "（macOS: brew install tesseract tesseract-lang）后重新上传"
+                )
             print(f"检测到扫描版PDF（{total_pages}页，仅{text_chars}文字），启动OCR...")
-            ocr_text = self._ocr_pdf(doc, book_id)
+            try:
+                ocr_text = self._ocr_pdf(doc, book_id)
+            finally:
+                # 成功或炸掉都要清进度，否则 /books/status 永远返回 ocr_processing
+                self._ocr_progress.pop(book_id, None)
             if len(ocr_text) > text_chars:
                 full_text = ocr_text
                 print(f"OCR完成，提取到{len(ocr_text)}文字")
-            if book_id in self._ocr_progress:
-                del self._ocr_progress[book_id]
-        elif needs_ocr and not HAS_OCR:
-            print(f"警告：检测到扫描版PDF（{total_pages}页，仅{text_chars}文字），但pytesseract未安装，OCR被跳过。请安装: pip install pytesseract")
 
         doc.close()
         return full_text, metadata
@@ -259,6 +275,8 @@ class BookProcessor:
             return None
 
         # 4. 以锚点文档为边界切分章节
+        #    注意：锚点少 ≠ 目录可信。铁证待判（7 锚点/23 文档，97% 内容一章）
+        #    就是这里曾"≥2 即信任"直接入库的漏网鱼——产物现在同样过质检门。
         chapters: List[Chapter] = []
 
         # 第一个锚点之前的封面/声明等前置内容
@@ -279,11 +297,17 @@ class BookProcessor:
             chapters.append(Chapter(
                 chapter_id=str(uuid.uuid4()), book_id="",
                 title=title, content=content,
-                word_count=len(content), chapter_index=len(chapters)
+                word_count=len(content), chapter_index=len(chapters),
+                level=max(1, level),  # 原生 TOC 自带层级，透传（游子吟 章=1/节=2）
             ))
 
         if len(chapters) < 2:
             return None
+
+        # 结构统计供质检（R10）：spine 文档数 vs 原生锚点数
+        metadata["epub_spine_docs"] = len(docs)
+        metadata["epub_native_anchors"] = len(uniq)
+        metadata["epub_total_chars"] = sum(len(d) for d in docs)
 
         toc_items = [TocItem(title=t, level=l, pattern=t) for (_, t, l) in uniq]
         return metadata, chapters, toc_items
@@ -781,59 +805,186 @@ class BookProcessor:
 
         return chapters
 
-    async def process_book(self, file_path: str, book_id: str, content_hash: str = "") -> BookAnalysisResult:
-        """处理书籍：提取文本、识别目录、切分章节、向量化存储"""
+    # ── 二期：解析（不落库）与入库（commit）分离 ──────────────────
 
+    def _epub_docs_with_offsets(self, file_path: str) -> Tuple[str, dict, List[int]]:
+        """EPUB 全文提取 + 每个 spine 文档的起始 offset（重切候选的文档边界来源）"""
+        book = epub.read_epub(file_path)
+        metadata = self._epub_metadata(book, file_path)
+        items_by_id = {item.get_id(): item for item in book.get_items()}
+        parts: List[str] = []
+        offsets: List[int] = []
+        pos = 0
+        for idref, _ in book.spine:
+            item = items_by_id.get(idref)
+            if item is None or item.get_type() != 9:
+                continue
+            text = self._epub_doc_text(item)
+            if not text:
+                continue
+            offsets.append(pos)
+            parts.append(text)
+            pos += len(text) + 2  # join("\n\n")
+        return "\n\n".join(parts), metadata, offsets
+
+    def _backfill_cleaned(self, chapters: List[Chapter]) -> List[str]:
+        """逐章清洗回填 cleaned_word_count（真口径），返回清洗后为空的章 id 列表"""
+        dropped: List[str] = []
+        for ch in chapters:
+            ch.cleaned_word_count = len(self._clean_chapter_content(ch.content))
+            if ch.cleaned_word_count < 1:
+                dropped.append(ch.chapter_id)
+        return dropped
+
+    def _qc(self, chapters, metadata, *, source, full_chars):
+        return run_quality_check(
+            chapters,
+            full_text_chars=full_chars,
+            source=source,
+            epub_spine_docs=metadata.get("epub_spine_docs"),
+            epub_native_anchors=metadata.get("epub_native_anchors"),
+        )
+
+    async def analyze_book(self, file_path: str, book_id: str, content_hash: str = "") -> dict:
+        """解析管线（二期核心）：切分 → 质检 → 可疑自动触发 AI 重切。
+
+        不写 chroma、不写索引——产物交给 draft_store，用户核对 commit 后
+        才落正式库。从机制上消灭"索引有、向量无"的孤章类不一致。
+
+        Returns:
+            {"result": BookAnalysisResult（章节含全文与清洗口径）,
+             "qc": QcReport, "dropped_empty": [cid], "resegmented": bool,
+             "source": "epub_native"|"generic"|"ai_resegmented"}
+        """
         suffix = Path(file_path).suffix.lower()
 
-        # EPUB 优先走原生目录（零 AI 成本、边界精确），不可用再降级通用链路
+        # EPUB 优先走原生目录（零 AI 成本、边界精确），但产物不再盲信——同样过质检门
         native = self._extract_epub_native(file_path) if suffix == ".epub" else None
+        full_text: Optional[str] = None
+        resegmented = False
 
         if native:
             metadata, chapters, toc_items = native
+            source = "epub_native"
             print(f"EPUB 原生目录命中：切出 {len(chapters)} 章（未调用 AI）")
         else:
-            # 1. 提取文本
+            source = "generic"
             full_text, metadata = self.extract_text(file_path, book_id)
-
-            # 2. 先用AI识别目录（仅看前5000字，省成本）
             toc_items = await self.detect_toc_by_ai(full_text[:5000])
-
-            # 3. AI失败时的保底方案：正则扫描全文找章节（零成本）
             if not toc_items:
                 toc_items = self._fallback_toc_detection(full_text)
-
-            # 4. 根据目录切分章节
             chapters = self.split_by_toc(full_text, toc_items)
 
-        # 5. 空章节保护：加密 PDF、空白文件、缺 OCR 的扫描版都会走到这里
+        # 空章节保护：加密 PDF、空白文件会走到这里
         if not chapters:
             raise ValueError(
                 "未能提取到有效正文：文件可能已加密、内容为空，"
                 "或是扫描版且缺少 OCR 支持"
             )
 
-        # 6. 填充book_id
         for chapter in chapters:
             chapter.book_id = book_id
+        dropped_empty = self._backfill_cleaned(chapters)
 
-        # 7. 存储到ChromaDB
-        await self.store_chapters_to_chroma(book_id, chapters, book_title=metadata.get("title", ""))
+        qc = self._qc(chapters, metadata, source=source,
+                      full_chars=metadata.get("epub_total_chars") if native else len(full_text))
+        self._print_qc(qc)
 
-        # 8. 返回分析结果
-        total_words = sum(ch.word_count for ch in chapters)
+        # AI 激进兜底：仅结构性规则值得重切（版权页/空章/章节页重切治不了）
+        if not qc.auto_commit and any(it.rule in RESEG_TRIGGERS for it in qc.items):
+            outcome = await self._try_resegment(file_path, metadata, chapters, qc, full_text)
+            if outcome:
+                chapters, toc_items, qc, full_text = outcome
+                for chapter in chapters:
+                    chapter.book_id = book_id
+                dropped_empty = self._backfill_cleaned(chapters)
+                source = "ai_resegmented"
+                resegmented = True
 
-        return BookAnalysisResult(
+        result = BookAnalysisResult(
             book_id=book_id,
             title=metadata.get("title", Path(file_path).stem),
             author=metadata.get("author"),
             total_chapters=len(chapters),
-            total_words=total_words,
+            total_words=sum(ch.word_count for ch in chapters),
             chapters=chapters,
             toc=toc_items,
             file_format=metadata.get("format", "Unknown"),
-            content_hash=content_hash or None
+            content_hash=content_hash or None,
         )
+        return {"result": result, "qc": qc, "dropped_empty": dropped_empty,
+                "resegmented": resegmented, "source": source}
+
+    @staticmethod
+    def _print_qc(qc):
+        for it in qc.items:
+            print(f"[质检] {it.level.upper():9s} {it.rule} {it.msg}")
+        if qc.auto_commit:
+            print("[质检] 全部规则通过")
+
+    async def _try_resegment(self, file_path, metadata, old_chapters, old_qc, full_text):
+        """可疑书 AI 重切。成功返回 (chapters, toc_items, qc, full_text)，失败 None（保留原结果）"""
+        from app.services.resegment import (
+            extract_heading_candidates, ai_resegment, split_by_candidates,
+        )
+
+        suffix = Path(file_path).suffix.lower()
+        doc_offsets: Optional[List[int]] = None
+        if suffix == ".epub":
+            # EPUB：spine 文档边界是最强候选（铁证待判型"目录残缺但文档按章切好"）
+            ft2, _m2, doc_offsets = self._epub_docs_with_offsets(file_path)
+            if full_text is None:
+                full_text = ft2
+        if full_text is None:
+            return None
+
+        candidates = extract_heading_candidates(
+            full_text, doc_offsets=doc_offsets, numeric_lines=(suffix == ".epub"),
+        )
+        print(f"[重切] 提取到 {len(candidates)} 个标题行候选，交 AI 归章…")
+        if len(candidates) < 2:
+            return None
+
+        picked = await ai_resegment(self.llm, full_text, candidates, metadata.get("title", ""))
+        if not picked:
+            print("[重切] AI 未产出有效章节起点（resegment_failed），保留规则切分结果")
+            return None
+
+        new_chapters = split_by_candidates(full_text, picked)
+        if len(new_chapters) < 2:
+            print("[重切] 重切结果不足 2 章，保留规则切分")
+            return None
+
+        new_qc = self._qc(new_chapters, metadata, source="generic", full_chars=len(full_text))
+        old_bad = sum(1 for it in old_qc.items if it.level in ("warning", "blocking"))
+        new_bad = sum(1 for it in new_qc.items if it.level in ("warning", "blocking"))
+        if new_bad >= old_bad and len(new_chapters) <= len(old_chapters):
+            print(f"[重切] 重切后质检未改善（{old_bad}→{new_bad} 问题章），保留规则切分")
+            return None
+
+        print(f"[重切] 采用：{len(old_chapters)} 章 → {len(new_chapters)} 章（问题 {old_bad} → {new_bad}）")
+        self._print_qc(new_qc)
+        new_toc = [TocItem(title=c.title, level=c.level, pattern=c.title) for c in new_chapters]
+        return new_chapters, new_toc, new_qc, full_text
+
+    async def process_book(self, file_path: str, book_id: str, content_hash: str = "") -> BookAnalysisResult:
+        """旧入口（脚本/兼容路径）：analyze + 直接入库。
+
+        Web 上传流已改走 analyze_book + draft/commit 两阶段；此处保留"解析即入库"
+        语义供 resplit_book.py、audit --fix 等运维脚本使用。
+        """
+        pack = await self.analyze_book(file_path, book_id, content_hash)
+        result = pack["result"]
+        dropped_empty = await self.store_chapters_to_chroma(
+            book_id, result.chapters, book_title=result.title
+        )
+        meta = self.reconcile_book(book_id, result.chapters)
+        if meta["missing"] or meta["extra"]:
+            print(f"[质检] 索引↔向量不一致: 孤章 {len(meta['missing'])} / 幽灵块 {len(meta['extra'])}"
+                  f"（audit_vectors.py 可复查）")
+        if dropped_empty:
+            print(f"[质检] 清洗后空章 {len(dropped_empty)} 个未建向量块: {dropped_empty}")
+        return result
 
     def _clean_chapter_content(self, text: str) -> str:
         """清洗章节内容：移除PDF噪声、乱码、CIP数据"""
@@ -923,11 +1074,20 @@ class BookProcessor:
         parts = [c if prefix_len == 0 else c[prefix_len + 1:] for c, prefix_len in pairs]
         return "\n".join(parts)
 
-    async def store_chapters_to_chroma(self, book_id: str, chapters: List[Chapter], book_title: str = ""):
-        """将章节滑窗切块后存储到 ChromaDB（先清旧数据，重复解析不残留）"""
+    async def store_chapters_to_chroma(self, book_id: str, chapters: List[Chapter], book_title: str = "") -> List[str]:
+        """将章节滑窗切块后存储到 ChromaDB（先清旧数据，重复解析不残留）。
 
+        同时把清洗后长度回填到 chapter.cleaned_word_count——这是索引/质检的
+        "真口径"：split_by_toc 的过滤用清洗前长度（word_count），曾造成
+        非暴力沟通首章 193 字清洗后为空、索引 17 章但 chroma 只有 16 章。
+
+        Returns:
+            dropped_empty_ids: 清洗后为空、没有产出任何向量块的章 id 列表
+            （索引与向量一致性由调用方质检/对账环节处理）
+        """
+        dropped_empty_ids: List[str] = []
         if not chapters:
-            return
+            return dropped_empty_ids
 
         # 幂等：同一 book_id 重新解析时，先删掉它自己的旧块
         self.delete_book_chapters(book_id)
@@ -938,7 +1098,12 @@ class BookProcessor:
 
         for chapter in chapters:
             cleaned_content = self._clean_chapter_content(chapter.content)
-            for idx, (chunk_text, prefix_len) in enumerate(self._split_into_chunks(cleaned_content)):
+            chapter.cleaned_word_count = len(cleaned_content)
+            chunks = self._split_into_chunks(cleaned_content)
+            if not chunks:
+                dropped_empty_ids.append(chapter.chapter_id)
+                continue
+            for idx, (chunk_text, prefix_len) in enumerate(chunks):
                 ids.append(f"{chapter.chapter_id}#{idx}")
                 documents.append(chunk_text)
                 metadatas.append({
@@ -953,13 +1118,41 @@ class BookProcessor:
                 })
 
         # 分批添加（整本书一次 add 会给 embedding 攒出超大 batch）
+        # 失败回滚：中途某批 add 炸掉时已写入的块是"幽灵数据"（不在任何索引里，
+        # 检索得到、阅读页读不到），必须删干净再抛错，让整本书处于"未入库"态。
         batch = 64
-        for i in range(0, len(ids), batch):
-            self.collection.add(
-                ids=ids[i:i + batch],
-                documents=documents[i:i + batch],
-                metadatas=metadatas[i:i + batch],
-            )
+        try:
+            for i in range(0, len(ids), batch):
+                self.collection.add(
+                    ids=ids[i:i + batch],
+                    documents=documents[i:i + batch],
+                    metadatas=metadatas[i:i + batch],
+                )
+        except Exception:
+            try:
+                self.delete_book_chapters(book_id)
+            except Exception as cleanup_err:
+                print(f"store 回滚失败（将残留半本书块，audit 脚本可见）: {cleanup_err}")
+            raise
+
+        return dropped_empty_ids
+
+    def reconcile_book(self, book_id: str, chapters: List[Chapter]) -> dict:
+        """索引↔chroma 一致性对账：expected 章集合 vs 向量库 distinct chapter_id。
+
+        孤章（索引有、向量无）与幽灵块（向量有、索引无）都逃不过这里。
+        三层对账的最底层：纯函数 → 解析末尾钩子 → scripts/audit_vectors.py 批量。
+        """
+        expected = {c.chapter_id for c in chapters}
+        results = self.collection.get(
+            where={"book_id": book_id},
+            include=["metadatas"],
+        )
+        actual = {m.get("chapter_id") for m in (results.get("metadatas") or [])}
+        return {
+            "missing": sorted(expected - actual),   # 索引有、向量无（孤章）
+            "extra": sorted(actual - expected),     # 向量有、索引无（幽灵块）
+        }
 
     async def search_chapters(self, query: str, book_ids: Optional[List[str]] = None, n_results: int = 5) -> List[ChapterSearchResult]:
         """语义检索：返回命中的滑窗块（整块内容即上下文，不再截章首300字）"""

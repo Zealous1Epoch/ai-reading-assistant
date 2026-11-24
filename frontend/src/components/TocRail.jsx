@@ -80,44 +80,30 @@ function TocRail({ book, currentChapter, onSelectChapter, open, onToggle }) {
         if (chapters.length === 0) {
             return <p className="text-xs text-zinc-300 text-center py-6">暂无章节</p>;
         }
-        if (toc.length === 0 || tocMatchRate < 0.8) {
-            return chapters.map(ch => {
-                const selected = currentChapter?.chapter_id === ch.chapter_id;
-                return (
-                    <div
-                        key={ch.chapter_id}
-                        data-toc=""
-                        onClick={() => goChapter(ch)}
-                        className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all text-sm ${selected ? 'bg-zinc-50 text-zinc-800 font-medium' : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50'}`}
-                    >
-                        <span className="truncate">{ch.title}</span>
-                    </div>
-                );
-            });
-        }
-        const orderOfTitle = new Map(chapters.map((c, i) => [c.title, i]));
-        const sortedToc = toc
-            .filter(item => orderOfTitle.has(item.title))
-            .sort((a, b) => orderOfTitle.get(a.title) - orderOfTitle.get(b.title));
+        // 统一以 chapters 为渲染真值（零漏章：「前置内容」等 toc 外虚拟章也可见）；
+        // 层级优先取 toc 匹配项，回退 chapter.level（二期解析回填）；匹配率<0.8 时 toc 不可信，只用 level
+        const levelByTitle = (toc.length > 0 && tocMatchRate >= 0.8)
+            ? new Map(toc.map(t => [t.title, t.level || 1]))
+            : new Map();
         let chapterNum = 0;
-        return sortedToc.map((item, i) => {
-            const isL1 = (item.level || 1) === 1;
+        return chapters.map(ch => {
+            const level = levelByTitle.get(ch.title) ?? (ch.level || 1);
+            const isL1 = level <= 1;
             if (isL1) chapterNum++;
-            const ch = chapters.find(c => c.title === item.title);
-            const selected = ch && currentChapter?.chapter_id === ch.chapter_id;
+            const selected = currentChapter?.chapter_id === ch.chapter_id;
             return (
                 <div
-                    key={i}
+                    key={ch.chapter_id}
                     data-toc=""
-                    onClick={() => { if (ch) goChapter(ch); }}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all text-sm ${selected ? 'bg-zinc-50 text-zinc-800 font-medium' : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50'} ${!isL1 ? 'pl-8' : ''}`}
+                    onClick={() => goChapter(ch)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all text-sm ${selected ? 'bg-zinc-50 text-zinc-800 font-medium' : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50'} ${!isL1 ? 'pl-8 text-[13px]' : ''}`}
                 >
                     {isL1 ? (
                         <span className="text-zinc-400 text-xs min-w-[1.2em] tabular-nums">{chapterNum}.</span>
                     ) : (
                         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ml-0.5 ${selected ? 'bg-zinc-800' : 'bg-zinc-300'}`}></span>
                     )}
-                    <span className="truncate">{item.title}</span>
+                    <span className="truncate">{ch.title}</span>
                 </div>
             );
         });

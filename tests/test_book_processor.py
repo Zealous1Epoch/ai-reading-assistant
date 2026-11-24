@@ -356,3 +356,126 @@ This chapter reviews prior work.
         path = self._make_epub(tmp_path, with_toc=False)
 
         assert processor._extract_epub_native(path) is None
+
+
+class TestParseRobustness:
+    """一期健壮性：store 回滚 / 索引↔向量对账 / 清洗口径 / OCR 环境预检 / level 透传"""
+
+    @pytest.fixture
+    def processor(self, tmp_path):
+        return BookProcessor(persist_directory=str(tmp_path / "chroma_test"))
+
+    @staticmethod
+    def _mk(title, content, idx, cid=None):
+        return Chapter(
+            chapter_id=cid or f"ch-{idx}", book_id="b1", title=title,
+            content=content, word_count=len(content), chapter_index=idx,
+        )
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_store_rolls_back_on_add_failure(self, processor, monkeypatch):
+        """add 中途失败必须清空本书已写块，不留索引外的幽灵数据"""
+        chapters = [self._mk("第一章", "字" * 45_000, 0)]  # ~70 块 → 跨 2 个 batch
+
+        real_add = processor.collection.add
+        calls = {"n": 0}
+
+        def flaky_add(*a, **k):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("模拟 embedding 中途故障")
+            return real_add(*a, **k)
+
+        monkeypatch.setattr(processor.collection, "add", flaky_add)
+        with pytest.raises(RuntimeError, match="模拟"):
+            await processor.store_chapters_to_chroma("b1", chapters, "测试书")
+
+        assert calls["n"] == 2
+        residue = processor.collection.get(where={"book_id": "b1"})
+        assert not residue["ids"], "回滚失败：残留半本书幽灵块"
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_empty_after_clean_dropped_and_reconcile_reports(self, processor):
+        """清洗后空章：store 返回 dropped 名单不建块，reconcile 把它报为孤章
+
+        （非暴力沟通首章形态：索引里有、向量库里无）
+        """
+        good = self._mk("第一章 正常", "这是足量的正常正文，用来通过清洗器的乱码过滤。" * 30, 0)
+        empty = self._mk("序言/引言", "[PAGE 1]\n123\n456", 1)  # 清洗后为空
+
+        dropped = await processor.store_chapters_to_chroma("b1", [good, empty], "测试书")
+
+        assert dropped == [empty.chapter_id]
+        assert good.cleaned_word_count is not None and good.cleaned_word_count > 0
+        assert empty.cleaned_word_count == 0
+
+        rec = processor.reconcile_book("b1", [good, empty])
+        assert rec["missing"] == [empty.chapter_id]
+        assert rec["extra"] == []
+
+    @pytest.mark.asyncio(loop_scope="function")
+    async def test_reconcile_detects_ghost_chunks(self, processor):
+        """幽灵块（向量有、索引无）同样被对账抓住"""
+        good = self._mk("第一章", "正常正文内容若干，正常正文内容若干。" * 10, 0)
+        await processor.store_chapters_to_chroma("b1", [good], "测试书")
+        processor.collection.add(
+            ids=["ghost#0"], documents=["幽灵块内容"],
+            metadatas=[{"book_id": "b1", "chapter_id": "ghost", "chunk_index": 0}],
+        )
+        rec = processor.reconcile_book("b1", [good])
+        assert rec["missing"] == []
+        assert rec["extra"] == ["ghost"]
+
+    def test_ocr_missing_tesseract_binary_raises_clearly(self, processor, tmp_path, monkeypatch):
+        """扫描版 PDF + 缺系统 tesseract 二进制：明确报错，不再静默跳过或线程池炸穿"""
+        import fitz
+        doc = fitz.open()
+        for _ in range(3):
+            doc.new_page()  # 空白页 = 无文字层，模拟扫描版
+        scan_pdf = tmp_path / "scan.pdf"
+        doc.save(str(scan_pdf))
+        doc.close()
+
+        monkeypatch.setattr("app.services.book_processor.shutil.which", lambda name: None)
+
+        with pytest.raises(ValueError, match="tesseract"):
+            processor.extract_text_from_pdf(str(scan_pdf), "b1")
+
+        # 进度状态不得残留（旧 bug：炸掉后 status 永返 ocr_processing）
+        assert "b1" not in processor._ocr_progress
+
+    def test_epub_native_level_and_structure_stats(self, processor, tmp_path):
+        """原生目录的 level 透传到 Chapter；spine/锚点统计进 metadata（R10 素材）
+
+        嵌套层级由 walk 递归给出（游子吟线上数据已验证）；本用例受 ebooklib
+        写入/读回 roundtrip 限制用平铺 TOC，断言默认 level=1 与结构统计。
+        """
+        from ebooklib import epub
+
+        book = epub.EpubBook()
+        book.set_identifier("lv-test")
+        book.set_title("层级测试")
+        book.set_language("zh")
+
+        docs = []
+        for i, name in enumerate(["第一章 起点", "第二章 途中", "第三章 终点"]):
+            ch = epub.EpubHtml(title=name, file_name=f"lv{i}.xhtml", lang="zh")
+            body = f"<h1>{name}</h1>" + "<p>这里放足够长度的正文内容，用于通过章节长度过滤，重复凑字数。</p>" * 4
+            ch.set_content(f"<html><body>{body}</body></html>")
+            book.add_item(ch)
+            docs.append(ch)
+
+        book.add_item(epub.EpubNcx())
+        book.add_item(epub.EpubNav())
+        book.toc = [epub.Link(d.file_name, d.title, d.get_id()) for d in docs]
+        book.spine = ["nav"] + docs
+        path = str(tmp_path / "level.epub")
+        epub.write_epub(path, book)
+
+        result = processor._extract_epub_native(path)
+        assert result is not None
+        metadata, chapters, toc_items = result
+        assert all(c.level == 1 for c in chapters)
+        assert metadata["epub_native_anchors"] == 3
+        assert metadata["epub_spine_docs"] == 4  # nav + 3 章
+        assert metadata["epub_total_chars"] > 0

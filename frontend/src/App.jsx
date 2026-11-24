@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import Bookshelf from './components/Bookshelf.jsx';
 import BookReader from './components/BookReader.jsx';
 import ReviewPage from './components/ReviewPage.jsx';
+import ParseReviewModal from './components/ParseReviewModal.jsx';
 import { TOOL_LABELS } from './tools.js';
 
 const API_BASE = '';
@@ -61,6 +62,15 @@ function App() {
     const [currentBook, setCurrentBook] = useState(null);
     const [currentChapter, setCurrentChapter] = useState(null);
     const [uploadProgress, setUploadProgress] = useState(null); // {phase, current, total, ocrProgress?}
+    // 二期人工核对关：待核对草稿（书架徽标）、核对队列（非空即弹层）、上传解析失败清单（重试面板）
+    const [drafts, setDrafts] = useState([]);
+    const [reviewQueue, setReviewQueue] = useState(null); // string[] | null
+    const [reviewIdx, setReviewIdx] = useState(0);
+    const [uploadFailures, setUploadFailures] = useState([]); // [{book_id, filename, error}]
+    const loadDrafts = useCallback(() => {
+        fetch(`${API_BASE}/books/reviews`).then(r => r.json())
+            .then(d => setDrafts(d.reviews || [])).catch(() => {});
+    }, []);
     const [messages, setMessages] = useState([]);
     const [sessions, setSessions] = useState([]);
     const [sessionId, setSessionId] = useState(null);
@@ -176,6 +186,9 @@ function App() {
             .catch(err => console.log('获取书籍列表失败（首次加载无数据是正常的）:', err))
             .finally(() => setBooksLoaded(true));
     }, []);
+
+    // 待核对草稿：进书架时刷新（文件即真源，重启天然恢复）
+    useEffect(() => { if (route.view === 'shelf') loadDrafts(); }, [route.view, loadDrafts]);
 
     // 专家包（展示元数据，落文件即生效）
     useEffect(() => {
@@ -399,55 +412,97 @@ function App() {
             fetch(`${API_BASE}/books/analyze/${item.book_id}`, { method: 'POST' }).catch(() => {});
         }
 
+        const { reviewIds, failures } = await pollAnalysis(uploaded);
+
+        setUploadProgress(null);
+        uploadingRef.current = false;
+        loadDrafts();
+        if (failures.length > 0) setUploadFailures(prev => [...prev, ...failures]);
+        if (reviewIds.length > 0) { setReviewIdx(0); setReviewQueue(reviewIds); }
+    };
+
+    // 失败重试：源文件后端已保留，重新 analyze 该书并再走一轮轮询
+    const handleRetryAnalyze = async (item) => {
+        if (uploadingRef.current) return;
+        setUploadFailures(prev => prev.filter(f => f.book_id !== item.book_id));
+        uploadingRef.current = true;
+        setUploadProgress({ phase: 'analyzing', current: 0, total: 1, ocrProgress: null });
+        try {
+            await fetch(`${API_BASE}/books/analyze/${item.book_id}`, { method: 'POST' });
+        } catch { /* 后端不可达由轮询兜底 */ }
+        const { reviewIds, failures } = await pollAnalysis([{ ...item }]);
+        setUploadProgress(null);
+        uploadingRef.current = false;
+        loadDrafts();
+        if (failures.length > 0) setUploadFailures(failures);
+        if (reviewIds.length > 0) { setReviewIdx(0); setReviewQueue(reviewIds); }
+    };
+
+    // 从书架徽标进入核对：整条草稿队列按列表序逐本看
+    const openDraftReview = (bookId) => {
+        const ids = drafts.map(d => d.book_id);
+        const queue = ids.length > 0 ? ids : [bookId];
+        setReviewIdx(Math.max(0, queue.indexOf(bookId)));
+        setReviewQueue(queue);
+    };
+
+    // 队列推进：处理完（入库/放弃/稍后再说）一本挪到下一本，队列空则关弹层
+    const advanceReview = () => {
+        if (reviewQueue && reviewIdx + 1 < reviewQueue.length) {
+            setReviewIdx(reviewIdx + 1);
+        } else {
+            setReviewQueue(null);
+            setReviewIdx(0);
+        }
+    };
+
+    // 轮询一批已启动分析的书：终态 completed / review_required / failed / duplicate
+    // 返回 {reviewIds, failures}；completed 的书顺手拉结果插入书架
+    const pollAnalysis = async (items) => {
         const pollInterval = 2000;
         const maxWait = 600000; // 10分钟
         const startTime = Date.now();
-        let completed = 0;
+        let done = 0;
+        const reviewIds = [];
+        const failures = [];
 
-        while (completed < uploaded.length && Date.now() - startTime < maxWait) {
+        while (done < items.length && Date.now() - startTime < maxWait) {
             await new Promise(r => setTimeout(r, pollInterval));
-
-            const pending = uploaded.filter(item => !item._done);
-            for (const item of pending) {
+            for (const item of items.filter(it => !it._done)) {
                 try {
                     const res = await fetch(`${API_BASE}/books/status/${item.book_id}`);
                     const status = await res.json();
                     if (status.status === 'completed') {
-                        completed++;
-                        item._done = true;
+                        item._done = true; done++;
                         const ar = await fetch(`${API_BASE}/books/analysis/${item.book_id}`);
                         if (ar.ok) {
                             const result = await ar.json();
                             setBooks(prev => [{ ...result, _new: true }, ...prev]);
                         }
+                    } else if (status.status === 'review_required') {
+                        // 二期：可疑不进书架，进核对弹层逐本人工过目
+                        item._done = true; done++;
+                        reviewIds.push(item.book_id);
                     } else if (status.status === 'failed') {
-                        // 后端已明确失败，不必再等 10 分钟超时
-                        completed++;
-                        item._done = true;
-                        alert(`《${item.filename}》解析失败: ${status.error || '未知原因'}`);
+                        item._done = true; done++;
+                        failures.push({ book_id: item.book_id, filename: item.filename, error: status.error || '未知原因' });
                     } else if (status.status === 'duplicate') {
-                        // 分析阶段才发现内容重复（并发上传同本书的窄窗口）
-                        completed++;
-                        item._done = true;
+                        item._done = true; done++;
+                        // 重复上传撞上待核对草稿：直接带出那本的核对队列
+                        if (status.existing_pending_review && status.existing_book_id) reviewIds.push(status.existing_book_id);
                     } else if (status.ocr_progress) {
-                        setUploadProgress(prev => ({
-                            ...prev,
-                            ocrProgress: status.ocr_progress,
-                            ocrFilename: item.filename
-                        }));
+                        setUploadProgress(prev => prev && ({ ...prev, ocrProgress: status.ocr_progress, ocrFilename: item.filename }));
                     }
                 } catch (e) { /* 继续轮询 */ }
             }
-            setUploadProgress(prev => ({ ...prev, current: completed }));
+            setUploadProgress(prev => prev && ({ ...prev, current: done }));
         }
 
-        setUploadProgress(null);
-        uploadingRef.current = false;
-
-        const failed = uploaded.filter(item => !item._done);
-        if (failed.length > 0) {
-            alert(`${failed.length} 本书分析超时，请稍后刷新书架查看`);
+        const timedOut = items.filter(it => !it._done);
+        if (timedOut.length > 0) {
+            alert(`${timedOut.length} 本书分析超时，请稍后刷新书架查看（源文件已保留）`);
         }
+        return { reviewIds: [...new Set(reviewIds)], failures };
     };
 
     // ---------- 会话与对话 ----------
@@ -902,16 +957,63 @@ function App() {
     }
 
     return (
-        <Bookshelf
-            books={books}
-            progressMap={progressMap}
-            uploading={uploadProgress}
-            cardDue={cardStats.due}
-            onOpenReview={() => { window.location.hash = '#/review'; }}
-            onEnterBook={handleEnterBook}
-            onUploadMultiple={handleUploadMultiple}
-            onDeleteBook={handleDeleteBook}
-        />
+        <>
+            <Bookshelf
+                books={books}
+                progressMap={progressMap}
+                uploading={uploadProgress}
+                cardDue={cardStats.due}
+                drafts={drafts}
+                onOpenDraftReview={openDraftReview}
+                onOpenReview={() => { window.location.hash = '#/review'; }}
+                onEnterBook={handleEnterBook}
+                onUploadMultiple={handleUploadMultiple}
+                onDeleteBook={handleDeleteBook}
+            />
+
+            {/* 解析失败清单：源文件后端保留，可逐本重试 */}
+            {uploadFailures.length > 0 && (
+                <div className="fixed bottom-5 left-5 z-40 w-80 bg-white rounded-2xl border border-red-200 shadow-2xl px-4 py-3" data-testid="upload-failures">
+                    <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs font-medium text-red-500">{uploadFailures.length} 本解析失败</span>
+                        <button onClick={() => setUploadFailures([])} className="text-zinc-300 hover:text-zinc-500 text-sm leading-none" title="关闭">×</button>
+                    </div>
+                    <div className="max-h-40 overflow-y-auto scrollbar-thin space-y-1.5">
+                        {uploadFailures.map(f => (
+                            <div key={f.book_id} className="flex items-center gap-2">
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-[11px] text-zinc-600 truncate">{f.filename}</p>
+                                    <p className="text-[10px] text-zinc-400 truncate" title={f.error}>{f.error}</p>
+                                </div>
+                                <button
+                                    onClick={() => handleRetryAnalyze(f)}
+                                    className="px-2 py-1 rounded-lg border border-zinc-200 text-[10px] text-zinc-600 hover:border-zinc-400 flex-shrink-0"
+                                >
+                                    重试
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* 二期人工核对关：可疑解析逐本核对后入库 */}
+            {reviewQueue && reviewQueue.length > 0 && (
+                <ParseReviewModal
+                    bookId={reviewQueue[reviewIdx]}
+                    queuePos={reviewIdx + 1}
+                    queueTotal={reviewQueue.length}
+                    onResolved={() => { advanceReview(); loadDrafts(); }}
+                    onBooksChanged={async () => {
+                        try {
+                            const res = await fetch(`${API_BASE}/books/list`);
+                            const data = await res.json();
+                            setBooks(data.books || []);
+                        } catch { /* 书架刷新失败不打断核对流程 */ }
+                    }}
+                />
+            )}
+        </>
     );
 }
 

@@ -9,11 +9,27 @@ class Chapter(BaseModel):
     book_id: str
     title: str
     content: str
-    word_count: int
+    word_count: int                     # 清洗前长度（split_by_toc 的过滤口径，保留兼容）
     chapter_index: int
     start_position: Optional[int] = None
     end_position: Optional[int] = None
+    level: int = 1                      # 层级（EPUB 原生 TOC 透传；1=章 2=节）
+    cleaned_word_count: Optional[int] = None  # 清洗后正文长度（store 时回填；质检/展示的真口径）
     created_at: datetime = Field(default_factory=datetime.now)
+
+
+class QcItem(BaseModel):
+    """单条质检结果"""
+    rule: str                           # R1~R10
+    level: str                          # info / warning / blocking
+    msg: str
+    chapter_ids: List[str] = []
+
+
+class QcReport(BaseModel):
+    """解析后质量检查报告"""
+    auto_commit: bool = True            # 无 blocking 且无 warning → 可跳过人工核对
+    items: List[QcItem] = []
 
 
 class TocItem(BaseModel):

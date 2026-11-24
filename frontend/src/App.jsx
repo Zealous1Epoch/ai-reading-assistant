@@ -546,7 +546,9 @@ function App() {
                     } catch { /* 保持兜底描述 */ }
                     return { role: 'assistant', content: `【AI 工具产出 · ${name}】${desc}` };
                 }
-                const excerpt = text.length > 600 ? text.slice(0, 600) + '…（截断）' : text;
+                // 十问考卷/导读单是要拿回来对答案的——截断会把后半张卷子丢出历史，这两类放宽到 2000
+                const cap = (m.tool_id === 'questions' || m.tool_id === 'summarize') ? 2000 : 600;
+                const excerpt = text.length > cap ? text.slice(0, cap) + '…（截断）' : text;
                 return { role: 'assistant', content: `【AI 工具产出 · ${name}】\n${excerpt}` };
             }
             if (m.kind === 'opening' || m.kind === 'report' || !m.kind) {

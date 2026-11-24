@@ -37,7 +37,7 @@ let browser = null;
     say('书架标题', await page.locator('h1').filter({ hasText: '书架' }).first().isVisible());
     const covers = await page.evaluate(() =>
         Array.from(document.querySelectorAll('div')).filter(d => (d.getAttribute('style') || '').includes('aspect-ratio')).length);
-    say('封面色块 >= 4', covers >= 4, String(covers));
+    say('封面色块 >= 3', covers >= 3, String(covers));
     await page.screenshot({ path: '/tmp/v20_shelf.png' });
 
     // ---- 2 全局搜索 ----
@@ -53,7 +53,8 @@ let browser = null;
     await sleep(500);
 
     // ---- 3 进书 ----
-    await page.locator('button').filter({ hasText: '游子吟' }).first().click();
+    // 馆藏会变，进书入口按书名动态找（2026-11 游子吟已下架，改非暴力沟通）
+    await page.locator('button').filter({ hasText: '非暴力沟通' }).first().click();
     await page.waitForFunction(() => location.hash.startsWith('#/book/'), null, { timeout: 10000 });
     const bookId = decodeURIComponent(page.url().split('#/book/')[1]);
     say('hash 路由进书', bookId.length > 0, bookId.slice(0, 8));
@@ -73,6 +74,10 @@ let browser = null;
     await page.screenshot({ path: '/tmp/v20_reader.png' });
 
     // ---- 4 收起 AI → 双栏书页 ----
+    // 非暴力沟通开卷默认落在「目录」虚拟章（正文为空，右栏必然无字）——先选一章长正文
+    await page.locator('div[data-toc]').filter({ hasText: '语言是窗户' }).first().click();
+    await page.waitForFunction(() => document.querySelectorAll('p[data-p]').length > 15, null, { timeout: 25000 });
+    say('已切到长章正文', true);
     await page.locator('button[title="AI"]').click();
     await sleep(700);
     say('AI 收起', (await page.getByText('AI 助手', { exact: true }).count()) === 0);
@@ -144,7 +149,10 @@ let browser = null;
     }
     say('工具面板打开', toolDrawerOpen);
     await page.screenshot({ path: '/tmp/v20_tools.png' });
-    await page.locator('button[title^="总结"]').first().click();
+    // v3.4：总结/十问改为逐题引导浮层（另见 e2e_guides.cjs），此链路改用「与作者对谈」验对话流工具卡
+    await page.locator('button[title^="与作者对谈"]').first().click();
+    await page.fill('input[placeholder="向作者提问"]', '作者认为我们每个人心里都有偶像，这话是不是太武断了？');
+    await page.keyboard.press('Enter');
     // 运行后抽屉自动收起，产出进对话流
     say('运行后工具面板自动收起', await page.evaluate(() => !document.querySelector('[data-tool-menu]')));
     // 落盘信号：该书会话出现 kind=tool 且 content 非空
@@ -161,8 +169,8 @@ let browser = null;
     }
     say('工具产出落盘（含正文）', !!toolMsg, toolMsg ? String(toolMsg.content.length) + ' 字' : '');
     const cardInFlow = await page.evaluate(() => {
-        // 对话流中应出现工具卡（卡头含"总结"且非按钮 title 匹配）
-        return Array.from(document.querySelectorAll('span')).some(sp => sp.textContent === '总结' && sp.className.includes('font-semibold'));
+        // 对话流中应出现工具卡（卡头含"与作者对谈"且非按钮 title 匹配）
+        return Array.from(document.querySelectorAll('span')).some(sp => sp.textContent === '与作者对谈' && sp.className.includes('font-semibold'));
     });
     say('对话流中存在工具卡片头', cardInFlow);
     await page.screenshot({ path: '/tmp/v20_toolcard.png' });
@@ -187,7 +195,7 @@ let browser = null;
         await sleep(1000);
         restored = await page.evaluate(() => {
             const ai = document.body.innerText;
-            return ai.includes('AI 助手') && ai.includes('总结');
+            return ai.includes('AI 助手') && ai.includes('与作者对谈');
         });
     }
     say('刷新后自动恢复会话与工具卡', restored);
@@ -195,7 +203,7 @@ let browser = null;
     // ---- 8 追问（工具产出进 history 链路） ----
     const inputSel = 'input[placeholder="输入你的问题..."]';
     await page.waitForSelector(inputSel, { timeout: 20000 });
-    await page.fill(inputSel, '一句话回答：上面这份总结的核心结论是什么？');
+    await page.fill(inputSel, '一句话回答：上面这段对谈里作者的核心观点是什么？');
     await page.keyboard.press('Enter');
     // 完成信号：输入框解禁 + 后端该会话出现第二条 assistant 非空消息
     let answered = false;
@@ -206,7 +214,7 @@ let browser = null;
             if (baseline.has(s.session_id)) continue;
             const full = JSON.parse(await api('GET', '/sessions/' + s.session_id));
             const assistants = (full.messages || []).filter(m => m.role === 'assistant' && !m.kind && (m.content || '').length > 3);
-            if (assistants.length >= 1 && (full.messages || []).some(m => m.role === 'user' && m.content.includes('核心结论'))) {
+            if (assistants.length >= 1 && (full.messages || []).some(m => m.role === 'user' && m.content.includes('核心观点'))) {
                 answered = true;
             }
         }

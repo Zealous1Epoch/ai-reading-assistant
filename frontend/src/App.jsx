@@ -3,6 +3,7 @@ import Bookshelf from './components/Bookshelf.jsx';
 import BookReader from './components/BookReader.jsx';
 import ReviewPage from './components/ReviewPage.jsx';
 import ParseReviewModal from './components/ParseReviewModal.jsx';
+import GuideOverlay from './components/GuideOverlay.jsx';
 import { TOOL_LABELS } from './tools.js';
 
 const API_BASE = '';
@@ -85,6 +86,8 @@ function App() {
     const [activeExpertId, setActiveExpertId] = useState(null);
     const [expertOpening, setExpertOpening] = useState(false);
     const [progressMap, setProgressMap] = useState(loadProgressMap);
+    // v3.4 逐题引导：十问/总结改为一题一停的浮层会话（null=未开）
+    const [guideOverlay, setGuideOverlay] = useState(null);
     // v2.7 划线：按书加载全部划线；quoteDraft=「加入对话」暂存的选区引用（发问/切书/切会话时清除）
     const [highlights, setHighlights] = useState([]);
     const [quoteDraft, setQuoteDraft] = useState(null);
@@ -641,6 +644,14 @@ function App() {
     // scopeAll=true 时作用范围为整本书（chapter_id 不下发），否则为左栏当前选中章
     const handleRunTool = async (toolId, userInput, scopeAll, minutes, opts) => {
         if (!currentBook || isStreaming || busyToolId) return;
+        // v3.4：读书十问/总结不再一次性吐进对话流，改开逐题引导浮层（服务端状态机硬门禁）
+        if (toolId === 'questions' || toolId === 'summarize') {
+            setGuideOverlay({
+                kind: toolId === 'questions' ? 'questions' : 'lead',
+                chapter: scopeAll ? null : currentChapter,
+            });
+            return;
+        }
         setAiOpen(true);
         setBusyToolId(toolId);
 
@@ -914,6 +925,7 @@ function App() {
 
     if (route.view === 'book' && currentBook) {
         return (
+            <>
             <BookReader
                 currentBook={currentBook}
                 currentChapter={currentChapter}
@@ -950,6 +962,15 @@ function App() {
                 quoteDraft={quoteDraft}
                 onClearQuote={() => setQuoteDraft(null)}
             />
+            {guideOverlay && (
+                <GuideOverlay
+                    kind={guideOverlay.kind}
+                    book={currentBook}
+                    chapter={guideOverlay.chapter}
+                    onBack={() => setGuideOverlay(null)}
+                />
+            )}
+            </>
         );
     }
 

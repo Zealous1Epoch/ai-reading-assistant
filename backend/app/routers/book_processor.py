@@ -792,6 +792,10 @@ async def delete_book(book_id: str):
     from app.services import highlight_store
     highlight_store.delete_for_book(book_id)
 
+    # 级联清理该书的逐题引导会话（v3.4）
+    from app.services import guide_store
+    guide_store.delete_guides_for_book(book_id)
+
     _save_books_index()
 
     return {"message": "书籍已删除", "book_id": book_id}

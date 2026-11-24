@@ -134,17 +134,19 @@ let browser = null;
     // 基线：之前崩溃轮残留的会话一律无视，只认本轮新增（否则残留会话会让落盘断言秒假绿、
     // 且刷新时本轮流式还没结束会被 reload 掐断产生 network error）
     const baseline = new Set(JSON.parse(await api('GET', '/sessions?scope=book&book_id=' + encodeURIComponent(bookId))).sessions.map(s => s.session_id));
-    await page.locator('button[title="工具"]').click();
+    // v3.1：工具入口并入 AI 面板加号级联
+    await page.locator('[data-testid="plus-menu"]').click();
+    await page.locator('button').filter({ hasText: /^工具$/ }).first().click();
     let toolDrawerOpen = false;
     for (let i = 0; i < 10 && !toolDrawerOpen; i++) {
         await sleep(300);
-        toolDrawerOpen = await page.evaluate(() => Array.from(document.querySelectorAll('h3')).some(h => h.textContent.trim() === 'AI 工具'));
+        toolDrawerOpen = await page.evaluate(() => !!document.querySelector('[data-tool-menu] [data-testid="tool-scope"]'));
     }
-    say('工具抽屉打开（带标题）', toolDrawerOpen);
+    say('工具面板打开', toolDrawerOpen);
     await page.screenshot({ path: '/tmp/v20_tools.png' });
     await page.locator('button[title^="总结"]').first().click();
     // 运行后抽屉自动收起，产出进对话流
-    say('运行后抽屉自动关闭', await page.evaluate(() => !Array.from(document.querySelectorAll('h3')).some(h => h.textContent.trim() === 'AI 工具')));
+    say('运行后工具面板自动收起', await page.evaluate(() => !document.querySelector('[data-tool-menu]')));
     // 落盘信号：该书会话出现 kind=tool 且 content 非空
     let toolMsg = null;
     for (let i = 0; i < 240 && !toolMsg; i++) {

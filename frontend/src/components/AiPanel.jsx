@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import ToolMessageCard from './ToolMessageCard.jsx';
+import ToolMenu from './ToolMenu.jsx';
 
 // HTML 实体转义（防止 XSS）
 function escapeHtml(text) {
@@ -92,6 +93,10 @@ function AiPanel({
     experts = [], activeExpert, expertOpening = false, onOpenExpert, onGenerateReport,
     currentSessionId, onNewSession,
     quoteDraft, onClearQuote,
+    // v3.1 三区宽度可拖拽自定义（BookReader 持有并持久化）
+    width = 400,
+    // v3.1 工具入口并入 ➕ 级联（原顶栏工具抽屉移除）
+    onRunTool, busyToolId, toolScopeAll, onToolScopeChange, scopeLabel, hasChapter,
 }) {
     const [input, setInput] = useState('');
     const [plusOpen, setPlusOpen] = useState(false);
@@ -101,7 +106,11 @@ function AiPanel({
     // 引用跳源：带上段落锚点 snippet（存量旧消息无此字段=只跳章首）
     const citeJump = (src) => src && onNavigateToSource?.(src.book_id, src.chapter_id, src.snippet);
 
-    const MENU_GROUPS = [{ id: 'experts', label: '专家模式' }];
+    // v3.1：工具与专家模式并列为 ➕ 级联一级项
+    const MENU_GROUPS = [
+        { id: 'experts', label: '专家模式', icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z' },
+        { id: 'tools', label: '工具', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z' },
+    ];
     const expertStarters = (activeExpert?.quickPrompts || []).filter(q => !q.startsWith('收束'));
     const hasUserMsg = messages.some(m => m.role === 'user');
 
@@ -139,7 +148,8 @@ function AiPanel({
     }
 
     return (
-        <div className="flex-shrink-0 bg-white rounded-2xl border border-zinc-200 flex flex-col overflow-hidden" style={{ width: '400px' }}>
+        // overflow-hidden 必须去掉：➕ 级联面板要能越出本栏左缘（旧版被裁剪=「内容跑到屏幕外」的根因）
+        <div data-pane="ai" className="flex-shrink-0 bg-white rounded-2xl border border-zinc-200 flex flex-col" style={{ width }}>
             {/* 头部 */}
             <div className="px-4 pt-3.5 pb-2.5 border-b border-zinc-100 flex items-center justify-between flex-shrink-0">
                 <span className="text-xs font-semibold text-zinc-400 uppercase tracking-widest">AI 助手</span>
@@ -308,9 +318,10 @@ function AiPanel({
                     </div>
                 )}
                 <div className="flex gap-2 items-end">
-                    {/* + 二级级联菜单（专家模式入口） */}
+                    {/* + 二级级联菜单（v3.1：专家模式 + 工具；向左展开，避免越出屏幕右缘） */}
                     <div className="relative flex-shrink-0">
                         <button
+                            data-testid="plus-menu"
                             onClick={() => { setPlusOpen(o => !o); setPlusGroup(null); }}
                             disabled={isStreaming}
                             className={`w-10 h-10 flex items-center justify-center rounded-full border transition-all disabled:opacity-50 disabled:cursor-not-allowed ${plusOpen ? 'bg-zinc-800 text-white border-zinc-800' : 'bg-white text-zinc-500 border-zinc-200 hover:border-zinc-400 hover:text-zinc-800'}`}
@@ -322,27 +333,8 @@ function AiPanel({
                         {plusOpen && (
                             <>
                                 <div className="fixed inset-0 z-30" onClick={() => { setPlusOpen(false); setPlusGroup(null); }} />
-                                <div className="absolute bottom-full left-0 mb-2 z-40 flex items-end gap-1.5">
-                                    <div className="w-40 bg-white border border-zinc-200 rounded-xl shadow-lg py-1">
-                                        {MENU_GROUPS.map(g => (
-                                            <button
-                                                key={g.id}
-                                                onMouseEnter={() => setPlusGroup(g.id)}
-                                                onClick={() => setPlusGroup(g.id)}
-                                                className={`w-full flex items-center justify-between px-3 py-2 text-sm transition-colors ${plusGroup === g.id ? 'bg-zinc-50 text-zinc-800' : 'text-zinc-600 hover:bg-zinc-50'}`}
-                                            >
-                                                <span className="flex items-center gap-2">
-                                                    <svg className="w-4 h-4 text-zinc-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                                    </svg>
-                                                    {g.label}
-                                                </span>
-                                                <svg className="w-3.5 h-3.5 text-zinc-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                                </svg>
-                                            </button>
-                                        ))}
-                                    </div>
+                                {/* 右缘锚定 + 子面板排在一级菜单左侧：整体向左上展开，不再越出屏幕 */}
+                                <div className="absolute bottom-full right-0 mb-2 z-40 flex items-end gap-1.5">
                                     {plusGroup === 'experts' && (
                                         <div className="w-80 bg-white border border-zinc-200 rounded-xl shadow-lg p-1.5 max-h-96 overflow-y-auto scrollbar-thin">
                                             {experts.length === 0 ? (
@@ -368,6 +360,38 @@ function AiPanel({
                                             ))}
                                         </div>
                                     )}
+                                    {plusGroup === 'tools' && (
+                                        <ToolMenu
+                                            disabled={isStreaming || !currentBook}
+                                            busyToolId={busyToolId}
+                                            onRunTool={onRunTool}
+                                            scopeLabel={scopeLabel}
+                                            scopeAll={toolScopeAll}
+                                            onScopeChange={onToolScopeChange}
+                                            hasChapter={hasChapter}
+                                            onActioned={() => { setPlusOpen(false); setPlusGroup(null); }}
+                                        />
+                                    )}
+                                    <div className="w-40 bg-white border border-zinc-200 rounded-xl shadow-lg py-1">
+                                        {MENU_GROUPS.map(g => (
+                                            <button
+                                                key={g.id}
+                                                onMouseEnter={() => setPlusGroup(g.id)}
+                                                onClick={() => setPlusGroup(g.id)}
+                                                className={`w-full flex items-center justify-between px-3 py-2 text-sm transition-colors ${plusGroup === g.id ? 'bg-zinc-50 text-zinc-800' : 'text-zinc-600 hover:bg-zinc-50'}`}
+                                            >
+                                                <span className="flex items-center gap-2">
+                                                    <svg className="w-4 h-4 text-zinc-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={g.icon} />
+                                                    </svg>
+                                                    {g.label}
+                                                </span>
+                                                <svg className="w-3.5 h-3.5 text-zinc-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                                </svg>
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
                             </>
                         )}

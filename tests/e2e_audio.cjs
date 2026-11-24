@@ -95,8 +95,11 @@ let browser = null;
     say('二次请求命中缓存', again.status === 'done' && again.cached === true && again.url === src);
 
     // ---- 4 工具抽屉：播客表单（不实际生成——台本需 LLM，待充值随播客回归复跑） ----
-    await page.locator('button[title="工具"]').click();
-    await page.locator('button').filter({ hasText: '读书播客' }).first().click();
+    // v3.1：工具入口并入 AI 面板 ➕ 级联
+    await page.locator('[data-testid="plus-menu"]').click();
+    await page.locator('button').filter({ hasText: /^工具$/ }).first().click();
+    await page.waitForSelector('[data-tool-menu]', { timeout: 5000 });
+    await page.locator('[data-tool-menu] button').filter({ hasText: '读书播客' }).first().click();
     const topicIn = await page.waitForSelector('[data-podcast-topic]', { timeout: 5000 }).catch(() => null);
     say('播客主题输入展开', !!topicIn);
     const chips = await page.locator('[data-podcast-minutes] button').allInnerTexts();

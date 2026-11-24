@@ -69,13 +69,15 @@ let browser = null;
     say('新对话后抽屉自动收起', await page.evaluate(() => !Array.from(document.querySelectorAll('h3')).some(h => h.textContent.trim() === '会话')));
     say('已重置为新对话', await page.evaluate(() => document.body.innerText.includes('暂无对话')));
     const baseline = new Set(JSON.parse(await api('GET', '/sessions?scope=book&book_id=' + encodeURIComponent(bookId))).sessions.map(s => s.session_id));
-    await page.locator('button[title="工具"]').click();
+    // v3.1：工具入口并入 AI 面板加号级联
+    await page.locator('[data-testid="plus-menu"]').click();
+    await page.locator('button').filter({ hasText: /^工具$/ }).first().click();
     let drawerOpen = false;
     for (let i = 0; i < 10 && !drawerOpen; i++) {
         await sleep(300);
-        drawerOpen = await page.evaluate(() => Array.from(document.querySelectorAll('h3')).some(h => h.textContent.trim() === 'AI 工具'));
+        drawerOpen = await page.evaluate(() => !!document.querySelector('[data-tool-menu] [data-testid="tool-scope"]'));
     }
-    say('工具抽屉打开', drawerOpen);
+    say('工具面板打开', drawerOpen);
     say('范围切换器就位', await page.locator('[data-testid="tool-scope"]').isVisible());
     await page.locator('[data-testid="tool-scope"] button').filter({ hasText: '整本书' }).click();
     say('切到整本书高亮', await page.evaluate(() => {
@@ -85,7 +87,7 @@ let browser = null;
 
     // ---- 3 运行全书思维导图 → markmap 画布渲染 ----
     await page.locator('button[title^="思维导图 · 整本书"]').first().click();
-    say('运行后抽屉自动关闭', await page.evaluate(() => !Array.from(document.querySelectorAll('h3')).some(h => h.textContent.trim() === 'AI 工具')));
+    say('运行后工具面板自动收起', await page.evaluate(() => !document.querySelector('[data-tool-menu]')));
     let treeReady = false;
     try {
         await page.waitForSelector('[data-mindmap="json"][data-mm-ready="1"]', { timeout: 300000 });

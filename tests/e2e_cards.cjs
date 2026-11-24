@@ -84,8 +84,10 @@ let browser = null;
         }, null, { timeout: 10000 });
         say('目录点章切换成功（章头确认）', true);
     }
-    await page.locator('button[title="工具"]').click();
-    await page.waitForSelector('[data-testid="tool-scope"]', { timeout: 5000 });
+    // v3.1：工具入口并入 AI 面板 ➕ 级联
+    await page.locator('[data-testid="plus-menu"]').click();
+    await page.locator('button').filter({ hasText: /^工具$/ }).first().click();
+    await page.waitForSelector('[data-tool-menu] [data-testid="tool-scope"]', { timeout: 5000 });
     // 点工具行即运行；范围默认=当前章
     await page.locator('button').filter({ hasText: '知识卡片' }).first().click();
     await sleep(800);

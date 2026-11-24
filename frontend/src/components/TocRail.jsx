@@ -10,7 +10,7 @@ const ListIcon = ({ className }) => (
 
 // 目录侧栏：常驻左栏（展开 216px / 收起 36px 细栏）
 // toc 层级渲染优先（匹配率<0.8 降级平铺）+ 本书全文搜索 + 底部书籍摘要
-function TocRail({ book, currentChapter, onSelectChapter, open, onToggle }) {
+function TocRail({ book, currentChapter, onSelectChapter, open, onToggle, width = 216 }) {
     const [keyword, setKeyword] = useState('');
     const [results, setResults] = useState(null);
     const [searching, setSearching] = useState(false);
@@ -110,7 +110,7 @@ function TocRail({ book, currentChapter, onSelectChapter, open, onToggle }) {
     };
 
     return (
-        <div className="flex-shrink-0 bg-white rounded-2xl border border-zinc-200 flex flex-col overflow-hidden" style={{ width: '216px' }}>
+        <div data-pane="toc" className="flex-shrink-0 bg-white rounded-2xl border border-zinc-200 flex flex-col overflow-hidden" style={{ width }}>
             <div className="px-3.5 pt-3.5 pb-2 flex items-center justify-between">
                 <span className="text-xs font-semibold text-zinc-400 uppercase tracking-widest">目录</span>
                 <button onClick={onToggle} className="p-1.5 rounded-lg text-zinc-300 hover:text-zinc-700 hover:bg-zinc-50 transition-all" title="收起">

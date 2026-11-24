@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import TocRail from './TocRail.jsx';
-import SessionDrawer from './SessionDrawer.jsx';
+import SessionMenu from './SessionMenu.jsx';
 import ReadingPane from './ReadingPane.jsx';
 import AiPanel from './AiPanel.jsx';
 import AssetsDrawer from './AssetsDrawer.jsx';
-import CardsDrawer from './CardsDrawer.jsx';
+import CardsMenu from './CardsMenu.jsx';
 
 function ToggleButton({ active, onClick, label, badge, children }) {
     return (
@@ -47,7 +47,7 @@ function ResizeHandle({ side, onPointerDown, onDoubleClick }) {
     );
 }
 
-// 书内三区布局：[目录侧栏 | 阅读区 | AI区]；会话/资产/卡片为顶栏唤出的满高抽屉，工具在 AI 面板 ➕ 里
+// 书内三区布局：[目录侧栏 | 阅读区 | AI区]；会话/卡片=顶栏按钮处弹出小窗（v3.2），资产为满高抽屉，工具在 AI 面板 ➕ 里
 function BookReader({
     currentBook, currentChapter, onSelectChapter, onBackToShelf,
     citeTarget,
@@ -141,11 +141,26 @@ function BookReader({
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h7" />
                     </svg>
                 </ToggleButton>
-                <ToggleButton active={sessionOpen} onClick={() => setSessionOpen(o => !o)} label="会话" badge={sessions.length}>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                    </svg>
-                </ToggleButton>
+                {/* v3.2：会话改为按钮下方弹出小窗（列表内上下滚动），不再占满全屏高 */}
+                <div className="relative flex-shrink-0">
+                    <ToggleButton active={sessionOpen} onClick={() => setSessionOpen(o => !o)} label="会话" badge={sessions.length}>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                        </svg>
+                    </ToggleButton>
+                    {sessionOpen && (
+                        <SessionMenu
+                            sessions={sessions}
+                            currentSessionId={currentSessionId}
+                            onNewSession={onNewSession}
+                            onSelectSession={onSelectSession}
+                            onDeleteSession={onDeleteSession}
+                            experts={experts}
+                            disabled={streamBusy}
+                            onClose={() => setSessionOpen(false)}
+                        />
+                    )}
+                </div>
 
                 <div className="ml-auto flex items-center gap-1 flex-shrink-0">
                     <ToggleButton active={aiOpen} onClick={() => setAiOpen(o => !o)} label="AI">
@@ -153,11 +168,22 @@ function BookReader({
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                         </svg>
                     </ToggleButton>
-                    <ToggleButton active={cardsOpen} onClick={() => setCardsOpen(o => !o)} label="卡片" badge={cardDue}>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                        </svg>
-                    </ToggleButton>
+                    {/* v3.2：卡片同样改为按钮弹层；按钮在右缘，弹层向右展开会出屏，改 right-0 向左开 */}
+                    <div className="relative flex-shrink-0">
+                        <ToggleButton active={cardsOpen} onClick={() => setCardsOpen(o => !o)} label="卡片" badge={cardDue}>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                            </svg>
+                        </ToggleButton>
+                        {cardsOpen && currentBook && (
+                            <CardsMenu
+                                bookId={currentBook.book_id}
+                                bookTitle={currentBook.title}
+                                onClose={() => setCardsOpen(false)}
+                                onStatsChanged={onCardsStatsChanged}
+                            />
+                        )}
+                    </div>
                     <ToggleButton active={favOpen} onClick={() => setFavOpen(o => !o)} label="资产" badge={favorites.length}>
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
@@ -223,18 +249,6 @@ function BookReader({
                 />
             </div>
 
-            {sessionOpen && (
-                <SessionDrawer
-                    sessions={sessions}
-                    currentSessionId={currentSessionId}
-                    onNewSession={onNewSession}
-                    onSelectSession={onSelectSession}
-                    onDeleteSession={onDeleteSession}
-                    experts={experts}
-                    disabled={streamBusy}
-                    onClose={() => setSessionOpen(false)}
-                />
-            )}
             {favOpen && currentBook && (
                 <AssetsDrawer
                     assets={favorites}
@@ -243,14 +257,6 @@ function BookReader({
                     onRemove={onRemoveFavorite}
                     onNavigateToSource={onNavigateToSource}
                     onClose={() => setFavOpen(false)}
-                />
-            )}
-            {cardsOpen && currentBook && (
-                <CardsDrawer
-                    bookId={currentBook.book_id}
-                    bookTitle={currentBook.title}
-                    onClose={() => setCardsOpen(false)}
-                    onStatsChanged={onCardsStatsChanged}
                 />
             )}
         </div>

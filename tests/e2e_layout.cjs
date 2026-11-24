@@ -130,6 +130,41 @@ let browser = null;
     await sleep(200);
     say('点空白收起 ➕ 菜单', await page.$('[data-tool-menu]') === null);
 
+    // ---- 2.5 会话弹层（v3.2：由满高抽屉改按钮下弹出小窗） ----
+    await page.locator('button[title="会话"]').click();
+    await page.waitForSelector('[data-session-menu]', { timeout: 5000 });
+    const sBtn = await boxOf(page, 'button[title="会话"]');
+    const sMenu = await boxOf(page, '[data-session-menu]');
+    say('会话弹层锚定在按钮下方', !!sMenu && !!sBtn && sMenu.y >= sBtn.y + sBtn.height - 1);
+    say('弹层完整在视口内', !!sMenu && sMenu.x >= 0 && sMenu.x + sMenu.width <= vw + 1 && sMenu.y + sMenu.height <= 901);
+    say('h3 会话 + 新对话按钮在位（E2E 契约）', await page.$('[data-session-menu] h3') !== null && await page.$('[data-session-menu] button[title="新对话"]') !== null);
+    say('列表区是可滚动容器', await page.evaluate(() => {
+        const el = document.querySelector('[data-session-menu] .overflow-y-auto');
+        if (!el) return false;
+        return getComputedStyle(el).overflowY === 'auto' && el.clientHeight > 0;
+    }));
+    await page.mouse.click(700, 40);
+    await sleep(150);
+    say('点空白收起会话弹层', await page.$('[data-session-menu]') === null);
+
+    // ---- 2.6 卡片弹层（v3.2：同会话样式；按钮在右缘，弹层 right-0 向左开） ----
+    await page.locator('button[title="卡片"]').click();
+    await page.waitForSelector('[data-cards-menu]', { timeout: 5000 });
+    const cBtn = await boxOf(page, 'button[title="卡片"]');
+    const cMenu = await boxOf(page, '[data-cards-menu]');
+    say('卡片弹层锚定按钮下方', !!cMenu && !!cBtn && cMenu.y >= cBtn.y + cBtn.height - 1);
+    say('卡片弹层右缘随按钮对齐（向左展开）', !!cMenu && !!cBtn && Math.abs((cMenu.x + cMenu.width) - (cBtn.x + cBtn.width)) <= 8, `menuR=${cMenu && Math.round(cMenu.x + cMenu.width)} btnR=${cBtn && Math.round(cBtn.x + cBtn.width)}`);
+    say('卡片弹层完整在视口内', !!cMenu && cMenu.x >= 0 && cMenu.y >= 0 && cMenu.y + cMenu.height <= 901);
+    say('三个模式 tab 在位（今日复习/随机测验/列表）', await page.$('[data-cards-tab="due"]') !== null && await page.$('[data-cards-tab="quiz"]') !== null && await page.$('[data-cards-tab="list"]') !== null);
+    say('卡片弹层内容区可滚动', await page.evaluate(() => {
+        const el = document.querySelector('[data-cards-menu] .overflow-y-auto');
+        if (!el) return false;
+        return getComputedStyle(el).overflowY === 'auto' && el.clientHeight > 0;
+    }));
+    await page.mouse.click(700, 40);
+    await sleep(150);
+    say('点空白收起卡片弹层', await page.$('[data-cards-menu]') === null);
+
     // ---- 3 三区拖宽 ----
     const w0 = await paneWidth(page, 'toc');
     say('目录栏基线宽 216', w0 === 216, `w0=${w0}`);

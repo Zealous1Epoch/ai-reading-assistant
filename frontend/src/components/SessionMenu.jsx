@@ -14,15 +14,20 @@ const ChatIcon = ({ className }) => (
     </svg>
 );
 
-// 会话抽屉：顶栏「会话」唤出（左侧满高，与工具/收藏抽屉同款镜像）；新建/切换/删除
-function SessionDrawer({ sessions = [], currentSessionId, onNewSession, onSelectSession, onDeleteSession, experts = [], disabled = false, onClose }) {
+// 会话弹层（v3.2）：由满高侧抽屉改为顶栏「会话」按钮下方锚定弹出（调用方给 relative 容器），
+// 列表区上下滚动；h3「会话」与「新对话」按钮保留（E2E 契约）
+function SessionMenu({ sessions = [], currentSessionId, onNewSession, onSelectSession, onDeleteSession, experts = [], disabled = false, onClose }) {
     const expertNameOf = (id) => experts.find(e => e.expert_id === id)?.name;
 
     return (
         <>
-            <div className="fixed inset-0 z-40" onClick={onClose} />
-            <div className="fixed left-0 top-0 bottom-0 z-50 w-72 bg-white border-r border-zinc-200 shadow-2xl flex flex-col" style={{ animation: 'fade-in 0.2s ease-out' }}>
-                <div className="px-4 pt-4 pb-3 border-b border-zinc-100 flex items-center gap-2 flex-shrink-0">
+            <div className="fixed inset-0 z-30" onClick={onClose} />
+            <div
+                data-session-menu
+                className="absolute top-full left-0 mt-2 z-40 w-80 bg-white border border-zinc-200 rounded-xl shadow-lg flex flex-col overflow-hidden"
+                style={{ animation: 'fade-in 0.2s ease-out', maxWidth: 'calc(100vw - 32px)' }}
+            >
+                <div className="px-3.5 pt-3 pb-2 border-b border-zinc-100 flex items-center gap-2 flex-shrink-0">
                     <h3 className="text-sm font-serif-heading font-semibold text-zinc-800">会话</h3>
                     {sessions.length > 0 && (
                         <span className="text-[11px] text-zinc-400 tabular-nums">({sessions.length})</span>
@@ -45,10 +50,10 @@ function SessionDrawer({ sessions = [], currentSessionId, onNewSession, onSelect
                         </button>
                     </div>
                 </div>
-                <div className="flex-1 overflow-y-auto scrollbar-thin p-3 space-y-0.5">
+                <div className="max-h-80 overflow-y-auto scrollbar-thin p-1.5 space-y-0.5">
                     {sessions.length === 0 ? (
-                        <div className="text-center py-10">
-                            <ChatIcon className="w-8 h-8 mx-auto text-zinc-200 mb-2" />
+                        <div className="text-center py-8">
+                            <ChatIcon className="w-7 h-7 mx-auto text-zinc-200 mb-1.5" />
                             <p className="text-xs text-zinc-300">暂无会话</p>
                         </div>
                     ) : sessions.map(s => (
@@ -84,4 +89,4 @@ function SessionDrawer({ sessions = [], currentSessionId, onNewSession, onSelect
     );
 }
 
-export default SessionDrawer;
+export default SessionMenu;

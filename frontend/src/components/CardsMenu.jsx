@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import ReviewDeck from './ReviewDeck.jsx';
 
-// 书内卡片抽屉（v2.3）：顶栏「卡片」唤出（右侧满高，与工具/收藏同款镜像）
-// 今日复习队列 / 随机测验 / 卡列表管理 + Anki 导出
-export default function CardsDrawer({ bookId, bookTitle, onClose, onStatsChanged }) {
+// 书内卡片弹层（v3.2）：由右侧满高抽屉改为顶栏「卡片」按钮下方弹出（调用方给 relative 容器）。
+// 按钮在顶栏右缘，弹层 right-0 锚定向左展开，避免越出屏幕右缘；内容区上下滚动。
+// 今日复习队列 / 随机测验 / 卡列表管理 + Anki 导出；data-cards-* 钩子与 E2E 契约原样保留
+export default function CardsMenu({ bookId, bookTitle, onClose, onStatsChanged }) {
     const [tab, setTab] = useState('due');            // due | quiz | list
     const [cards, setCards] = useState(null);
     const [round, setRound] = useState(0);
@@ -68,10 +69,14 @@ export default function CardsDrawer({ bookId, bookTitle, onClose, onStatsChanged
 
     return (
         <>
-            <div className="fixed inset-0 z-40" onClick={onClose} />
-            <div className="fixed right-0 top-0 bottom-0 z-50 w-96 bg-white border-l border-zinc-200 shadow-2xl flex flex-col" style={{ animation: 'fade-in 0.2s ease-out' }}>
+            <div className="fixed inset-0 z-30" onClick={onClose} />
+            <div
+                data-cards-menu
+                className="absolute top-full right-0 mt-2 z-40 w-96 bg-white border border-zinc-200 rounded-xl shadow-lg flex flex-col overflow-hidden"
+                style={{ animation: 'fade-in 0.2s ease-out', maxWidth: 'calc(100vw - 32px)' }}
+            >
                 {/* 标题栏 */}
-                <div className="px-4 pt-4 pb-3 border-b border-zinc-100 flex items-center gap-2 flex-shrink-0">
+                <div className="px-3.5 pt-3 pb-2 border-b border-zinc-100 flex items-center gap-2 flex-shrink-0">
                     <h3 className="text-sm font-serif-heading font-semibold text-zinc-800">卡片</h3>
                     {total !== null && (
                         <span className="text-[11px] text-zinc-400 tabular-nums" data-cards-count>({total})</span>
@@ -87,7 +92,7 @@ export default function CardsDrawer({ bookId, bookTitle, onClose, onStatsChanged
                                 导出 Anki
                             </a>
                         )}
-                        <button onClick={onClose} className="p-1 rounded-lg text-zinc-300 hover:text-zinc-600 hover:bg-zinc-50 transition-all">
+                        <button onClick={onClose} className="p-1 rounded-lg text-zinc-300 hover:text-zinc-600 hover:bg-zinc-50 transition-all" title="关闭">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                             </svg>
@@ -96,7 +101,7 @@ export default function CardsDrawer({ bookId, bookTitle, onClose, onStatsChanged
                 </div>
 
                 {/* 模式切换 */}
-                <div className="px-4 pt-3 flex-shrink-0">
+                <div className="px-3.5 pt-2.5 pb-2 border-b border-zinc-100 flex-shrink-0">
                     <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-0.5">
                         {tabBtn('due', '今日复习', due)}
                         {tabBtn('quiz', '随机测验', null)}
@@ -104,7 +109,7 @@ export default function CardsDrawer({ bookId, bookTitle, onClose, onStatsChanged
                     </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto scrollbar-thin p-4">
+                <div className="max-h-[62vh] overflow-y-auto scrollbar-thin p-3.5">
                     {tab === 'list' ? (
                         cards === null ? <div className="text-center text-xs text-zinc-300 py-10">载入中…</div> : (
                             <div className="space-y-2">
@@ -133,7 +138,7 @@ export default function CardsDrawer({ bookId, bookTitle, onClose, onStatsChanged
                             </div>
                         )
                     ) : cards === null ? (
-                        <div className="text-center text-xs text-zinc-300 py-16">载入中…</div>
+                        <div className="text-center text-xs text-zinc-300 py-12">载入中…</div>
                     ) : (
                         <ReviewDeck
                             key={`${tab}-${round}-${cards.length}`}

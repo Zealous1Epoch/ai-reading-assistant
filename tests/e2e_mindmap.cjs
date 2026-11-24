@@ -100,12 +100,12 @@ let browser = null;
         return {
             chapters: Number(el.getAttribute('data-mm-chapters')),
             jumps: document.querySelectorAll('[data-mindmap="json"] [data-mm-jump]').length,
-            expands: document.querySelectorAll('[data-mindmap="json"] [data-mm-expand]').length,
+            circles: document.querySelectorAll('[data-mindmap="json"] svg circle').length,
             svgNodes: document.querySelectorAll('[data-mindmap="json"] svg g').length,
         };
     });
     say('章数=跳转链接数', mmAttr.chapters === mmAttr.jumps, JSON.stringify(mmAttr));
-    say('章数=详分支按钮数', mmAttr.chapters === mmAttr.expands);
+    say('章数+1=折叠圆圈数（根与每章均有圆圈）', mmAttr.circles === mmAttr.chapters + 1, String(mmAttr.circles));
     say('章数 >= 16（与后端目录一致）', mmAttr.chapters >= 16, String(mmAttr.chapters));
     const baseNodes = await visibleNodes(page);
     say('默认展开到章：渲染节点=1根+N章', baseNodes === mmAttr.chapters + 1, `渲染 ${baseNodes}`);
@@ -126,18 +126,30 @@ let browser = null;
     const paneTitle = (await page.locator('h2').filter({ hasText: targetTitle }).first().innerText()).trim();
     say('点章名跳到原文（章头标题一致）', paneTitle === targetTitle, targetTitle);
 
-    // ---- 6 按需展开详分支（LLM 生成四级子树） ----
+    // ---- 6 点章的圆圈按需展开详分支（v2.9.1：无独立按钮，圆圈即生成入口，完成后自动全展开） ----
     const expandBefore = await visibleNodes(page);
-    await page.evaluate(c => document.querySelector('[data-mm-expand="'.concat(c, '"]')).click(), cid5);
+    await page.evaluate(c => {
+        const a = document.querySelector('[data-mindmap="json"] [data-mm-jump="' + c + '"]');
+        const g = a && a.closest('g.markmap-node');
+        const circle = g && g.querySelector('circle');
+        if (circle) circle.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    }, cid5);
     let expandDone = false;
+    let expandErr = '';
     for (let i = 0; i < 240 && !expandDone; i++) {
         await sleep(1000);
-        expandDone = await page.evaluate((b) => !document.querySelector(`[data-mm-expand="${b}"], [data-mm-loading="${b}"]`), cid5);
+        const st = await page.evaluate((b) => ({
+            loading: !!document.querySelector(`[data-mm-loading="${b}"]`),
+            error: (document.querySelector(`[data-mm-error="${b}"]`) || {}).textContent || '',
+            nodes: document.querySelectorAll('[data-mindmap="json"] .markmap-foreign').length,
+        }), cid5);
+        if (st.error) { expandErr = st.error; break; }
+        expandDone = !st.loading && st.nodes > expandBefore;
     }
     await page.locator('[data-mm-toolbar] button').filter({ hasText: '全部' }).click();
     await sleep(1500);
     const afterExpand = await visibleNodes(page);
-    say('按需展开完成（按钮消失）', expandDone);
+    say('圆圈点击触发现场生成并完成（无失败标记）', expandDone, expandErr || undefined);
     say('展开后该章子树渲染', afterExpand > expandBefore, `${expandBefore} → ${afterExpand}`);
     await page.screenshot({ path: '/tmp/v29_expanded.png' });
 

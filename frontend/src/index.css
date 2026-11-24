@@ -5,6 +5,5 @@
 /* markmap 画布内节点链接（v2.9 思维导图）：跳转/详分支控件跟随节点文字色，去掉浏览器 a 默认蓝 */
 [data-mindmap="json"] .markmap-foreign a[data-mm-jump] { color: inherit; text-decoration: none; cursor: pointer; }
 [data-mindmap="json"] .markmap-foreign a[data-mm-jump]:hover { text-decoration: underline; text-underline-offset: 3px; }
-[data-mindmap="json"] .markmap-foreign a[data-mm-expand] { color: #a1a1aa; font-size: 0.78em; text-decoration: none; cursor: pointer; white-space: nowrap; }
-[data-mindmap="json"] .markmap-foreign a[data-mm-expand]:hover { color: #52525b; }
+[data-mindmap="json"] .markmap-foreign span[data-mm-error] { color: #ef4444; font-size: 0.78em; white-space: nowrap; }
 [data-mindmap="json"] .markmap-foreign span[data-mm-loading] { color: #71717a; font-size: 0.78em; white-space: nowrap; }

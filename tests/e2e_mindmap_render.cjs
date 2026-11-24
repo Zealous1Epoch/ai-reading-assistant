@@ -38,11 +38,12 @@ let browser = null;
         return {
             chapters: Number(el.getAttribute('data-mm-chapters')),
             jumps: document.querySelectorAll('[data-mindmap="json"] [data-mm-jump]').length,
-            expands: document.querySelectorAll('[data-mindmap="json"] [data-mm-expand]').length,
+            circles: document.querySelectorAll('[data-mindmap="json"] svg circle').length,
         };
     });
     say('章数=跳转链接数', attr.chapters === attr.jumps, JSON.stringify(attr));
-    say('章数=详分支按钮数（未加载子树时）', attr.chapters === attr.expands);
+    // v2.9.1 起详分支入口并入折叠圆圈，无独立按钮；存量树章下必有主题层时圆圈=1根+N章，宽容断言下限
+    say('折叠圆圈存在（根+章节点）', attr.circles >= 1 && attr.circles <= attr.chapters + 1, String(attr.circles));
     const n1 = await visibleNodes(page);
     say('默认展开到章：节点=1根+N章', n1 === attr.chapters + 1, `渲染 ${n1}`);
     await page.screenshot({ path: '/tmp/v29_smoke_canvas.png' });

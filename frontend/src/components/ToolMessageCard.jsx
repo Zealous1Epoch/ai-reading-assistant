@@ -222,10 +222,12 @@ export function parseMindmapJson(raw) {
 // Markdown 转义：标题文本可能含 * _ [ ] ` 等，防止被 remark 解析成强调/链接；<> 转实体防误触 HTML
 const mmEscape = (s) => String(s ?? '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
     .replace(/[\\`*_~[\]()#|]/g, (c) => '\\' + c);
 
-// JSON 树 → Markdown（根=标题，子孙=嵌套列表项）。章节点嵌 <a data-mm-jump>，详分支按钮嵌 <a data-mm-expand>，
-// markmap 节点支持内联 HTML，点击由外层容器事件委托接回 React（markmap 官方 REPL/博客同款做法）
+// JSON 树 → Markdown（根=标题，子孙=嵌套列表项）。章节点嵌 <a data-mm-jump> 跳原文；
+// 深层分支不设独立按钮：点章节点的折叠圆圈即现场调大模型生成（handleCanvasClick 圆圈委托），
+// 生成中显示 ⏳，失败显示 ⚠（再点圆圈重试）；markmap 节点支持内联 HTML，点击由外层容器事件委托接回 React
 function mmNodeToMd(node, depth, ctx) {
     let label = mmEscape(node.t);
     if (node.cid) label = `<a data-mm-jump="${node.cid}">${label}</a>`;
@@ -233,8 +235,7 @@ function mmNodeToMd(node, depth, ctx) {
     let extra = '';
     if (node.cid && !loaded && depth > 0) {
         if (ctx.loadingCid === node.cid) extra = ` <span data-mm-loading="${node.cid}">⏳生成中…</span>`;
-        else if (ctx.errors[node.cid]) extra = ` <a data-mm-expand="${node.cid}" style="color:#ef4444">⚠${mmEscape(ctx.errors[node.cid])}·重试</a>`;
-        else extra = ` <a data-mm-expand="${node.cid}">⤢展开详分支</a>`;
+        else if (ctx.errors[node.cid]) extra = ` <span data-mm-error="${node.cid}" title="${mmEscape(ctx.errors[node.cid])}">⚠生成失败，点圆圈重试</span>`;
     }
     let line;
     if (depth === 0) line = `# ${label}${extra}`;
@@ -251,6 +252,22 @@ const mmFindNodeByCid = (node, cid) => {
         if (hit) return hit;
     }
     return null;
+};
+
+// 在 markmap 活树（mm.state.data，setData 时会克隆节点）里按 cid 找真实节点——折叠态 payload 必须挂在活树上
+const mmFindLiveByCid = (node, cid) => {
+    if (!node) return null;
+    if (String(node.content || '').includes(`data-mm-jump="${cid}"`)) return node;
+    for (const c of (node.children || [])) {
+        const hit = mmFindLiveByCid(c, cid);
+        if (hit) return hit;
+    }
+    return null;
+};
+// 递归解除折叠（payload.fold=0）：详分支生成完 setData 后该章会回落到折叠基线，用它现场全展开
+const mmUnfoldAll = (node) => {
+    node.payload = { ...node.payload, fold: 0 };
+    for (const c of (node.children || [])) mmUnfoldAll(c);
 };
 
 // 一级分支按色相轮转着色（colorFreeze 效果：path 以 . 分隔且含祖先 id，seg[1]=所属一级分支 id，同章同色），根 zinc-900
@@ -275,6 +292,7 @@ export function MindmapTree({ root, bookId, onNavigateToSource, height = 400 }) 
     const [ready, setReady] = useState(false);
     const svgRef = useRef(null);
     const mmRef = useRef(null);
+    const autoOpenRef = useRef(null);   // 刚生成完详分支的章 cid：setData 渲染后自动全展开该章
 
     const md = useMemo(
         () => mmNodeToMd(root, 0, { subtrees, loadingCid, errors: expandErrors }),
@@ -303,7 +321,20 @@ export function MindmapTree({ root, bookId, onNavigateToSource, height = 400 }) 
         try {
             // markmap-lib 0.18：transform() 是同步 API，setData() 才是异步
             const { root: r } = mmTransformer.transform(md);
-            mm.setData(r).then(() => setReady(true)).catch(e => console.error('markmap setData 失败:', e));
+            mm.setData(r).then(async () => {
+                // 刚生成完某章详分支：setData 会把折叠态打回基线，这里在活树上把该章递归展开再重绘
+                const cid = autoOpenRef.current;
+                autoOpenRef.current = null;
+                if (cid && mm.state && mm.state.data) {
+                    const live = mmFindLiveByCid(mm.state.data, cid);
+                    if (live && live.children && live.children.length) {
+                        mmUnfoldAll(live);
+                        try { await mm.renderData(live); } catch { /* 重绘失败不阻断 */ }
+                        mm.fit().catch(() => {});
+                    }
+                }
+                setReady(true);
+            }).catch(e => console.error('markmap setData 失败:', e));
         } catch (e) {
             console.error('markmap 渲染失败:', e);
         }
@@ -319,7 +350,7 @@ export function MindmapTree({ root, bookId, onNavigateToSource, height = 400 }) 
 
     // 按需展开：SSE 拿该章深层子树，成功后合入 subtrees 触发 setData
     const expandChapter = async (cid) => {
-        if (!cid || loadingCid) return;
+        if (!cid || loadingCid || subtrees[cid]) return;
         const node = mmFindNodeByCid(root, cid);
         if (!node) return;
         setLoadingCid(cid);
@@ -354,6 +385,7 @@ export function MindmapTree({ root, bookId, onNavigateToSource, height = 400 }) 
                 }
             }
             if (subtree) {
+                autoOpenRef.current = cid;
                 setSubtrees(prev => ({ ...prev, [cid]: subtree }));
             } else {
                 setExpandErrors(prev => ({ ...prev, [cid]: err || '展开结果解析失败' }));
@@ -365,12 +397,17 @@ export function MindmapTree({ root, bookId, onNavigateToSource, height = 400 }) 
         }
     };
 
-    // 事件委托：节点内 HTML <a>（foreignObject 内是 HTML，closest 可用）
+    // 事件委托：节点内 HTML <a> 跳原文（foreignObject 内是 HTML，closest 可用）；
+    // 点章节点的折叠圆圈＝首次现场生成该章详分支（d3 把 INode 绑在 circle.__data__ 上，content 里有跳转锚可反解 cid）。
+    // 不拦冒泡——markmap 自己的圆圈处理照常折叠/展开
     const handleCanvasClick = (e) => {
         const jump = e.target.closest?.('[data-mm-jump]');
         if (jump) { onNavigateToSource?.(bookId, jump.getAttribute('data-mm-jump')); return; }
-        const exp = e.target.closest?.('[data-mm-expand]');
-        if (exp) expandChapter(exp.getAttribute('data-mm-expand'));
+        const circle = e.target.closest?.('circle');
+        if (circle) {
+            const m = String(circle.__data__?.content || '').match(/data-mm-jump="([^"]+)"/);
+            if (m) expandChapter(m[1]);
+        }
     };
 
     // 导出：markmap 自带 embedGlobalCSS，样式在 svg 内，序列化即可独立打开
@@ -431,7 +468,7 @@ export function MindmapTree({ root, bookId, onNavigateToSource, height = 400 }) 
         <div data-mindmap="json" data-mm-chapters={chapterCount} data-mm-ready={ready ? '1' : '0'}>
             <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
                 <span className="text-[11px] text-zinc-400 tabular-nums">
-                    {chapterCount > 1 ? `${chapterCount} 章 · 拖拽平移 · 滚轮缩放 · 点圆圈折叠` : ''}
+                    {chapterCount > 1 ? `${chapterCount} 章 · 拖拽平移 · 滚轮缩放 · 点章节点的圆圈生成并展开详分支` : ''}
                 </span>
                 <div className="flex items-center gap-1 flex-wrap" data-mm-toolbar>
                     {[1, 2].map(lv => (

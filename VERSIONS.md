@@ -1,5 +1,12 @@
 # 智能读书助手 — 版本历史
 
+## v2.9.1 — 2026-11-24（思维导图：删「展开详分支」独立按钮，深层生成并入折叠圆圈）
+- **交互合并**：点章节点的折叠圆圈＝首次现场调大模型生成该章深层分支；实现＝外层容器事件委托 `closest('circle')` + d3 绑定的 `circle.__data__.content` 反解 cid（content 即 foreignObject 渲染源，内嵌的 data-mm-jump 锚天然可当节点身份键）——**不拦冒泡**，markmap 自带圆圈点击照常折叠/展开；生成中/失败只在节点尾挂 `⏳`/`⚠生成失败，点圆圈重试` 轻提示（`<span data-mm-error>`，原始原因放 title），再点圆圈即重试
+- **生成完自动展开该章**：`setData` 恒把折叠态打回 initialExpandLevel 基线（v2.9 已知边界）→ 成功回调里用 `autoOpenRef` 记章 cid，在 `setData().then` 中从**活树** `mm.state.data`（setData 会克隆节点，payload 必须挂活树）按 content 反查节点、递归 `payload.fold=0`、`mm.renderData(live)`+fit——点一次圆圈完成"展开＋生成＋全展开"闭环
+- `mmEscape` 增补 `"` → `&quot;`（title 属性注入安全）；提示文案改「点章节点的圆圈生成并展开详分支」
+- **E2E 契约更新**：详分支按钮断言改「章数+1=折叠圆圈数」（根与每章均有圆圈）；第 6 节改 `dispatchEvent(new MouseEvent('click',{bubbles:true}))` 合成圆圈点击（SVG 元素无 .click()），完成判定三条件＝无 loading、无 error、foreignObject 计数增长；`e2e_mindmap` **26/26**（17→67→79，圆圈触发生成零失败）、零 LLM 冒烟 `e2e_mindmap_render` **11/11**（圆圈 17、17→72）、截图视觉复核无按钮残留；资产重放链路不受影响
+- 已知边界不变：切档/注入后手动折叠回基线；level 未持久化（P1）
+
 ## v2.9 — 2026-11-24（思维导图渲染换 markmap 画布——调研借鉴社区方案替换自绘树：平移缩放/折叠圆点/三档展开/SVG/PNG 导出）
 - **调研结论先行**：只读+按需展开场景下社区最成熟的是 markmap（13k★、MIT、活跃，且依赖里早就装着——旧 Markdown 导图路径一直在用）；同场景开源项目「拾语」(Vue3+markmap-lib/view) 与 Ebook-Assistant(epub.js+markmap) 验证了这条路。可编辑需求才考虑 mind-elixir；simple-mind-map 功能最全但官方自述低维护+1000 节点性能墙，只抄产品点子（层级控制/导出/小地图思路）
 - **MindmapTree 重写为画布**（数据格式与 expand SSE **零改动**，资产区/落盘链路无感）：JSON 树 → Markdown（根=标题、子孙=嵌套列表项），章节点内嵌 `<a data-mm-jump>`、详分支按钮 `<a data-mm-expand>`、加载态 `<span data-mm-loading>`——markmap 节点支持内联 HTML，点击由外层容器事件委托 `closest` 接回 React；工具栏 = 展开到章/展开到主题/全部（重建实例回折叠基线）+ 回中(fit) + SVG 导出 + PNG 导出(2x) + 放大（**fixed 换容器不换实例，切完 fit**，不闪不重拉）；一级分支按 path 色相轮转着色（同章同色）；节点文本全量 Markdown 转义 + `<>` 转实体防注入

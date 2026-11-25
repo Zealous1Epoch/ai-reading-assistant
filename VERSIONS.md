@@ -1,5 +1,16 @@
 # 智能读书助手 — 版本历史
 
+## v3.9 — 2026-11-25（桌面安装包：mac dmg + Windows exe，GitHub Actions 双平台出包）
+- **冻结路径三锚点**（config.py FROZEN/bundle_root/runtime_data_dir）：只读资源（前端 dist、专家包、bge 模型）随 PyInstaller bundle 从 `_MEIPASS` 读；可写数据（馆藏/划线/密钥）冻结态一律落 `~/Library/Application Support/SmartReader`（win 为 `%APPDATA%\SmartReader`，目录名用 ASCII 防 C 扩展绊坑）——**开发态路径行为零变化**；main.py dist_dir、experts.py _PACK_DIR 同步分支
+- **server_launcher.py**：`--port`（Electron 随机分配防撞 8000）+ `--data-dir`（冒烟隔离）+ 关 chroma 匿名遥测 + 首启建目录；冻结入口
+- **reader.spec（onedir）**：collect_all chromadb/onnxruntime/tokenizers/edge_tts/ebooklib；uvicorn loop/protocol 字符串挑实现的 hiddenimports 补齐；**excludes magic**（libmagic 他机必哑弹，HAS_MAGIC 降级路径本来就是设计好的）；console=False
+- **desktop/ Electron 壳**：随机端口起 sidecar → 轮询 `/` 健康（90s 窗，chroma 首迁约 45s）→ BrowserWindow；sidecar 日志落 `~/Library/Logs/读书助手/reader-server.log`（书友报障凭证）；单实例锁、退出杀进程、外链走系统浏览器；electron-builder 出 dmg（arm64）/nsis（x64），ad-hoc 签名（scripts/sign_adhoc.sh，arm64 内核硬要求，与 Gatekeeper 警告是两回事）
+- **requirements-desktop.txt**：从**实测通过**的 venv freeze 导出（134 包，langchain 实为 1.3.11——旧 requirements.txt 写 0.1.10 会 CI 必炸），剔 pyobjc/uvloop 等 mac 专属
+- **CI**：`.github/workflows/build-desktop.yml`，tag `v*` 触发双平台构建自动发 Release；**Windows 包只能 Actions 出**（PyInstaller 不可交叉编译）
+- **出厂口径实测**：dmg 挂载盘直启 → 空馆藏、`api_key_set=false`、数据落用户目录；拷 dev chroma_db 进数据目录语义检索命中《非暴力沟通》三章 → **冻结 bundle 内 onnxruntime+模型+chroma 全通**
+- **坑**：WorkBuddy 沙箱 shell 继承 `ELECTRON_RUN_AS_NODE=1`，直跑 .app 二进制会变 Node REPL——测桌面 app 一律 `open`；项目 venv 因目录搬迁 shebang 已死，pip/pyinstaller 一律 `venv/bin/python3 -m` 形态
+- 文档：`docs/桌面版安装说明.md`（书友版 + 慧姐出新版流程）
+
 ## v3.7 — 2026-11-25（批注结集抽屉 + 阅读轨迹导出 Obsidian「读点书吧」）
 - **AnnotationsDrawer**（顶栏「批注」按钮，badge=全书高亮数，右侧满高抽屉与资产区同款镜像）：按书的章节顺序分组（章已重切漂移的归「散页」）；色筛 chip 带各色计数 + 「✎ 只看有笔记」开关；条目=色点+原文两行截断+绿色笔记行+日期，hover 出「加入对话/删除」；点条目跳原文=复用 `onNavigateToSource`（引用跳章的 cite-flash 机制，跳完关抽屉让闪烁可见）
 - **导出 `POST /highlights/export`**（`services/annotation_export.py`）：YAML frontmatter（book/author/counts/tags）+ 每章一节、章内按色分节（🟡重要/🟢喜欢/🔵存疑/🩷不认同，与 HL_COLORS 契约对齐）、笔记跟在自己高亮下的 `> ✎` 引用行、日期反引号尾注；文件名洗非法字符（`/`→`·`），整本覆盖写（轨迹是高亮的衍生品非手稿）

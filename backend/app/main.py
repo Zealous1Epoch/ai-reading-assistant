@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from app.config import get_settings
+from app.config import get_settings, FROZEN, bundle_root
 from app.routers import chat, book_processor, search, analysis, tools, sessions, experts, cards, assets, audio, highlights, guides, settings as settings_router
 import os
 
@@ -42,7 +42,8 @@ app.include_router(settings_router.router)
 
 # 前端页面路由
 frontend_dir = os.path.join(os.path.dirname(__file__), "..", "..", "frontend")
-dist_dir = os.path.join(frontend_dir, "dist")
+# v3.9 打包：冻结态前端 dist 随 bundle 只读分发
+dist_dir = os.path.join(bundle_root(), "frontend", "dist") if FROZEN else os.path.join(frontend_dir, "dist")
 
 # 路径安全校验辅助函数
 def safe_path(base_dir: str, filename: str) -> str | None:

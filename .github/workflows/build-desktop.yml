@@ -1,0 +1,89 @@
+# 智能读书助手桌面版安装包构建（v3.9）
+# 触发：打 tag（v*）自动发 Release；也支持手动触发下载 artifact
+# 产出：mac dmg（arm64）+ Windows exe（NSIS x64）
+name: Build Desktop Installers
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build-mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install backend deps + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements-desktop.txt pyinstaller
+      - name: Download embedding model (hf-mirror)
+        run: python scripts/download_embedding_model.py
+      - name: Freeze backend
+        working-directory: backend
+        run: pyinstaller reader.spec --noconfirm --distpath ../build/reader-dist --workpath ../build/reader-work
+      - name: Ad-hoc sign nested Mach-O (arm64 强制要求有效签名)
+        run: bash scripts/sign_adhoc.sh build/reader-dist/reader-server
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build dmg
+        working-directory: desktop
+        run: |
+          npm ci
+          npm run dist:mac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-dmg
+          path: desktop/release/*.dmg
+
+  build-win:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install backend deps + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements-desktop.txt pyinstaller
+      - name: Download embedding model
+        run: python scripts/download_embedding_model.py
+      - name: Freeze backend
+        working-directory: backend
+        shell: bash
+        run: pyinstaller reader.spec --noconfirm --distpath ../build/reader-dist --workpath ../build/reader-work
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build NSIS installer
+        working-directory: desktop
+        shell: bash
+        run: |
+          npm ci
+          npm run dist:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: win-exe
+          path: desktop/release/*.exe
+
+  release:
+    needs: [build-mac, build-win]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*

@@ -56,3 +56,9 @@ node_modules/
 .agents/
 .kiro/
 skills-lock.json
+
+# v3.9 桌面打包产物
+build/
+desktop/node_modules/
+desktop/release/
+!backend/requirements-desktop.txt

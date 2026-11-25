@@ -17,9 +17,14 @@ import json
 import os
 from typing import Optional
 
+from app.config import FROZEN, bundle_root
 from app.routers.book_processor import analysis_results as books_index
 
-_PACK_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "experts")
+# v3.9 打包：冻结态专家包（.json）随 bundle 分发到 experts/；开发态维持 app/experts 原位
+_PACK_DIR = (
+    os.path.join(bundle_root(), "experts") if FROZEN
+    else os.path.join(os.path.dirname(os.path.dirname(__file__)), "experts")
+)
 _REQUIRED = ("expert_id", "name", "method", "system", "opening", "report")
 
 

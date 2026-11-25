@@ -1,0 +1,59 @@
+{
+  "name": "smart-reader-desktop",
+  "productName": "读书助手",
+  "version": "3.9.0",
+  "description": "智能读书助手桌面版",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.huijie.smartreader",
+    "productName": "读书助手",
+    "directories": {
+      "output": "release",
+      "buildResources": "build-resources"
+    },
+    "files": [
+      "main.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../build/reader-dist/reader-server",
+        "to": "backend"
+      }
+    ],
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["arm64"] }
+      ],
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "icon": "build-resources/icon.png"
+    },
+    "dmg": {
+      "title": "读书助手"
+    },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "icon": "build-resources/icon.png",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "读书助手"
+    }
+  }
+}

@@ -610,6 +610,10 @@ async def batch_upload(files: List[UploadFile] = File(...)):
 class CommitBody(PydanticBaseModel):
     delete_chapter_ids: List[str] = []
     renames: Dict[str, str] = {}
+    # v3.8.1 合并：每组 = 草稿内章节 id 列表（≥2）。拼接按草稿章序，
+    # 组长（排序后第一条）占位保留 id/锚点，标题取组内正文最长者
+    #（重影场景组长常是章节页片段，标题反而是正文那条准）
+    merges: List[List[str]] = []
     force: bool = False
 
 
@@ -678,7 +682,42 @@ async def commit_review(book_id: str, body: CommitBody):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"草稿数据损坏: {e}")
 
+    # ── 合并（v3.8.1）先于改名/删除执行，组长保留 id ──────────────
     delete_set = set(body.delete_chapter_ids)
+    groups = []
+    for g in body.merges or []:
+        g = list(dict.fromkeys(g or []))
+        if len(g) >= 2:
+            groups.append(g)
+    if groups:
+        flat = [i for g in groups for i in g]
+        if len(flat) != len(set(flat)):
+            raise HTTPException(status_code=422, detail="章节重复出现在多个合并组")
+        by_id = {c.chapter_id: c for c in chapters}
+        for i in flat:
+            if i not in by_id:
+                raise HTTPException(status_code=422, detail=f"合并引用了不存在的章节: {i}")
+            if i in delete_set:
+                raise HTTPException(status_code=422, detail="章节不能既合并又删除")
+        order = {c.chapter_id: k for k, c in enumerate(chapters)}
+        dropped_members = set()
+        for g in groups:
+            members = sorted((by_id[i] for i in g), key=lambda c: order[c.chapter_id])
+            leader = members[0]
+            # 标题必须在 content 被拼接覆盖**之前**算——否则组长永远最长，标题恒选组长
+            title_src = max(members, key=lambda m: len(m.content or "")).title
+            leader.content = "\n\n".join(m.content for m in members if m.content)
+            leader.word_count = len(leader.content)
+            leader.cleaned_word_count = len(book_processor._clean_chapter_content(leader.content))
+            leader.title = title_src
+            leader.level = min(m.level or 1 for m in members)
+            starts = [m.start_position for m in members if m.start_position is not None]
+            ends = [m.end_position for m in members if m.end_position is not None]
+            leader.start_position = min(starts) if starts else None
+            leader.end_position = max(ends) if ends else None
+            dropped_members.update(m.chapter_id for m in members[1:])
+        chapters = [c for c in chapters if c.chapter_id not in dropped_members]
+
     chapters = [c for c in chapters if c.chapter_id not in delete_set]
     for c in chapters:
         if c.chapter_id in body.renames and body.renames[c.chapter_id].strip():

@@ -185,9 +185,9 @@ let browser = null;
     say('B6 弹层预告将丢弃空章', m.includes('自动丢弃'));
     say('B7 排队位置 1/2 显示', m.includes('1 / 2'));
 
-    // B8 编辑：改 c1 名、勾选删 c2（章序 c1,c2,c3 → 第二个复选框是 c2）
+    // B8 编辑：改 c1 名、勾选删 c2（v3.8.1 起每行两个复选框，删除必须走 data-pr-remove 契约）
     await page.locator('[data-pr-title="c1"]').fill('第一章 浏览器里改的名');
-    await page.locator('[data-testid="parse-review-modal"] input[type="checkbox"]').nth(1).click();
+    await page.locator('[data-pr-remove="c2"]').click();
     m = await mtxt();
     say('B8 底部按钮实时显示入库章数（3-1=2）', m.includes('确认入库（2 章）'), JSON.stringify(m.match(/确认入库（. 章）/)?.[0] || ''));
 

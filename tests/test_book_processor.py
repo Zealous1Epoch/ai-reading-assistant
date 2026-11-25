@@ -437,6 +437,8 @@ class TestParseRobustness:
         doc.close()
 
         monkeypatch.setattr("app.services.book_processor.shutil.which", lambda name: None)
+        # 锁定云端分支：本机 runtime_settings 可能已配真密钥，否则测试会走云 OCR 白烧额度
+        monkeypatch.setattr("app.services.baidu_ocr.is_configured", lambda: False)
 
         with pytest.raises(ValueError, match="tesseract"):
             processor.extract_text_from_pdf(str(scan_pdf), "b1")

@@ -17,8 +17,10 @@ const LEVEL_STYLE = {
 const RULE_LABEL = {
     R1: '单章吞书', R2: '章数过少', R3: '疑似前置页', R4: '清洗后近空章',
     R5: '疑似仅章节页', R6: '目录层级压平', R7: '正文覆盖不足', R8: '锚点乱序',
-    R9: '解析退化', R10: 'EPUB 锚点失配',
+    R9: '解析退化', R10: 'EPUB 锚点失配', R11: '标题重影', R12: '目录条目章',
+    R13: '前置超长', R14: 'OCR待核',
 };
+const rowWc = ch => ch.cleaned_word_count ?? ch.word_count ?? 0;
 
 function QcChip({ item }) {
     return (
@@ -32,12 +34,12 @@ function QcChip({ item }) {
     );
 }
 
-function ChapterRow({ ch, removed, editedTitle, onToggleRemoved, onRename }) {
+function ChapterRow({ ch, removed, editedTitle, onToggleRemoved, onRename, selected, onToggleSelect, canMergePrev, onMergePrev }) {
     const [open, setOpen] = useState(false);
     const worst = ch.marks.some(m => m.level === 'blocking') ? 'blocking'
         : ch.marks.some(m => m.level === 'warning') ? 'warning' : null;
     return (
-        <div className={`border rounded-xl transition-colors ${removed ? 'border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 opacity-50' : worst === 'blocking' ? 'border-red-200 dark:border-red-500/30 bg-red-50/40 dark:bg-red-500/10' : worst === 'warning' ? 'border-amber-200 dark:border-amber-500/30 bg-amber-50/30 dark:bg-amber-500/10' : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900'}`}>
+        <div className={`border rounded-xl transition-colors ${removed ? 'border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 opacity-50' : worst === 'blocking' ? 'border-red-200 dark:border-red-500/30 bg-red-50/40 dark:bg-red-500/10' : worst === 'warning' ? 'border-amber-200 dark:border-amber-500/30 bg-amber-50/30 dark:bg-amber-500/10' : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900'} ${selected ? 'ring-2 ring-sky-400/60' : ''}`}>
             <div className="flex items-center gap-2 px-3 py-2">
                 <input
                     type="checkbox"
@@ -45,6 +47,16 @@ function ChapterRow({ ch, removed, editedTitle, onToggleRemoved, onRename }) {
                     onChange={e => onToggleRemoved(ch.chapter_id, e.target.checked)}
                     className="w-3.5 h-3.5 accent-red-600 flex-shrink-0"
                     title="勾选后入库时删除此章"
+                    data-pr-remove={ch.chapter_id}
+                />
+                <input
+                    type="checkbox"
+                    checked={selected}
+                    disabled={removed}
+                    onChange={e => onToggleSelect(ch.chapter_id, e.target.checked)}
+                    className="w-3.5 h-3.5 accent-sky-500 flex-shrink-0"
+                    title="勾选多章后合并为一章"
+                    data-pr-mergepick={ch.chapter_id}
                 />
                 <input
                     value={editedTitle}
@@ -54,13 +66,29 @@ function ChapterRow({ ch, removed, editedTitle, onToggleRemoved, onRename }) {
                     title="点击可直接修改章名"
                     data-pr-title={ch.chapter_id}
                 />
+                {ch.mergedCount > 1 && (
+                    <span data-pr-merged={ch.chapter_id}
+                        className="px-1.5 py-0.5 rounded-md bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-500/30 text-[10px] flex-shrink-0">
+                        已合并×{ch.mergedCount}
+                    </span>
+                )}
                 <span className="text-[10px] text-zinc-400 dark:text-zinc-500 tabular-nums flex-shrink-0">
-                    {(ch.cleaned_word_count ?? ch.word_count ?? 0).toLocaleString()} 字
+                    {rowWc(ch).toLocaleString()} 字
                 </span>
                 {ch.marks.length > 0 && (
                     <span className="flex items-center gap-1 flex-shrink-0">
                         {ch.marks.map((m, i) => <QcChip key={i} item={m} />)}
                     </span>
+                )}
+                {canMergePrev && (
+                    <button
+                        onClick={onMergePrev}
+                        className="text-[10px] px-1.5 py-0.5 rounded-md border border-sky-200 dark:border-sky-500/30 text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 flex-shrink-0"
+                        title="与上一章合并（重影章一键处理）"
+                        data-pr-mergeprev={ch.chapter_id}
+                    >
+                        ⇧并上一章
+                    </button>
                 )}
                 <button
                     onClick={() => setOpen(o => !o)}
@@ -83,6 +111,9 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
     const [loadError, setLoadError] = useState(null);
     const [titles, setTitles] = useState({});      // chapter_id → 编辑后的标题
     const [removed, setRemoved] = useState([]);    // chapter_id[]
+    const [sel, setSel] = useState([]);            // 合并多选 chapter_id[]
+    // leader chapter_id → 成员 chapter_id[]（含组长，按草稿章序）。组长保留 id，成员行隐身
+    const [groups, setGroups] = useState({});
     const [busy, setBusy] = useState(false);       // commit/discard/reseg 进行中
     const [notice, setNotice] = useState(null);    // 弹层内提示（代替 alert）
 
@@ -98,6 +129,8 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
                 setDetail(d);
                 setTitles({});
                 setRemoved([]);
+                setSel([]);
+                setGroups({});
                 setNotice(null);
             })
             .catch(e => setLoadError(e.message));
@@ -106,8 +139,50 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
     useEffect(() => { reload(); }, [reload]);
 
     const titleOf = (ch) => titles[ch.chapter_id] ?? ch.title ?? '';
-    const toggleRemoved = (cid, on) =>
+
+    const toggleRemoved = (cid, on) => {
+        // 勾选删除已合并的组长：先散伙把成员放回章节树，避免后端"既合并又删除"422
+        if (on && groups[cid]) {
+            setGroups(prev => { const n = { ...prev }; delete n[cid]; return n; });
+        }
         setRemoved(prev => on ? [...prev, cid] : prev.filter(x => x !== cid));
+    };
+
+    const toggleSelect = (cid, on) =>
+        setSel(prev => on ? [...prev, cid] : prev.filter(x => x !== cid));
+
+    // 合并语义与后端 commit_review 对齐：组长 = 组内草稿章序最小者（保留其 id），
+    // 标题 = 正文最长成员（预览以 word_count 代理 len(content)，同序并列取先者）
+    const mergeRows = (ids) => {
+        const uniq = [...new Set(ids)];
+        if (uniq.length < 2) return;
+        const idx = new Map((detail?.chapters || []).map((c, i) => [c.chapter_id, i]));
+        const all = new Set(uniq);
+        // 选中的行若已属某组（组长或隐身成员），整组并入本次合并
+        for (const mem of Object.values(groups)) {
+            if (mem.some(m => all.has(m))) mem.forEach(x => all.add(x));
+        }
+        const members = [...all].filter(id => idx.has(id)).sort((a, b) => idx.get(a) - idx.get(b));
+        if (members.length < 2) return;
+        const leaderId = members[0];
+        setGroups(prev => {
+            const next = {};
+            for (const [lid, mem] of Object.entries(prev)) {
+                if (mem.some(m => all.has(m))) continue; // 被吸收的旧组并入新组
+                next[lid] = mem;
+            }
+            next[leaderId] = members;
+            return next;
+        });
+        // 后端 rename 只作用于组长 id，成员改名会静默丢失——合并时清掉成员编辑
+        setTitles(prev => {
+            const n = { ...prev };
+            for (const m of members) if (m !== leaderId) delete n[m];
+            return n;
+        });
+        setSel([]);
+        setNotice(null);
+    };
 
     const buildCommitBody = (force) => {
         const renames = {};
@@ -115,7 +190,8 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
             const orig = (detail.chapters.find(c => c.chapter_id === cid) || {}).title;
             if (t.trim() && t.trim() !== orig) renames[cid] = t.trim();
         }
-        return { delete_chapter_ids: removed, renames, force: !!force };
+        const merges = Object.values(groups).filter(g => g.length >= 2).map(g => [...g]);
+        return { delete_chapter_ids: removed, renames, merges, force: !!force };
     };
 
     const handleCommit = async (force) => {
@@ -197,6 +273,31 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
     const qcItems = detail?.qc_report?.items || [];
     const blockingCount = qcItems.filter(i => i.level === 'blocking').length;
 
+    // 章节树显示行：合并组成员隐身，组长行显示"合并后"的字数与标题预览
+    const byId = new Map((detail?.chapters || []).map(c => [c.chapter_id, c]));
+    const memberSet = new Set();
+    for (const [lid, mem] of Object.entries(groups)) mem.forEach(m => { if (m !== lid) memberSet.add(m); });
+    const displayRows = (detail?.chapters || [])
+        .filter(c => !memberSet.has(c.chapter_id))
+        .map(c => {
+            const g = groups[c.chapter_id];
+            if (!g) return { ...c };
+            const memChs = g.map(id => byId.get(id)).filter(Boolean);
+            if (memChs.length < 2) return { ...c };
+            const src = memChs.reduce((a, b) => (rowWc(b) > rowWc(a) ? b : a), memChs[0]);
+            return {
+                ...c,
+                title: src.title,  // 预览：入库时后端按正文最长者定标题（rename 仍最后压顶）
+                word_count: memChs.reduce((s, m) => s + rowWc(m), 0),
+                cleaned_word_count: null,
+                mergedCount: memChs.length,
+            };
+        });
+    // "⇧并上一章"目标：显示序列中上一个未删行（仅 R11 重影行给快捷键）
+    const notRemoved = displayRows.filter(r => !removed.includes(r.chapter_id));
+    const prevIdOf = new Map();
+    notRemoved.forEach((r, i) => { if (i > 0) prevIdOf.set(r.chapter_id, notRemoved[i - 1].chapter_id); });
+
     return (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" data-testid="parse-review-modal">
             <div className="w-full max-w-3xl max-h-[88vh] bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl flex flex-col overflow-hidden">
@@ -210,8 +311,8 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
                         {detail?.resegmented && (
                             <span className="px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/30 text-[10px]">AI 已重切</span>
                         )}
-                        <span className="ml-auto text-[11px] text-zinc-400 dark:text-zinc-500 tabular-nums">
-                            {detail ? `${detail.chapters.length} 章 · ${detail.chapters.reduce((s, c) => s + (c.cleaned_word_count ?? c.word_count ?? 0), 0).toLocaleString()} 字` : ''}
+                        <span className="ml-auto text-[11px] text-zinc-400 dark:text-zinc-500 tabular-nums" data-testid="pr-count">
+                            {detail ? `${displayRows.length} 章 · ${displayRows.reduce((s, c) => s + (c.cleaned_word_count ?? c.word_count ?? 0), 0).toLocaleString()} 字` : ''}
                         </span>
                     </div>
                     <h2 className="mt-1 text-lg font-serif-heading font-bold text-zinc-900 dark:text-zinc-100 truncate">
@@ -260,19 +361,46 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
                         )}
                         <div>
                             <p className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-1.5">
-                                章节树（改章名 / 勾选删除，确认后入库）
+                                章节树（改章名 / 勾选删除 / 蓝色勾选多章合并，确认后入库）
                             </p>
+                            {sel.length >= 2 && (
+                                <div className="mb-2 flex items-center gap-2 rounded-xl border border-sky-200 dark:border-sky-500/30 bg-sky-50/70 dark:bg-sky-500/10 px-3 py-2" data-testid="pr-merge-bar">
+                                    <span className="text-xs text-sky-700 dark:text-sky-300">已选 {sel.length} 章，将按章节顺序合并为一章（标题取正文最长者）</span>
+                                    <button
+                                        onClick={() => mergeRows(sel)}
+                                        className="ml-auto px-2.5 py-1 rounded-lg bg-sky-600 text-white text-[11px] font-medium hover:bg-sky-700 flex-shrink-0"
+                                        data-pr-merge-do="1"
+                                    >
+                                        合并为一章
+                                    </button>
+                                    <button
+                                        onClick={() => setSel([])}
+                                        className="px-2 py-1 rounded-lg border border-sky-200 dark:border-sky-500/30 text-[11px] text-sky-600 dark:text-sky-400 hover:bg-sky-100 dark:hover:bg-sky-500/10 flex-shrink-0"
+                                        data-pr-merge-cancel="1"
+                                    >
+                                        取消选择
+                                    </button>
+                                </div>
+                            )}
                             <div className="space-y-1.5">
-                                {detail.chapters.map(ch => (
-                                    <ChapterRow
-                                        key={ch.chapter_id}
-                                        ch={ch}
-                                        removed={removed.includes(ch.chapter_id)}
-                                        editedTitle={titleOf(ch)}
-                                        onToggleRemoved={toggleRemoved}
-                                        onRename={(cid, t) => setTitles(prev => ({ ...prev, [cid]: t }))}
-                                    />
-                                ))}
+                                {displayRows.map(ch => {
+                                    const prevId = prevIdOf.get(ch.chapter_id);
+                                    const hasR11 = (ch.marks || []).some(m => m.rule === 'R11');
+                                    return (
+                                        <ChapterRow
+                                            key={ch.chapter_id}
+                                            ch={ch}
+                                            removed={removed.includes(ch.chapter_id)}
+                                            editedTitle={titleOf(ch)}
+                                            onToggleRemoved={toggleRemoved}
+                                            onRename={(cid, t) => setTitles(prev => ({ ...prev, [cid]: t }))}
+                                            selected={sel.includes(ch.chapter_id)}
+                                            onToggleSelect={toggleSelect}
+                                            canMergePrev={!!prevId && hasR11}
+                                            onMergePrev={() => prevId && mergeRows([prevId, ch.chapter_id])}
+                                        />
+                                    );
+                                })}
                             </div>
                         </div>
                     </>)}
@@ -317,7 +445,7 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
                             className="px-4 py-2 rounded-xl bg-zinc-800 dark:bg-zinc-700 text-white text-xs font-medium hover:bg-zinc-900 dark:hover:bg-zinc-600 disabled:opacity-40 transition-all"
                             data-testid="pr-commit"
                         >
-                            确认入库（{detail ? detail.chapters.length - removed.length : 0} 章）
+                            确认入库（{detail ? displayRows.length - removed.length : 0} 章）
                         </button>
                     </div>
                 </div>

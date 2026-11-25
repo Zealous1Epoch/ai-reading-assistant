@@ -142,48 +142,76 @@ def test_reseg_triggers():
 
 # ── PDF 扫描画像 + OCR 路由 ────────────────────────────────────
 class TestPdfOcrRouting:
+    """自包含：fitz 现造扫描样/电子书样 PDF（旧版钉死 uploads 馆藏文件，删书即漂）"""
+
     @pytest.fixture()
     def processor(self):
         from app.services.book_processor import book_processor
         return book_processor
 
-    def test_scan_profile_separates(self, processor):
-        """校准口径：扫描书整页图 ~100%，电子书 ~1%（阈值 60% 缓冲巨大）"""
+    @pytest.fixture(scope="class")
+    def scan_pdf(self, tmp_path_factory):
+        """扫描形态：3 页整页大图 + ~116 ASCII 字/页垃圾文字层（>20 字/页 → 走垃圾层线而非纯扫描线）"""
         import fitz
-        junk = processor._pdf_scan_profile(fitz.open(str(_ROOT / "uploads/05b86123-fcda-48c0-a0cb-017a709c5e62.pdf")))
-        ebook = processor._pdf_scan_profile(fitz.open(str(_ROOT / "uploads/ff90ff47-c26e-436a-8814-0659a01f8973.pdf")))
+        p = tmp_path_factory.mktemp("ocrpdf") / "scan_junk.pdf"
+        doc = fitz.open()
+        for _ in range(3):
+            page = doc.new_page(width=595, height=842)
+            pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 240, 340))
+            pix.set_rect(pix.irect, (180, 180, 180))
+            page.insert_image(page.rect, pixmap=pix)
+            page.insert_text((72, 100), "OCR GARBAGE LAYER 0123456789 " * 4, fontname="helv")
+        doc.save(str(p))
+        doc.close()
+        return str(p)
+
+    @pytest.fixture(scope="class")
+    def ebook_pdf(self, tmp_path_factory):
+        """电子书形态：纯文字层无图片（helv 不支持中文，样本用 ASCII）"""
+        import fitz
+        p = tmp_path_factory.mktemp("ocrpdf") / "ebook.pdf"
+        doc = fitz.open()
+        page = doc.new_page(width=595, height=842)
+        for i in range(30):
+            page.insert_text((72, 80 + i * 20), f"body line {i} " + "normal text " * 8, fontname="helv")
+        doc.save(str(p))
+        doc.close()
+        return str(p)
+
+    def test_scan_profile_separates(self, processor, scan_pdf, ebook_pdf):
+        """校准口径：整页图扫描 ~100%，纯文字电子书 0%（阈值 60% 缓冲巨大）"""
+        import fitz
+        junk = processor._pdf_scan_profile(fitz.open(scan_pdf))
+        ebook = processor._pdf_scan_profile(fitz.open(ebook_pdf))
         assert junk["img_ratio"] >= 0.9
         assert ebook["img_ratio"] <= 0.1
 
-    def test_junk_layer_with_key_goes_cloud(self, processor, monkeypatch):
+    def test_junk_layer_with_key_goes_cloud(self, processor, monkeypatch, scan_pdf):
         """垃圾文字层 + 已配密钥 → 云端 OCR 整本重认并打 from_ocr 标"""
         from app.services import baidu_ocr
         monkeypatch.setattr(baidu_ocr, "is_configured", lambda: True)
         monkeypatch.setattr(processor, "_ocr_pdf_baidu",
                             lambda doc, book_id="": "[PAGE 1]\n" + ("云端识别文字" * 20000))
-        text, meta = processor.extract_text_from_pdf(
-            str(_ROOT / "uploads/05b86123-fcda-48c0-a0cb-017a709c5e62.pdf"))
+        text, meta = processor.extract_text_from_pdf(scan_pdf)
         assert meta.get("from_ocr") is True
         assert meta.get("ocr_engine") == "baidu"
         assert text.startswith("[PAGE 1]\n云端")
 
-    def test_junk_layer_without_key_keeps_layer(self, processor, monkeypatch):
+    def test_junk_layer_without_key_keeps_layer(self, processor, monkeypatch, scan_pdf):
         """垃圾文字层但没配密钥：沿用原层，不打 OCR 标（不炸不装）"""
         from app.services import baidu_ocr
         monkeypatch.setattr(baidu_ocr, "is_configured", lambda: False)
-        _t, meta = processor.extract_text_from_pdf(
-            str(_ROOT / "uploads/05b86123-fcda-48c0-a0cb-017a709c5e62.pdf"))
+        _t, meta = processor.extract_text_from_pdf(scan_pdf)
         assert "from_ocr" not in meta
 
-    def test_clean_ebook_untouched(self, processor, monkeypatch):
+    def test_clean_ebook_untouched(self, processor, monkeypatch, ebook_pdf):
         """正常电子书 PDF：即使配了密钥也不该触发 OCR"""
         from app.services import baidu_ocr
         monkeypatch.setattr(baidu_ocr, "is_configured", lambda: True)
         called = {"n": 0}
         monkeypatch.setattr(processor, "_ocr_pdf_baidu",
                             lambda doc, book_id="": called.__setitem__("n", called["n"] + 1) or "")
-        _t, meta = processor.extract_text_from_pdf(
-            str(_ROOT / "uploads/ff90ff47-c26e-436a-8814-0659a01f8973.pdf"))
+        _t, meta = processor.extract_text_from_pdf(ebook_pdf)
         assert called["n"] == 0 and "from_ocr" not in meta
 
 

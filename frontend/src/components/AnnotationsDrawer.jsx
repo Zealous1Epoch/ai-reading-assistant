@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 
-// v3.7 批注抽屉：全书高亮+笔记按章结集（顶栏「批注」唤出，右侧满高，与资产区同款镜像）
+// v3.7 批注弹层：全书高亮+笔记按章结集。样式与会话/卡片同款（v3.2 口径：顶栏按钮下方弹出，
+// 按钮在顶栏右缘 → 弹层 right-0 锚定向左展开；调用方给 relative 容器；内容区 max-h 内滚）
 // 点条跳原文（复用引用跳章的 cite-flash）；色/笔记双筛；一键导出 Markdown 落 Obsidian「读点书吧」
 const COLORS = [
     { key: 'amber', dot: 'bg-amber-400', text: 'text-amber-500', name: '重要' },
@@ -89,8 +90,10 @@ function AnnotationsDrawer({ book, highlights, onClose, onJump, onRemove, onQuot
 
     return (
         <>
-            <div className="fixed inset-0 z-40" onClick={onClose} />
-            <div className="fixed right-0 top-0 bottom-0 z-50 w-96 bg-white dark:bg-zinc-900 border-l border-zinc-200 dark:border-zinc-800 shadow-2xl flex flex-col" style={{ animation: 'fade-in 0.2s ease-out' }}>
+            <div className="fixed inset-0 z-30" onClick={onClose} />
+            <div data-ann-panel
+                 className="absolute top-full right-0 mt-2 z-40 w-96 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-lg flex flex-col overflow-hidden"
+                 style={{ animation: 'fade-in 0.2s ease-out' }}>
                 {/* 标题栏：计数 + 导出 + 关闭 */}
                 <div className="px-4 pt-4 pb-3 border-b border-zinc-100 dark:border-zinc-800 flex items-center gap-2 flex-shrink-0">
                     <h3 className="text-sm font-serif-heading font-semibold text-zinc-800 dark:text-zinc-200">批注</h3>
@@ -135,8 +138,8 @@ function AnnotationsDrawer({ book, highlights, onClose, onJump, onRemove, onQuot
                     >✎ 只看有笔记</button>
                 </div>
 
-                {/* 按章分组列表 */}
-                <div className="flex-1 overflow-y-auto scrollbar-thin p-4 pt-2 space-y-4">
+                {/* 按章分组列表（弹层口径：限高内滚，与会话/卡片一致） */}
+                <div className="max-h-[62vh] overflow-y-auto scrollbar-thin p-4 pt-2 space-y-4">
                     {all.length === 0 && (
                         <p className="text-xs text-zinc-300 text-center py-10">还没有高亮——读书时选中一段文字，点色板试试</p>
                     )}

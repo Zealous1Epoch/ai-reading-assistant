@@ -32,8 +32,27 @@
         .dark .drop-zone.dragover { border-color: #a1a1aa; background: #18181b; }
         .cite-flash { animation: cite-flash 3.2s ease-out; border-radius: 8px; }
         @keyframes cite-flash { 0% { background: transparent; } 8% { background: rgba(251, 191, 36, 0.5); } 60% { background: rgba(251, 191, 36, 0.35); } 100% { background: transparent; } }
-        .hl-mark { background: rgba(251, 191, 36, 0.3); border-radius: 2px; cursor: pointer; box-decoration-break: clone; -webkit-box-decoration-break: clone; transition: background 0.15s ease; }
-        .hl-mark:hover { background: rgba(251, 191, 36, 0.55); }
+        /* v3.6 多色高亮：色键与后端 HL_COLORS 一致；旧数据无 color → ReadingPane 归到 amber。
+           笔记角标走 ::after，不进 DOM 文本（否则污染 collectSelection 的选区采集） */
+        .hl-mark { border-radius: 2px; cursor: pointer; box-decoration-break: clone; -webkit-box-decoration-break: clone; transition: background 0.15s ease; }
+        .hl-mark.hl-c-amber { background: rgba(251, 191, 36, 0.3); }
+        .hl-mark.hl-c-green { background: rgba(74, 222, 128, 0.32); }
+        .hl-mark.hl-c-blue  { background: rgba(96, 165, 250, 0.32); }
+        .hl-mark.hl-c-pink  { background: rgba(244, 114, 182, 0.3); }
+        .hl-mark.hl-c-amber:hover { background: rgba(251, 191, 36, 0.55); }
+        .hl-mark.hl-c-green:hover { background: rgba(74, 222, 128, 0.55); }
+        .hl-mark.hl-c-blue:hover  { background: rgba(96, 165, 250, 0.55); }
+        .hl-mark.hl-c-pink:hover  { background: rgba(244, 114, 182, 0.55); }
+        .dark .hl-mark.hl-c-amber { background: rgba(251, 191, 36, 0.38); }
+        .dark .hl-mark.hl-c-green { background: rgba(74, 222, 128, 0.34); }
+        .dark .hl-mark.hl-c-blue  { background: rgba(96, 165, 250, 0.36); }
+        .dark .hl-mark.hl-c-pink  { background: rgba(244, 114, 182, 0.34); }
+        .hl-mark.hl-noted::after { content: '\270E'; font-size: 0.62em; vertical-align: super; margin-left: 1px; opacity: 0.7; }
+        /* 选区条/划线菜单里的色板圆点（实色，比 mark 饱和） */
+        .hl-swatch-amber { background: #fbbf24; }
+        .hl-swatch-green { background: #4ade80; }
+        .hl-swatch-blue  { background: #60a5fa; }
+        .hl-swatch-pink  { background: #f472b6; }
         /* v3.5 纸张主题：变量由 ReadingPane 容器内联提供（appearance.js 的 PAPER_THEMES）。
            选择器两条 class + 元素，天然压过正文上的 text-zinc-700 等单 class 工具类。 */
         .reader-surface .reader-title { color: var(--paper-strong); }
@@ -48,8 +67,8 @@
         .dark .scrollbar-thin::-webkit-scrollbar-thumb { background: #3f3f46; }
         .dark .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #52525b; }
     </style>
-  <script type="module" crossorigin src="/assets/index-CFurl5Th.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-zDSRck5Y.css">
+  <script type="module" crossorigin src="/assets/index-DpsyOtni.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-Cl6qIwuc.css">
 </head>
 <body class="bg-zinc-50 dark:bg-zinc-950 antialiased">
     <div id="root"></div>

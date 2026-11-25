@@ -62,8 +62,8 @@ function BookReader({
     aiOpen, setAiOpen,
     // 知识卡片（v2.3）：该书今日到期数 + 复习/删卡后的徽标刷新
     cardDue, onCardsStatsChanged,
-    // v2.7 划线高亮 + 选区引用进对话
-    highlights, onAddHighlights, onRemoveHighlight, onQuoteToChat, quoteDraft, onClearQuote,
+    // v2.7 划线高亮 + 选区引用进对话；v3.6 onUpdateHighlight=换色/改笔记
+    highlights, onAddHighlights, onRemoveHighlight, onQuoteToChat, onUpdateHighlight, quoteDraft, onClearQuote,
     // v3.5 设置面板（App 持有单实例）
     onOpenSettings,
 }) {
@@ -231,6 +231,7 @@ function BookReader({
                     onAddHighlights={onAddHighlights}
                     onRemoveHighlight={onRemoveHighlight}
                     onQuoteToChat={onQuoteToChat}
+                    onUpdateHighlight={onUpdateHighlight}
                 />
                 {aiOpen && (
                     <ResizeHandle side="ai" onPointerDown={startDrag('ai')} onDoubleClick={() => setPaneW(w => ({ ...w, ai: DEFAULT_AI_W }))} />

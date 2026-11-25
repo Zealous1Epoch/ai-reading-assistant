@@ -102,7 +102,7 @@ function App() {
             .then(d => setHighlights(d.highlights || [])).catch(() => {});
     }, [currentBook?.book_id]);
 
-    const handleAddHighlights = async (frags) => {
+    const handleAddHighlights = async (frags, opts) => {
         if (!currentBook || !currentChapter) return;
         const created = [];
         for (const f of frags) {
@@ -116,6 +116,9 @@ function App() {
                         start_p: f.start_p,
                         text: f.text,
                         chapter_title: currentChapter.title,
+                        // v3.6 色键/笔记：带了才送，后端幂等更新既有条目
+                        ...(opts?.color ? { color: opts.color } : {}),
+                        ...(opts?.note != null ? { note: opts.note } : {}),
                     })
                 });
                 const d = await res.json().catch(() => ({}));
@@ -125,9 +128,26 @@ function App() {
         if (created.length) {
             setHighlights(prev => {
                 const seen = new Set(prev.map(h => h.highlight_id));
-                return [...prev, ...created.filter(h => !seen.has(h.highlight_id))];
+                // v3.6：后端对同文重复高亮是幂等更新（变色/加笔记），已在库里的要替换而不是丢弃
+                const upd = new Map(created.map(h => [h.highlight_id, h]));
+                return [...prev.map(h => upd.get(h.highlight_id) || h), ...created.filter(h => !seen.has(h.highlight_id))];
             });
         }
+    };
+
+    // v3.6 换色 / 写·改·清笔记：PATCH 成功后原位替换
+    const handleUpdateHighlight = async (id, patch) => {
+        try {
+            const res = await fetch(`${API_BASE}/highlights/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(patch),
+            });
+            const d = await res.json().catch(() => ({}));
+            if (res.ok && d.highlight) {
+                setHighlights(prev => prev.map(h => h.highlight_id === id ? d.highlight : h));
+            }
+        } catch { /* 失败保持原样，下次进书以服务端为准 */ }
     };
 
     const handleRemoveHighlight = async (id) => {
@@ -962,6 +982,7 @@ function App() {
                 highlights={highlights}
                 onAddHighlights={handleAddHighlights}
                 onRemoveHighlight={handleRemoveHighlight}
+                onUpdateHighlight={handleUpdateHighlight}
                 onQuoteToChat={setQuoteDraft}
                 quoteDraft={quoteDraft}
                 onClearQuote={() => setQuoteDraft(null)}

@@ -22,6 +22,23 @@ settings = get_settings()
 _lock = threading.Lock()
 
 TEXT_CAP = 2000   # 单条划线原文上限（超长选区截断，防误粘贴整章进来）
+NOTE_CAP = 500    # 单条笔记上限（想法写不下的是书评，不是笔记）
+
+# v3.6 多色高亮：色键是稳定契约（前端 CSS 同名 class），旧数据无 color 字段 → 默认黄
+HL_COLORS = ("amber", "green", "blue", "pink")
+DEFAULT_COLOR = "amber"
+
+
+def _norm_color(color) -> str:
+    return color if color in HL_COLORS else DEFAULT_COLOR
+
+
+def _norm_note(note):
+    """note=None 表示「不改动」；字符串（含空串）表示「设值」，空串清空 → None"""
+    if note is None:
+        return None
+    s = str(note).strip()[:NOTE_CAP]
+    return s or None
 
 
 def _path() -> str:
@@ -51,8 +68,10 @@ def _save(data: Dict[str, dict]):
 
 
 def add_highlight(book_id: str, chapter_id: str, start_p: int,
-                  text: str, chapter_title: Optional[str] = None) -> Optional[dict]:
-    """新增划线。text 去空白后为空 → None；同书同章同段同文（去空白精确比对）→ 返回既有条目（幂等去重）"""
+                  text: str, chapter_title: Optional[str] = None,
+                  color: Optional[str] = None, note: Optional[str] = None) -> Optional[dict]:
+    """新增划线。text 去空白后为空 → None；同书同章同段同文（去空白精确比对）→ 返回既有条目
+    （幂等去重；v3.6：重复高亮同文时带 color/note 则顺手更新既有 entry，不带则原样返回）"""
     text = (text or "").strip()[:TEXT_CAP]
     if not text:
         return None
@@ -63,7 +82,22 @@ def add_highlight(book_id: str, chapter_id: str, start_p: int,
             if (h.get("book_id") == book_id and h.get("chapter_id") == chapter_id
                     and h.get("start_p") == start_p
                     and "".join((h.get("text") or "").split()) == key):
-                return h   # 重复划线：不新增，直接回既有
+                # 重复划线：不新增。带了新颜色/笔记 → 覆盖既有条目的对应字段
+                touched = False
+                if color is not None:
+                    new_c = _norm_color(color)
+                    if h.get("color") != new_c:
+                        h["color"] = new_c
+                        touched = True
+                if note is not None:
+                    new_n = _norm_note(note)
+                    if h.get("note") != new_n:
+                        h["note"] = new_n
+                        touched = True
+                if touched:
+                    h["updated_at"] = datetime.now().isoformat(timespec="seconds")
+                    _save(data)
+                return h
         hl = {
             "highlight_id": str(uuid.uuid4()),
             "book_id": book_id,
@@ -71,11 +105,38 @@ def add_highlight(book_id: str, chapter_id: str, start_p: int,
             "chapter_title": chapter_title,
             "start_p": int(start_p),
             "text": text,
+            "color": _norm_color(color),
+            "note": _norm_note(note),
             "created_at": datetime.now().isoformat(timespec="seconds"),
         }
         data[hl["highlight_id"]] = hl
         _save(data)
         return hl
+
+
+def update_highlight(highlight_id: str, color: Optional[str] = None,
+                     note: Optional[str] = None) -> Optional[dict]:
+    """v3.6 换色/改笔记。color=None 不动色；note=None 不动笔记，note='' 清空笔记。找不到 → None"""
+    with _lock:
+        data = _load()
+        h = data.get(highlight_id)
+        if h is None:
+            return None
+        touched = False
+        if color is not None:
+            new_c = _norm_color(color)
+            if h.get("color") != new_c:
+                h["color"] = new_c
+                touched = True
+        if note is not None:
+            new_n = _norm_note(note)
+            if h.get("note") != new_n:
+                h["note"] = new_n
+                touched = True
+        if touched:
+            h["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            _save(data)
+        return h
 
 
 def list_highlights(book_id: Optional[str] = None,

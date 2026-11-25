@@ -25,6 +25,16 @@ function cleanChapterContent(text) {
 // 渲染文本会经过 trim/清洗，与选区文本比对统一去掉全部空白再匹配（偏移映射回原文）
 const normWs = s => (s || '').replace(/\s+/g, '');
 
+// v3.6 多色高亮：色键与后端 highlight_store.HL_COLORS 一致；文案即按钮提示
+const HL_COLORS = [
+    { key: 'amber', name: '黄色 · 重要' },
+    { key: 'green', name: '绿色 · 喜欢' },
+    { key: 'blue',  name: '蓝色 · 存疑' },
+    { key: 'pink',  name: '粉色 · 不认同' },
+];
+// 旧数据没有 color 字段 → 默认黄；笔记角标用 CSS ::after 画（不进 DOM 文本，不污染选区采集）
+const hlClassOf = h => 'hl-mark hl-c-' + (HL_COLORS.some(c => c.key === h.color) ? h.color : 'amber') + (h.note ? ' hl-noted' : '');
+
 // 计算选区端点 (node, offset) 在 root 纯文本中的偏移（跨 mark 等子节点也准）
 function textOffsetIn(root, node, offset) {
     let acc = 0;
@@ -74,7 +84,7 @@ function wrapHighlights(raw, hls) {
     for (const [s, e, h] of spans) {
         if (s < cur) continue;     // 重叠片段只保留先匹配的
         if (s > cur) out.push(raw.slice(cur, s));
-        out.push(<mark key={h.highlight_id} className="hl-mark" data-hl={h.highlight_id}>{raw.slice(s, e)}</mark>);
+        out.push(<mark key={h.highlight_id} className={hlClassOf(h)} data-hl={h.highlight_id}>{raw.slice(s, e)}</mark>);
         cur = e;
     }
     if (cur < raw.length) out.push(raw.slice(cur));
@@ -138,14 +148,16 @@ function ChapterNavButton({ dir, disabled, title, onClick }) {
 
 // 阅读区：摘要条全宽置顶 + 正文；容器宽 >= 900px 时正文自动双栏（书页模式）
 // citeTarget：句内引用跳章后的段落高亮目标 {chapter_id, snippet, nonce}
-// v2.7 划线：highlights=当前书全部划线；onAddHighlights(frags)/onRemoveHighlight(id)/onQuoteToChat({text,chapter_id,...})
+// v2.7 划线：highlights=当前书全部划线；onAddHighlights(frags,opts)/onRemoveHighlight(id)/onQuoteToChat({text,chapter_id,...})
+// v3.6：onAddHighlights 第二参 opts={color,note}；onUpdateHighlight(id,{color,note}) 换色/改笔记
 function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget,
-                       highlights, onAddHighlights, onRemoveHighlight, onQuoteToChat }) {
+                       highlights, onAddHighlights, onRemoveHighlight, onQuoteToChat, onUpdateHighlight }) {
     const [summary, setSummary] = useState(null);
     const [summaryLoading, setSummaryLoading] = useState(false);
     const [summaryOpen, setSummaryOpen] = useState(true);
     const [selBar, setSelBar] = useState(null);   // 选区操作条 {top,left,frags,text}
     const [hlMenu, setHlMenu] = useState(null);   // 点已划线弹层 {top,left,id}
+    const [noteBox, setNoteBox] = useState(null); // v3.6 笔记弹层 {mode:'new'|'edit',hlId?,frags?,text,value,top,left}
     const [hlBusy, setHlBusy] = useState(false);
     // v3.5 外观：纸张/字号即时响应设置面板（'wb-appearance' 广播，不走 props 层层透传）
     const [ap, setAp] = useState(loadAppearance);
@@ -262,6 +274,7 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget,
     useEffect(() => {
         const box = scrollRef.current;
         if (!box) return;
+        // 笔记弹层不清：正在输入的草稿比几像素的位移金贵
         const hide = () => { setSelBar(null); setHlMenu(null); };
         box.addEventListener('scroll', hide, { passive: true });
         return () => box.removeEventListener('scroll', hide);
@@ -313,13 +326,76 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget,
         });
     };
 
-    const doHighlight = async () => {
+    const doHighlight = async (color = 'amber') => {
         if (!selBar || !currentBook || !currentChapter || hlBusy) return;
         setHlBusy(true);
         try {
-            await onAddHighlights?.(selBar.frags.map(f => ({ start_p: f.p, text: f.text })));
+            await onAddHighlights?.(selBar.frags.map(f => ({ start_p: f.p, text: f.text })), { color });
             window.getSelection()?.removeAllRanges();
             setSelBar(null);
+        } finally {
+            setHlBusy(false);
+        }
+    };
+
+    // —— v3.6 笔记 ——
+    // 选区「写笔记」：高亮+笔记一体（微信读书式），保存时默认黄底，改色走划线菜单
+    const openNoteFromSel = () => {
+        if (!selBar) return;
+        const rr = rootRef.current?.getBoundingClientRect();
+        if (!rr) return;
+        setNoteBox({
+            mode: 'new', frags: selBar.frags, text: selBar.text, value: '',
+            top: Math.max(6, Math.min(selBar.top + 42, rr.height - 190)),
+            left: selBar.left,
+        });
+        setSelBar(null);
+    };
+    const openNoteFromMenu = () => {
+        const h = (highlights || []).find(x => x.highlight_id === hlMenu?.id);
+        if (!h) return;
+        const rr = rootRef.current?.getBoundingClientRect();
+        if (!rr) return;
+        setNoteBox({
+            mode: 'edit', hlId: h.highlight_id, text: h.text, value: h.note || '',
+            top: Math.max(6, Math.min(hlMenu.top + 36, rr.height - 190)),
+            left: hlMenu.left,
+        });
+        setHlMenu(null);
+    };
+    const saveNote = async () => {
+        if (!noteBox || hlBusy) return;
+        setHlBusy(true);
+        try {
+            const note = noteBox.value.trim();
+            if (noteBox.mode === 'edit') {
+                await onUpdateHighlight?.(noteBox.hlId, { note });   // '' 也送：后端语义=清空笔记、保留高亮
+            } else if (note) {
+                await onAddHighlights?.(noteBox.frags.map(f => ({ start_p: f.p, text: f.text })), { color: 'amber', note });
+            }
+            window.getSelection()?.removeAllRanges();
+            setNoteBox(null);
+        } finally {
+            setHlBusy(false);
+        }
+    };
+    const clearNote = async () => {
+        if (!noteBox?.hlId || hlBusy) return;
+        setHlBusy(true);
+        try {
+            await onUpdateHighlight?.(noteBox.hlId, { note: '' });
+            setNoteBox(null);
+        } finally {
+            setHlBusy(false);
+        }
+    };
+    // 划线菜单里直接换色
+    const changeHlColor = async (color) => {
+        if (!hlMenu?.id || hlBusy) return;
+        setHlBusy(true);
+        try {
+            await onUpdateHighlight?.(hlMenu.id, { color });
+            setHlMenu(null);
         } finally {
             setHlBusy(false);
         }
@@ -343,17 +419,19 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget,
     };
 
     const handleBodyClick = (e) => {
-        if (e.target.closest?.('[data-sel-bar],[data-hl-menu]')) return;
+        if (e.target.closest?.('[data-sel-bar],[data-hl-menu],[data-note-box]')) return;
         const mark = e.target.closest?.('[data-hl]');
-        if (!mark) { setHlMenu(null); return; }
+        if (!mark) { setHlMenu(null); setNoteBox(null); return; }
         const rr = rootRef.current && rootRef.current.getBoundingClientRect();
         const rect = mark.getBoundingClientRect();
         if (!rr) return;
         setSelBar(null);
+        setNoteBox(null);
+        // v3.6 菜单变宽（色板+三动作），钳位宽度随之放大
         setHlMenu({
             id: mark.dataset.hl,
-            top: Math.min(rect.bottom - rr.top + 6, rr.height - 52),
-            left: Math.max(8, Math.min(rect.left - rr.left, rr.width - 118)),
+            top: Math.min(rect.bottom - rr.top + 6, rr.height - 56),
+            left: Math.max(8, Math.min(rect.left - rr.left, rr.width - 292)),
         });
     };
 
@@ -490,14 +568,22 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget,
                 </div>
             </div>
 
-            {/* v2.7 选区操作条：划线 / 加入对话 / 复制 */}
+            {/* v3.6 选区操作条：四色高亮 / 写笔记 / 加入对话 / 复制 */}
             {selBar && (
                 <div data-sel-bar
-                     className="absolute z-30 flex items-center gap-0.5 px-1 py-0.5 rounded-lg bg-zinc-900 shadow-xl animate-fade-in"
+                     className="absolute z-30 flex items-center gap-0.5 px-1.5 py-1 rounded-lg bg-zinc-900 shadow-xl animate-fade-in"
                      style={{ top: selBar.top, left: selBar.left }}
                      onMouseUp={e => e.stopPropagation()}>
-                    <button onMouseDown={e => e.preventDefault()} onClick={doHighlight} disabled={hlBusy}
-                            data-sel-hl className="px-2 py-1 rounded-md text-[12px] text-amber-300 hover:bg-zinc-700 disabled:opacity-50">划线</button>
+                    <span className="flex items-center gap-1.5 px-1">
+                        {HL_COLORS.map(c => (
+                            <button key={c.key} onMouseDown={e => e.preventDefault()} onClick={() => doHighlight(c.key)}
+                                    disabled={hlBusy} data-sel-hl={c.key} title={`高亮 · ${c.name}`} aria-label={`高亮 ${c.name}`}
+                                    className={`w-4 h-4 rounded-full hl-swatch-${c.key} hover:scale-125 focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50 transition-transform`} />
+                        ))}
+                    </span>
+                    <span className="w-px h-4 bg-zinc-700 mx-0.5" aria-hidden="true" />
+                    <button onMouseDown={e => e.preventDefault()} onClick={openNoteFromSel}
+                            data-sel-note className="px-2 py-1 rounded-md text-[12px] text-emerald-300 hover:bg-zinc-700">写笔记</button>
                     <button onMouseDown={e => e.preventDefault()} onClick={doQuoteToChat}
                             data-sel-quote className="px-2 py-1 rounded-md text-[12px] text-sky-300 hover:bg-zinc-700">加入对话</button>
                     <button onMouseDown={e => e.preventDefault()} onClick={doCopy}
@@ -505,22 +591,69 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget,
                 </div>
             )}
 
-            {/* 点已有划线弹层：取消划线 / 加入对话 */}
-            {hlMenu && (
-                <div data-hl-menu
-                     className="absolute z-30 flex items-center gap-0.5 px-1 py-0.5 rounded-lg bg-zinc-900 shadow-xl animate-fade-in"
-                     style={{ top: hlMenu.top, left: hlMenu.left }}
+            {/* 点已有高亮弹层：换色 / 笔记 / 加入对话 / 取消 */}
+            {hlMenu && (() => {
+                const target = (highlights || []).find(x => x.highlight_id === hlMenu.id);
+                if (!target) return null;
+                return (
+                    <div data-hl-menu
+                         className="absolute z-30 rounded-lg bg-zinc-900 shadow-xl animate-fade-in overflow-hidden"
+                         style={{ top: hlMenu.top, left: hlMenu.left }}
+                         onMouseUp={e => e.stopPropagation()}>
+                        {target.note && (
+                            <button onMouseDown={e => e.preventDefault()} onClick={openNoteFromMenu}
+                                    data-hl-note-view title="查看/编辑笔记"
+                                    className="block w-full max-w-[284px] text-left px-2.5 py-1.5 text-[11px] leading-4 text-zinc-300 border-b border-zinc-800 hover:bg-zinc-700">
+                                <span className="text-emerald-300">✎</span> <span className="truncate align-bottom">{target.note}</span>
+                            </button>
+                        )}
+                        <div className="flex items-center gap-0.5 px-1.5 py-1">
+                            <span className="flex items-center gap-1.5 px-1">
+                                {HL_COLORS.map(c => (
+                                    <button key={c.key} onMouseDown={e => e.preventDefault()} onClick={() => changeHlColor(c.key)}
+                                            disabled={hlBusy} data-hl-color={c.key} title={`换成 ${c.name}`} aria-label={`换成 ${c.name}`}
+                                            className={`w-4 h-4 rounded-full hl-swatch-${c.key} transition-transform ${target.color === c.key || (!target.color && c.key === 'amber') ? 'ring-2 ring-white' : 'hover:scale-125'}`} />
+                                ))}
+                            </span>
+                            <span className="w-px h-4 bg-zinc-700 mx-0.5" aria-hidden="true" />
+                            <button onMouseDown={e => e.preventDefault()} onClick={openNoteFromMenu}
+                                    data-hl-note className="px-2 py-1 rounded-md text-[12px] text-emerald-300 hover:bg-zinc-700">笔记</button>
+                            <button onMouseDown={e => e.preventDefault()}
+                                    onClick={() => {
+                                        onQuoteToChat?.({ text: target.text, chapter_id: target.chapter_id, chapter_title: target.chapter_title });
+                                        setHlMenu(null);
+                                    }}
+                                    data-hl-quote className="px-2 py-1 rounded-md text-[12px] text-sky-300 hover:bg-zinc-700">加入对话</button>
+                            <button onMouseDown={e => e.preventDefault()}
+                                    onClick={async () => { await onRemoveHighlight?.(hlMenu.id); setHlMenu(null); }}
+                                    data-hl-remove className="px-2 py-1 rounded-md text-[12px] text-red-300 hover:bg-zinc-700">取消</button>
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {/* v3.6 笔记弹层：选区新建（高亮+笔记一体）/ 点高亮编辑 */}
+            {noteBox && (
+                <div data-note-box
+                     className="absolute z-40 w-[280px] rounded-xl bg-zinc-900 shadow-2xl animate-fade-in p-3"
+                     style={{ top: noteBox.top, left: Math.max(8, Math.min(noteBox.left, (rootRef.current?.clientWidth || 320) - 292)) }}
                      onMouseUp={e => e.stopPropagation()}>
-                    <button onMouseDown={e => e.preventDefault()}
-                            onClick={async () => { await onRemoveHighlight?.(hlMenu.id); setHlMenu(null); }}
-                            data-hl-remove className="px-2 py-1 rounded-md text-[12px] text-red-300 hover:bg-zinc-700">取消划线</button>
-                    <button onMouseDown={e => e.preventDefault()}
-                            onClick={() => {
-                                const h = (highlights || []).find(x => x.highlight_id === hlMenu.id);
-                                if (h) onQuoteToChat?.({ text: h.text, chapter_id: h.chapter_id, chapter_title: h.chapter_title });
-                                setHlMenu(null);
-                            }}
-                            data-hl-quote className="px-2 py-1 rounded-md text-[12px] text-sky-300 hover:bg-zinc-700">加入对话</button>
+                    <p className="text-[11px] text-zinc-500 truncate mb-1.5" title={noteBox.text}>「{noteBox.text}」</p>
+                    <textarea autoFocus rows={3} maxLength={500} value={noteBox.value}
+                              onChange={e => setNoteBox(b => ({ ...b, value: e.target.value }))}
+                              onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') saveNote(); }}
+                              data-note-input placeholder={noteBox.mode === 'new' ? '想法写在这里…（⌘↵ 保存）' : '修改笔记…（⌘↵ 保存）'}
+                              className="w-full resize-none rounded-lg bg-zinc-800 text-zinc-100 text-[12px] leading-5 px-2 py-1.5 outline-none focus:ring-1 focus:ring-emerald-400/60 placeholder:text-zinc-500" />
+                    <div className="flex items-center justify-end gap-1 mt-1.5">
+                        {noteBox.mode === 'edit' && (
+                            <button onMouseDown={e => e.preventDefault()} onClick={clearNote} disabled={hlBusy}
+                                    data-note-clear className="mr-auto text-[11px] text-red-300 hover:bg-zinc-700 rounded-md px-2 py-1">清空笔记</button>
+                        )}
+                        <button onMouseDown={e => e.preventDefault()} onClick={() => setNoteBox(null)}
+                                data-note-cancel className="text-[11px] text-zinc-400 hover:bg-zinc-700 rounded-md px-2 py-1">取消</button>
+                        <button onMouseDown={e => e.preventDefault()} onClick={saveNote} disabled={hlBusy || (noteBox.mode === 'new' && !noteBox.value.trim())}
+                                data-note-save className="text-[11px] bg-emerald-400 text-zinc-900 rounded-md px-2.5 py-1 font-medium hover:bg-emerald-300 disabled:opacity-40">保存</button>
+                    </div>
                 </div>
             )}
         </div>

@@ -1,5 +1,14 @@
 # 智能读书助手 — 版本历史
 
+## v3.6 — 2026-11-25（划线升级多色高亮 + 笔记批注）
+- **数据模型**：highlight entry 加 `color`（契约 `HL_COLORS=(amber,green,blue,pink)`，默认 amber）与 `note`（NOTE_CAP=500）。**旧数据零迁移**：无 color 字段前端归黄、无 note 即无角标
+- **幂等语义扩展**：同文重复高亮带 color/note → 更新既有条目（换色/补笔记不产生第二条 mark），不带 → 原样返回（不冲掉已有色与笔记）；新增 `PATCH /highlights/{id}`（color/note 至少一项，非法色 400，note='' 语义=清空笔记保留高亮）
+- **前端**：选区操作条「划线」按钮换 4 色圆点色板（title 带用途暗示：重要/喜欢/存疑/不认同）+ 新增「写笔记」；点高亮弹层加当前色环标记的换色板、笔记预览行（✎+首行截断）、笔记/加入对话/取消；笔记弹层 textarea 500 字上限、⌘↵ 保存、编辑态带「清空笔记」；App 端 `handleAddHighlights(frags,opts)` 透传 + `handleUpdateHighlight` PATCH 原位替换（幂等更新返回的既有条目要**替换**而非丢弃，否则同文变色 UI 不刷新）
+- **笔记角标走 CSS `::after`**（`.hl-noted::after{content:'✎'}`），不进 DOM 文本——若用真实节点会混进 `collectSelection` 的 leaf.textContent，二次选区跨角标时文本对不上、划线静默错位匹配失败
+- **测试**：pytest **214 passed**（+5：色默认/回落、note 上限清空、重复高亮改色合并、update_highlight、路由 PATCH）；新增零 LLM `e2e_highlights.cjs` **19/19**（绿标落盘→菜单换粉→写笔记角标→刷新持久→预览行→清空→选区直建黄底笔记→回基线，开跑先清空测试书残留）；截图目检色板/弹层无溢出错位
+- 踩坑：① props 三跳（App→BookReader→ReadingPane）漏一跳，PATCH/笔记保存全链路静默无请求——E2E 首轮当场抓获，教训依旧是**构建绿≠功能通**；② 本轮两处「Math.max/JSON.stringify 笔误疑云」全是回显字形漂移，码点布尔验证两次都证明磁盘是对的
+- 已知边界：`e2e_selection.cjs` 本就存量红（游子吟下架），且其 `[data-sel-hl]` 裸选择器现在会撞 4 个色点，P1 修复时需一并换成带值选择器
+
 ## v3.5 — 2026-11-25（设置中心：全站深色模式 + 纸张主题/字号 + LLM 配置热生效 + TTS 音色/语速 + 数据导出）
 - **后端双层配置**（`services/settings_store.py`）：运行时覆盖 `data/runtime_settings.json`（原子写）> `.env`（lru_cache 单例不动）；进程内 `_version` 单调计数，`ai_service/book_processor/analysis_service` 共 4 个延迟初始化 `@property` 在版本变化时重建 ChatOpenAI——**设置面板改 base_url/model/key 保存即生效，无需重启**。api_key 接口只回掩码（`••••+后4位`），PUT 空串=不修改
 - **双槽设计（本轮根修）**：属性首版直接拿 `_llm` 比版本，把测试注入的桩（`proc._llm = BrokenLLM()`）无声换成真 ChatOpenAI——test_draft_flow 实锤跑了真内网模型并"幸运通过"的 test_resegment 232 都是受害者。改 `_llm`=外部注入槽（永远优先、绝不重建）、`_llm_built`/`_llm_built_ver`=属性自建槽（热生效只动它），新增 `test_injected_stub_survives_version_bump` 防复发

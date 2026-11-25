@@ -4,7 +4,9 @@ import BookReader from './components/BookReader.jsx';
 import ReviewPage from './components/ReviewPage.jsx';
 import ParseReviewModal from './components/ParseReviewModal.jsx';
 import GuideOverlay from './components/GuideOverlay.jsx';
+import SettingsModal from './components/SettingsModal.jsx';
 import { TOOL_LABELS } from './tools.js';
+import './appearance.js';
 
 const API_BASE = '';
 
@@ -91,6 +93,8 @@ function App() {
     // v2.7 划线：按书加载全部划线；quoteDraft=「加入对话」暂存的选区引用（发问/切书/切会话时清除）
     const [highlights, setHighlights] = useState([]);
     const [quoteDraft, setQuoteDraft] = useState(null);
+    // v3.5 设置面板：全局单实例（书架/书内顶栏齿轮共用）
+    const [settingsOpen, setSettingsOpen] = useState(false);
     useEffect(() => {
         if (!currentBook?.book_id) { setHighlights([]); return; }
         setQuoteDraft(null);
@@ -961,7 +965,9 @@ function App() {
                 onQuoteToChat={setQuoteDraft}
                 quoteDraft={quoteDraft}
                 onClearQuote={() => setQuoteDraft(null)}
+                onOpenSettings={() => setSettingsOpen(true)}
             />
+            {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
             {guideOverlay && (
                 <GuideOverlay
                     kind={guideOverlay.kind}
@@ -976,7 +982,7 @@ function App() {
 
     // 书内但书还没就位（深链加载中）时保持空白，避免书架闪现
     if (route.view === 'book') {
-        return <div className="h-screen bg-zinc-50" />;
+        return <div className="h-screen bg-zinc-50 dark:bg-zinc-950" />;
     }
 
     return (
@@ -992,25 +998,28 @@ function App() {
                 onEnterBook={handleEnterBook}
                 onUploadMultiple={handleUploadMultiple}
                 onDeleteBook={handleDeleteBook}
+                onOpenSettings={() => setSettingsOpen(true)}
             />
+
+            {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
 
             {/* 解析失败清单：源文件后端保留，可逐本重试 */}
             {uploadFailures.length > 0 && (
-                <div className="fixed bottom-5 left-5 z-40 w-80 bg-white rounded-2xl border border-red-200 shadow-2xl px-4 py-3" data-testid="upload-failures">
+                <div className="fixed bottom-5 left-5 z-40 w-80 bg-white dark:bg-zinc-900 rounded-2xl border border-red-200 dark:border-red-500/30 shadow-2xl px-4 py-3" data-testid="upload-failures">
                     <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-xs font-medium text-red-500">{uploadFailures.length} 本解析失败</span>
-                        <button onClick={() => setUploadFailures([])} className="text-zinc-300 hover:text-zinc-500 text-sm leading-none" title="关闭">×</button>
+                        <span className="text-xs font-medium text-red-500 dark:text-red-400">{uploadFailures.length} 本解析失败</span>
+                        <button onClick={() => setUploadFailures([])} className="text-zinc-300 hover:text-zinc-500 dark:hover:text-zinc-400 text-sm leading-none" title="关闭">×</button>
                     </div>
                     <div className="max-h-40 overflow-y-auto scrollbar-thin space-y-1.5">
                         {uploadFailures.map(f => (
                             <div key={f.book_id} className="flex items-center gap-2">
                                 <div className="flex-1 min-w-0">
-                                    <p className="text-[11px] text-zinc-600 truncate">{f.filename}</p>
-                                    <p className="text-[10px] text-zinc-400 truncate" title={f.error}>{f.error}</p>
+                                    <p className="text-[11px] text-zinc-600 dark:text-zinc-300 truncate">{f.filename}</p>
+                                    <p className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate" title={f.error}>{f.error}</p>
                                 </div>
                                 <button
                                     onClick={() => handleRetryAnalyze(f)}
-                                    className="px-2 py-1 rounded-lg border border-zinc-200 text-[10px] text-zinc-600 hover:border-zinc-400 flex-shrink-0"
+                                    className="px-2 py-1 rounded-lg border border-zinc-200 dark:border-zinc-800 text-[10px] text-zinc-600 dark:text-zinc-300 hover:border-zinc-400 dark:hover:border-zinc-600 flex-shrink-0"
                                 >
                                     重试
                                 </button>

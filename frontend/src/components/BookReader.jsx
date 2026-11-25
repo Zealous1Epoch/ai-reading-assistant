@@ -10,13 +10,13 @@ function ToggleButton({ active, onClick, label, badge, children }) {
     return (
         <button
             onClick={onClick}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${active ? 'bg-zinc-100 text-zinc-700' : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50'}`}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${active ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200' : 'text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-900'}`}
             title={label}
         >
             {children}
             <span>{label}</span>
             {badge > 0 && (
-                <span className="min-w-[15px] h-[15px] px-1 rounded-full bg-zinc-200 text-zinc-500 text-[9px] leading-[15px] text-center tabular-nums">
+                <span className="min-w-[15px] h-[15px] px-1 rounded-full bg-zinc-200 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400 text-[9px] leading-[15px] text-center tabular-nums">
                     {badge > 99 ? '99+' : badge}
                 </span>
             )}
@@ -42,7 +42,7 @@ function ResizeHandle({ side, onPointerDown, onDoubleClick }) {
             className="group relative w-2 -mx-1 flex-shrink-0 z-10 self-stretch flex items-center justify-center cursor-col-resize"
             style={{ touchAction: 'none' }}
         >
-            <div className="h-12 w-[3px] rounded-full bg-zinc-200 group-hover:bg-zinc-500 transition-colors pointer-events-none"></div>
+            <div className="h-12 w-[3px] rounded-full bg-zinc-200 dark:bg-zinc-700 group-hover:bg-zinc-500 transition-colors pointer-events-none"></div>
         </div>
     );
 }
@@ -64,6 +64,8 @@ function BookReader({
     cardDue, onCardsStatsChanged,
     // v2.7 划线高亮 + 选区引用进对话
     highlights, onAddHighlights, onRemoveHighlight, onQuoteToChat, quoteDraft, onClearQuote,
+    // v3.5 设置面板（App 持有单实例）
+    onOpenSettings,
 }) {
     const readSaved = () => {
         try { return JSON.parse(localStorage.getItem('reader_ui') || '{}'); } catch { return {}; }
@@ -115,20 +117,20 @@ function BookReader({
     const streamBusy = isStreaming;
 
     return (
-        <div className="h-screen flex flex-col overflow-hidden bg-zinc-50">
+        <div className="h-screen flex flex-col overflow-hidden bg-zinc-50 dark:bg-zinc-950">
             {/* 顶栏：左=返回+书名/作者+目录/会话开关，右=AI/卡片/资产 */}
             <div className="h-12 px-4 flex items-center gap-3 flex-shrink-0">
                 <button
                     onClick={onBackToShelf}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-zinc-400 hover:text-zinc-700 hover:bg-white transition-all"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-white transition-all"
                 >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                     </svg>
                     书架
                 </button>
-                <div className="h-4 w-px bg-zinc-200 flex-shrink-0"></div>
-                <h1 className="text-sm font-serif-heading font-semibold text-zinc-800 truncate">
+                <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-700 flex-shrink-0"></div>
+                <h1 className="text-sm font-serif-heading font-semibold text-zinc-800 dark:text-zinc-200 truncate">
                     {currentBook?.title || '智能读书助手'}
                 </h1>
                 {currentBook?.author && (
@@ -189,6 +191,18 @@ function BookReader({
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
                         </svg>
                     </ToggleButton>
+                    {/* v3.5 设置齿轮：与 ToggleButton 同规格 */}
+                    <button
+                        onClick={onOpenSettings}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-all"
+                        title="设置"
+                        data-open-settings
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                    </button>
                 </div>
             </div>
 

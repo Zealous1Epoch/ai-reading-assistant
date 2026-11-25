@@ -45,22 +45,22 @@ function ToolMenu({ disabled, busyToolId, onRunTool, scopeLabel, scopeAll, onSco
     };
 
     return (
-        <div data-tool-menu className="w-80 bg-white border border-zinc-200 rounded-xl shadow-lg flex flex-col max-h-[28rem] overflow-hidden">
+        <div data-tool-menu className="w-80 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-lg flex flex-col max-h-[28rem] overflow-hidden">
             {/* 范围切换（testid 沿用原工具抽屉，选择器不断） */}
-            <div className="px-3 pt-2.5 pb-2 border-b border-zinc-100 flex items-center gap-2 flex-shrink-0">
-                <span className="text-[11px] text-zinc-400 flex-shrink-0">范围</span>
-                <div className="flex rounded-lg border border-zinc-200 overflow-hidden text-[11px] flex-shrink-0" data-testid="tool-scope">
+            <div className="px-3 pt-2.5 pb-2 border-b border-zinc-100 dark:border-zinc-800 flex items-center gap-2 flex-shrink-0">
+                <span className="text-[11px] text-zinc-400 dark:text-zinc-500 flex-shrink-0">范围</span>
+                <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden text-[11px] flex-shrink-0" data-testid="tool-scope">
                     <button
                         onClick={() => onScopeChange(false)}
                         disabled={!hasChapter}
-                        className={`px-2.5 py-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${!scopeAll ? 'bg-zinc-800 text-white' : 'bg-white text-zinc-500 hover:bg-zinc-50'}`}
+                        className={`px-2.5 py-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${!scopeAll ? 'bg-zinc-800 dark:bg-zinc-700 text-white' : 'bg-white dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900'}`}
                     >当前章</button>
                     <button
                         onClick={() => onScopeChange(true)}
-                        className={`px-2.5 py-1 transition-colors ${scopeAll ? 'bg-zinc-800 text-white' : 'bg-white text-zinc-500 hover:bg-zinc-50'}`}
+                        className={`px-2.5 py-1 transition-colors ${scopeAll ? 'bg-zinc-800 dark:bg-zinc-700 text-white' : 'bg-white dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900'}`}
                     >整本书</button>
                 </div>
-                {!scopeAll && hasChapter && <span className="text-[11px] text-zinc-400 truncate">{scopeLabel}</span>}
+                {!scopeAll && hasChapter && <span className="text-[11px] text-zinc-400 dark:text-zinc-500 truncate">{scopeLabel}</span>}
             </div>
 
             {/* 工具列表：图标 + 名称 + 说明 */}
@@ -73,16 +73,16 @@ function ToolMenu({ disabled, busyToolId, onRunTool, scopeLabel, scopeAll, onSco
                                 onClick={() => handleToolClick(tool)}
                                 disabled={disabled}
                                 title={`${tool.label} · ${scopeAll ? '整本书' : scopeLabel}`}
-                                className={`w-full flex items-center gap-2.5 px-2 py-2 rounded-xl text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed ${busy ? 'bg-zinc-100' : 'hover:bg-zinc-50'} ${TOOL_NEEDS_INPUT[tool.id] && openInput === tool.id ? 'bg-zinc-50' : ''}`}
+                                className={`w-full flex items-center gap-2.5 px-2 py-2 rounded-xl text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed ${busy ? 'bg-zinc-100 dark:bg-zinc-800' : 'hover:bg-zinc-50 dark:hover:bg-zinc-900'} ${TOOL_NEEDS_INPUT[tool.id] && openInput === tool.id ? 'bg-zinc-50 dark:bg-zinc-950' : ''}`}
                             >
-                                <span className={`w-7 h-7 rounded-lg border flex items-center justify-center flex-shrink-0 ${busy ? 'bg-zinc-800 border-zinc-800 text-white' : 'border-zinc-200 text-zinc-500'}`}>
+                                <span className={`w-7 h-7 rounded-lg border flex items-center justify-center flex-shrink-0 ${busy ? 'bg-zinc-800 dark:bg-zinc-700 border-zinc-800 text-white' : 'border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400'}`}>
                                     <svg className={`w-3.5 h-3.5 ${busy ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={tool.icon} />
                                     </svg>
                                 </span>
                                 <span className="flex-1 min-w-0">
-                                    <span className="block text-[13px] font-medium text-zinc-700">{tool.label}</span>
-                                    <span className="block text-[11px] text-zinc-400 mt-px truncate">
+                                    <span className="block text-[13px] font-medium text-zinc-700 dark:text-zinc-200">{tool.label}</span>
+                                    <span className="block text-[11px] text-zinc-400 dark:text-zinc-500 mt-px truncate">
                                         {busy ? '生成中，产出见对话流…' : tool.desc}
                                     </span>
                                 </span>
@@ -103,15 +103,15 @@ function ToolMenu({ disabled, busyToolId, onRunTool, scopeLabel, scopeAll, onSco
                                         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitPodcast(); } }}
                                         placeholder="本期主题"
                                         data-podcast-topic
-                                        className="w-full px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-full text-xs focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:border-transparent placeholder:text-zinc-400"
+                                        className="w-full px-3 py-1.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-full text-xs focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:border-transparent placeholder:text-zinc-400"
                                     />
                                     <div className="flex items-center gap-2">
-                                        <div className="inline-flex rounded-lg border border-zinc-200 overflow-hidden text-[11px]" data-podcast-minutes>
+                                        <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden text-[11px]" data-podcast-minutes>
                                             {[10, 20, 30].map(m => (
                                                 <button
                                                     key={m}
                                                     onClick={() => setPcMinutes(m)}
-                                                    className={`px-2 py-1 transition-colors ${pcMinutes === m ? 'bg-zinc-800 text-white' : 'bg-white text-zinc-500 hover:bg-zinc-50'}`}
+                                                    className={`px-2 py-1 transition-colors ${pcMinutes === m ? 'bg-zinc-800 dark:bg-zinc-700 text-white' : 'bg-white dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900'}`}
                                                 >{m} 分钟</button>
                                             ))}
                                         </div>
@@ -120,14 +120,14 @@ function ToolMenu({ disabled, busyToolId, onRunTool, scopeLabel, scopeAll, onSco
                                             onClick={() => setPcRegen(v => !v)}
                                             aria-pressed={pcRegen}
                                             data-podcast-regen
-                                            className={`px-2 py-1 rounded-lg border text-[11px] transition-colors flex-shrink-0 ${pcRegen ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50'}`}
+                                            className={`px-2 py-1 rounded-lg border text-[11px] transition-colors flex-shrink-0 ${pcRegen ? 'border-amber-400 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400' : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900'}`}
                                         >
                                             重新生成一期
                                         </button>
                                         <button
                                             onClick={submitPodcast}
                                             disabled={!pcTopic.trim() || disabled}
-                                            className="ml-auto px-3 py-1 bg-zinc-800 text-white rounded-full text-xs font-medium hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex-shrink-0"
+                                            className="ml-auto px-3 py-1 bg-zinc-800 dark:bg-zinc-700 text-white rounded-full text-xs font-medium hover:bg-zinc-900 dark:hover:bg-zinc-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex-shrink-0"
                                         >
                                             生成
                                         </button>
@@ -144,12 +144,12 @@ function ToolMenu({ disabled, busyToolId, onRunTool, scopeLabel, scopeAll, onSco
                                         onChange={e => setTalkInput(e.target.value)}
                                         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitTalk(); } }}
                                         placeholder="向作者提问"
-                                        className="flex-1 min-w-0 px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-full text-xs focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:border-transparent placeholder:text-zinc-400"
+                                        className="flex-1 min-w-0 px-3 py-1.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-full text-xs focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:border-transparent placeholder:text-zinc-400"
                                     />
                                     <button
                                         onClick={submitTalk}
                                         disabled={!talkInput.trim() || disabled}
-                                        className="px-3 py-1.5 bg-zinc-800 text-white rounded-full text-xs font-medium hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex-shrink-0"
+                                        className="px-3 py-1.5 bg-zinc-800 dark:bg-zinc-700 text-white rounded-full text-xs font-medium hover:bg-zinc-900 dark:hover:bg-zinc-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex-shrink-0"
                                     >
                                         提问
                                     </button>

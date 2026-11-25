@@ -974,7 +974,7 @@ A：书里其实把这事说透了，第三节管它叫"异化的语言"。"""
     yield _frame({"status": f"双主播合成语音：{len(lines)} 段台词（约 {est_min} 分钟音频）"})
     try:
         async for done_n, n in tts_service.stream_synth(
-                lines, path, rate=tts_service.PODCAST_RATE, gap=tts_service.PODCAST_GAP_BYTES):
+                lines, path, rate=tts_service.podcast_rate(), gap=tts_service.PODCAST_GAP_BYTES):
             if done_n % 5 == 0 or done_n == n:
                 yield _frame({"status": f"已合成 {done_n}/{n} 段"})
     except Exception as e:

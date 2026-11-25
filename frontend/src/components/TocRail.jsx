@@ -40,12 +40,12 @@ function TocRail({ book, currentChapter, onSelectChapter, open, onToggle, width 
     if (!open) {
         const count = (book?.chapters || []).length;
         return (
-            <div className="w-9 flex-shrink-0 bg-white rounded-2xl border border-zinc-200 flex flex-col items-center py-2 gap-1">
-                <button onClick={onToggle} className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 transition-all" title="展开目录">
+            <div className="w-9 flex-shrink-0 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 flex flex-col items-center py-2 gap-1">
+                <button onClick={onToggle} className="p-1.5 rounded-lg text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-all" title="展开目录">
                     <ListIcon />
                 </button>
                 {count > 0 && (
-                    <button onClick={onToggle} className="text-[10px] text-zinc-300 hover:text-zinc-500 tabular-nums">
+                    <button onClick={onToggle} className="text-[10px] text-zinc-300 hover:text-zinc-500 dark:hover:text-zinc-400 tabular-nums">
                         {count}
                     </button>
                 )}
@@ -70,10 +70,10 @@ function TocRail({ book, currentChapter, onSelectChapter, open, onToggle, width 
                         const ch = chapters.find(c => c.chapter_id === m.chapter_id);
                         if (ch) goChapter(ch);
                     }}
-                    className="px-3 py-2 rounded-lg cursor-pointer hover:bg-zinc-50 transition-colors"
+                    className="px-3 py-2 rounded-lg cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors"
                 >
-                    <p className="text-xs font-medium text-zinc-700 truncate">{m.chapter_title}</p>
-                    <p className="text-[11px] text-zinc-400 leading-relaxed line-clamp-2 mt-0.5">{m.snippet}</p>
+                    <p className="text-xs font-medium text-zinc-700 dark:text-zinc-200 truncate">{m.chapter_title}</p>
+                    <p className="text-[11px] text-zinc-400 dark:text-zinc-500 leading-relaxed line-clamp-2 mt-0.5">{m.snippet}</p>
                 </div>
             ));
         }
@@ -96,12 +96,12 @@ function TocRail({ book, currentChapter, onSelectChapter, open, onToggle, width 
                     key={ch.chapter_id}
                     data-toc=""
                     onClick={() => goChapter(ch)}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all text-sm ${selected ? 'bg-zinc-50 text-zinc-800 font-medium' : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-50'} ${!isL1 ? 'pl-8 text-[13px]' : ''}`}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all text-sm ${selected ? 'bg-zinc-50 dark:bg-zinc-950 text-zinc-800 dark:text-zinc-200 font-medium' : 'text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-900'} ${!isL1 ? 'pl-8 text-[13px]' : ''}`}
                 >
                     {isL1 ? (
-                        <span className="text-zinc-400 text-xs min-w-[1.2em] tabular-nums">{chapterNum}.</span>
+                        <span className="text-zinc-400 dark:text-zinc-500 text-xs min-w-[1.2em] tabular-nums">{chapterNum}.</span>
                     ) : (
-                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ml-0.5 ${selected ? 'bg-zinc-800' : 'bg-zinc-300'}`}></span>
+                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ml-0.5 ${selected ? 'bg-zinc-800 dark:bg-zinc-700' : 'bg-zinc-300 dark:bg-zinc-600'}`}></span>
                     )}
                     <span className="truncate">{ch.title}</span>
                 </div>
@@ -110,10 +110,10 @@ function TocRail({ book, currentChapter, onSelectChapter, open, onToggle, width 
     };
 
     return (
-        <div data-pane="toc" className="flex-shrink-0 bg-white rounded-2xl border border-zinc-200 flex flex-col overflow-hidden" style={{ width }}>
+        <div data-pane="toc" className="flex-shrink-0 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 flex flex-col overflow-hidden" style={{ width }}>
             <div className="px-3.5 pt-3.5 pb-2 flex items-center justify-between">
-                <span className="text-xs font-semibold text-zinc-400 uppercase tracking-widest">目录</span>
-                <button onClick={onToggle} className="p-1.5 rounded-lg text-zinc-300 hover:text-zinc-700 hover:bg-zinc-50 transition-all" title="收起">
+                <span className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">目录</span>
+                <button onClick={onToggle} className="p-1.5 rounded-lg text-zinc-300 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-all" title="收起">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
                     </svg>
@@ -126,16 +126,16 @@ function TocRail({ book, currentChapter, onSelectChapter, open, onToggle, width 
                         value={keyword}
                         onChange={e => { setKeyword(e.target.value); runSearch(e.target.value); }}
                         placeholder="搜索本书"
-                        className="w-full px-3 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-zinc-400 placeholder:text-zinc-400"
+                        className="w-full px-3 py-1.5 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-zinc-400 placeholder:text-zinc-400"
                     />
                     {searching && (
                         <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                            <div className="animate-spin h-3 w-3 border-2 border-zinc-300 border-t-transparent rounded-full"></div>
+                            <div className="animate-spin h-3 w-3 border-2 border-zinc-300 dark:border-zinc-700 border-t-transparent rounded-full"></div>
                         </div>
                     )}
                 </div>
                 {results !== null && (
-                    <button onClick={() => { setKeyword(''); setResults(null); }} className="text-[11px] text-zinc-400 hover:text-zinc-600 mt-1">
+                    <button onClick={() => { setKeyword(''); setResults(null); }} className="text-[11px] text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 mt-1">
                         ← 返回目录（{results.length} 条结果）
                     </button>
                 )}
@@ -144,9 +144,9 @@ function TocRail({ book, currentChapter, onSelectChapter, open, onToggle, width 
                 {renderList()}
             </div>
             {book.summary && results === null && (
-                <div className="flex-shrink-0 border-t border-zinc-100 px-3.5 py-2.5 max-h-32 overflow-y-auto scrollbar-thin">
-                    <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-1">书籍摘要</p>
-                    <p className="text-[11px] text-zinc-500 leading-relaxed">{book.summary}</p>
+                <div className="flex-shrink-0 border-t border-zinc-100 dark:border-zinc-800 px-3.5 py-2.5 max-h-32 overflow-y-auto scrollbar-thin">
+                    <p className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-1">书籍摘要</p>
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">{book.summary}</p>
                 </div>
             )}
         </div>

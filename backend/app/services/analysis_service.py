@@ -9,6 +9,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 from app.config import get_settings
+from app.services import settings_store
 
 settings = get_settings()
 
@@ -19,40 +20,55 @@ class AnalysisService:
     def __init__(self):
         self._llm = None
         self._streaming_llm = None
+        # v3.5 热生效：记住各自构建时的配置版本号，设置面板一改（版本 bump）就重建
+        self._llm_built = None
+        self._llm_built_ver = -1
+        self._streaming_built = None
+        self._streaming_built_ver = -1
 
     @property
     def llm(self):
         """延迟初始化LLM"""
-        if self._llm is None:
-            if not settings.deepseek_api_key:
-                raise ValueError("请配置DEEPSEEK_API_KEY环境变量")
-            self._llm = ChatOpenAI(
-                model=settings.deepseek_model,
-                openai_api_key=settings.deepseek_api_key,
-                openai_api_base=settings.deepseek_base_url,
+        if self._llm is not None:
+            return self._llm
+        ver = settings_store.version()
+        if self._llm_built is None or self._llm_built_ver != ver:
+            cfg = settings_store.llm_config()
+            if not cfg["api_key"]:
+                raise ValueError("请配置DEEPSEEK_API_KEY环境变量或在设置面板填写 API Key")
+            self._llm_built = ChatOpenAI(
+                model=cfg["model"],
+                openai_api_key=cfg["api_key"],
+                openai_api_base=cfg["base_url"],
                 temperature=0.7,
                 # 内部 vLLM 部署（qwen 系推理模型）必须关思考：平铺 enable_thinking 会被
                 # 忽略，只认 chat_template_kwargs 嵌套写法，否则思考吃满 max_tokens
                 # 导致 JSON 腰斩（招聘系统 2026-10-16 事故教训）
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
-        return self._llm
+            self._llm_built_ver = ver
+        return self._llm_built
 
     @property
     def streaming_llm(self):
         """流式输出LLM"""
-        if self._streaming_llm is None:
-            if not settings.deepseek_api_key:
-                raise ValueError("请配置DEEPSEEK_API_KEY环境变量")
-            self._streaming_llm = ChatOpenAI(
-                model=settings.deepseek_model,
-                openai_api_key=settings.deepseek_api_key,
-                openai_api_base=settings.deepseek_base_url,
+        if self._streaming_llm is not None:
+            return self._streaming_llm
+        ver = settings_store.version()
+        if self._streaming_built is None or self._streaming_built_ver != ver:
+            cfg = settings_store.llm_config()
+            if not cfg["api_key"]:
+                raise ValueError("请配置DEEPSEEK_API_KEY环境变量或在设置面板填写 API Key")
+            self._streaming_built = ChatOpenAI(
+                model=cfg["model"],
+                openai_api_key=cfg["api_key"],
+                openai_api_base=cfg["base_url"],
                 temperature=0.7,
                 streaming=True,
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
-        return self._streaming_llm
+            self._streaming_built_ver = ver
+        return self._streaming_built
 
     async def analyze_chapter(self, chapter_content: str, chapter_title: str) -> dict:
         """

@@ -26,13 +26,30 @@
         @media (max-width: 980px) { .book-columns { columns: 1; } }
         .cite-marker { display: inline-flex; align-items: center; justify-content: center; min-width: 15px; height: 15px; padding: 0 3px; margin: 0 2px; vertical-align: super; font-size: 10px; line-height: 1; border-radius: 9999px; background: #f4f4f5; color: #52525b; border: 1px solid #e4e4e7; cursor: pointer; transition: all 0.15s ease; }
         .cite-marker:hover { background: #18181b; color: #fff; border-color: #18181b; }
+        /* v3.5 深色模式：引用角标与拖拽高亮换深色参数（这些是内联 style 硬编码，tailwind dark: 够不着） */
+        .dark .cite-marker { background: #27272a; color: #a1a1aa; border-color: #3f3f46; }
+        .dark .cite-marker:hover { background: #fafafa; color: #18181b; border-color: #fafafa; }
+        .dark .drop-zone.dragover { border-color: #a1a1aa; background: #18181b; }
         .cite-flash { animation: cite-flash 3.2s ease-out; border-radius: 8px; }
         @keyframes cite-flash { 0% { background: transparent; } 8% { background: rgba(251, 191, 36, 0.5); } 60% { background: rgba(251, 191, 36, 0.35); } 100% { background: transparent; } }
         .hl-mark { background: rgba(251, 191, 36, 0.3); border-radius: 2px; cursor: pointer; box-decoration-break: clone; -webkit-box-decoration-break: clone; transition: background 0.15s ease; }
         .hl-mark:hover { background: rgba(251, 191, 36, 0.55); }
+        /* v3.5 纸张主题：变量由 ReadingPane 容器内联提供（appearance.js 的 PAPER_THEMES）。
+           选择器两条 class + 元素，天然压过正文上的 text-zinc-700 等单 class 工具类。 */
+        .reader-surface .reader-title { color: var(--paper-strong); }
+        .reader-surface .reader-muted { color: var(--paper-muted) !important; }
+        .reader-surface .reader-panel { background: var(--paper-panel); border-color: var(--paper-border); }
+        .reader-surface .reader-navbtn { color: var(--paper-muted); }
+        .reader-surface .reader-navbtn:hover:not(:disabled) { color: var(--paper-strong); background: var(--paper-panel); }
+        .reader-surface .reader-body p { color: var(--paper-fg); font-size: var(--reader-fs); line-height: max(calc(var(--reader-fs) * 2.1), 32px); }
+        .reader-surface .reader-fg { color: var(--paper-fg); }
+        .reader-surface .reader-body .reader-heading { color: var(--paper-strong); font-size: calc(var(--reader-fs) + 3px); }
+        /* 深色模式下细滚动条换深色药丸，避免黑底上一条白杠 */
+        .dark .scrollbar-thin::-webkit-scrollbar-thumb { background: #3f3f46; }
+        .dark .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #52525b; }
     </style>
 </head>
-<body class="bg-zinc-50 antialiased">
+<body class="bg-zinc-50 dark:bg-zinc-950 antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
 </body>

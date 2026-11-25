@@ -59,17 +59,17 @@ export default function ReviewPage({ books, onBack, onStatsChanged }) {
     const tabs = [{ id: '', name: '全部' }].concat(books.filter(b => true).map(b => ({ id: b.book_id, name: b.title })));
 
     return (
-        <div className="h-screen flex flex-col bg-zinc-50 overflow-hidden">
+        <div className="h-screen flex flex-col bg-zinc-50 dark:bg-zinc-950 overflow-hidden">
             {/* 顶栏 */}
             <div className="h-12 px-4 flex items-center gap-3 flex-shrink-0">
-                <button onClick={onBack} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-zinc-400 hover:text-zinc-700 hover:bg-white transition-all">
+                <button onClick={onBack} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-white transition-all">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                     </svg>
                     书架
                 </button>
-                <div className="h-4 w-px bg-zinc-200 flex-shrink-0"></div>
-                <h1 className="text-sm font-serif-heading font-semibold text-zinc-800">复习卡片</h1>
+                <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-700 flex-shrink-0"></div>
+                <h1 className="text-sm font-serif-heading font-semibold text-zinc-800 dark:text-zinc-200">复习卡片</h1>
                 <span className="text-[11px] text-zinc-300 tabular-nums">
                     {statsTot.due} 张到期 / 共 {statsTot.total} 张
                 </span>
@@ -84,27 +84,27 @@ export default function ReviewPage({ books, onBack, onStatsChanged }) {
                                 key={t.id || 'all'}
                                 onClick={() => setBookId(t.id)}
                                 className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${bookId === t.id
-                                    ? 'bg-zinc-800 text-white border-zinc-800'
-                                    : 'bg-white text-zinc-500 border-zinc-200 hover:border-zinc-400'}`}
+                                    ? 'bg-zinc-800 dark:bg-zinc-700 text-white border-zinc-800'
+                                    : 'bg-white dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:border-zinc-400 dark:hover:border-zinc-600'}`}
                             >
                                 {t.name.length > 8 ? t.name.slice(0, 8) + '…' : t.name}
                             </button>
                         ))}
                     </div>
                     {/* 模式切换 */}
-                    <div className="inline-flex rounded-xl border border-zinc-200 bg-white p-0.5 mb-4">
+                    <div className="inline-flex rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-0.5 mb-4">
                         {[['due', '今日到期'], ['quiz', '随机测验']].map(([m, label]) => (
                             <button
                                 key={m}
                                 onClick={() => setMode(m)}
-                                className={`px-4 py-1.5 rounded-[10px] text-xs font-medium transition-all ${mode === m ? 'bg-zinc-100 text-zinc-800' : 'text-zinc-400 hover:text-zinc-600'}`}
+                                className={`px-4 py-1.5 rounded-[10px] text-xs font-medium transition-all ${mode === m ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200' : 'text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300'}`}
                             >
                                 {label}
                             </button>
                         ))}
                     </div>
 
-                    <div className="rounded-2xl border border-zinc-100 bg-white/60 px-4 py-4">
+                    <div className="rounded-2xl border border-zinc-100 dark:border-zinc-800 bg-white/60 px-4 py-4">
                         {cards === null ? (
                             <div className="py-16 text-center text-sm text-zinc-300">载入中…</div>
                         ) : (

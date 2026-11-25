@@ -20,11 +20,15 @@ export default function GuideOverlay({ kind, book, chapter, onBack }) {
     const deadRef = useRef(false);
     useEffect(() => () => { deadRef.current = true; }, []);
 
-    const refresh = useCallback(async (gid) => {
-        const r = await fetch(`${API_BASE}/guides/${gid}`);
-        if (!r.ok) return;
-        const d = await r.json();
-        if (!deadRef.current) setGuide(d.guide);
+    // 流结束后取回定稿 guide：必须与 setLive('') 同一批 setState（React 18 自动合批），
+    // 否则 live 教练气泡先消失、落盘 turns 后到——中间整拍闪烁（v3.5 e2e_guides 实锤竞态）
+    const settle = useCallback(async (gid) => {
+        try {
+            const r = await fetch(`${API_BASE}/guides/${gid}`);
+            if (!r.ok) return;
+            const d = await r.json();
+            if (!deadRef.current) { setGuide(d.guide); setLive(''); }
+        } catch { /* 网络抖动保留 live，下次动作再取 */ }
     }, []);
 
     // SSE：消费 data: 帧；content 进 live，artifact 落 guide，error 落错
@@ -123,9 +127,8 @@ export default function GuideOverlay({ kind, book, chapter, onBack }) {
             if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `提交失败 (${res.status})`);
             await consumeSSE(res, c => setLive(s => s + c));
         } catch (e) { setError(e.message); }
-        setLive('');
         setStreaming(false);
-        await refresh(guide.guide_id);
+        await settle(guide.guide_id);
     };
 
     const doSummarize = async () => {
@@ -139,9 +142,8 @@ export default function GuideOverlay({ kind, book, chapter, onBack }) {
             if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `生成失败 (${res.status})`);
             await consumeSSE(res, c => setLive(s => s + c));
         } catch (e) { setError(e.message); }
-        setLive('');
         setStreaming(false);
-        await refresh(guide.guide_id);
+        await settle(guide.guide_id);
     };
 
     const next = async () => {
@@ -188,10 +190,10 @@ export default function GuideOverlay({ kind, book, chapter, onBack }) {
     const Bubble = ({ role, text }) => (
         <div className={`flex ${role === 'reader' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap ${
-                role === 'reader' ? 'bg-zinc-800 text-white' : role === 'summary' ? 'bg-amber-50 border border-amber-200 text-zinc-800' : 'bg-white border border-zinc-200 text-zinc-700'
+                role === 'reader' ? 'bg-zinc-800 dark:bg-zinc-700 text-white' : role === 'summary' ? 'bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-zinc-800 dark:text-zinc-200' : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-200'
             }`}>
-                {role === 'summary' && <span className="block text-[11px] font-semibold text-amber-600 mb-1">本题小结</span>}
-                {role === 'coach' && <span className="block text-[11px] font-semibold text-zinc-400 mb-1">教练</span>}
+                {role === 'summary' && <span className="block text-[11px] font-semibold text-amber-600 dark:text-amber-400 mb-1">本题小结</span>}
+                {role === 'coach' && <span className="block text-[11px] font-semibold text-zinc-400 dark:text-zinc-500 mb-1">教练</span>}
                 {text}
             </div>
         </div>
@@ -202,46 +204,46 @@ export default function GuideOverlay({ kind, book, chapter, onBack }) {
     const progress = total ? Math.min(idx, total) / total : 0;
 
     return (
-        <div data-guide-overlay className="fixed inset-0 z-50 bg-zinc-50 flex flex-col">
+        <div data-guide-overlay className="fixed inset-0 z-50 bg-zinc-50 dark:bg-zinc-950 flex flex-col">
             {/* 顶栏 */}
-            <div className="h-12 px-4 flex items-center gap-3 border-b border-zinc-200 bg-white flex-shrink-0">
-                <button onClick={onBack} title="关闭" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition-all">
+            <div className="h-12 px-4 flex items-center gap-3 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex-shrink-0">
+                <button onClick={onBack} title="关闭" className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                     </svg>
                     返回书页
                 </button>
-                <div className="h-4 w-px bg-zinc-200"></div>
-                <h1 className="text-sm font-serif-heading font-semibold text-zinc-800 truncate">{guide?.title || (isStrict ? '读书十问' : '导读')}</h1>
+                <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-700"></div>
+                <h1 className="text-sm font-serif-heading font-semibold text-zinc-800 dark:text-zinc-200 truncate">{guide?.title || (isStrict ? '读书十问' : '导读')}</h1>
                 {guide && !finished && (
-                    <span data-guide-progress className="text-[11px] text-zinc-400 tabular-nums flex-shrink-0">
+                    <span data-guide-progress className="text-[11px] text-zinc-400 dark:text-zinc-500 tabular-nums flex-shrink-0">
                         第 {idx + 1} / {total} 题
                     </span>
                 )}
                 {finished && <span className="text-[11px] text-emerald-500 flex-shrink-0">已走完</span>}
                 <div className="flex-1"></div>
                 {guide && (
-                    <button onClick={restart} className="px-2.5 py-1.5 rounded-lg text-[11px] text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-all flex-shrink-0">
+                    <button onClick={restart} className="px-2.5 py-1.5 rounded-lg text-[11px] text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all flex-shrink-0">
                         {isStrict ? '重新出卷' : '重新生成'}
                     </button>
                 )}
             </div>
             {/* 进度条 */}
-            <div className="h-0.5 bg-zinc-100 flex-shrink-0">
+            <div className="h-0.5 bg-zinc-100 dark:bg-zinc-800 flex-shrink-0">
                 <div className="h-full bg-zinc-700 transition-all duration-300" style={{ width: `${progress * 100}%` }}></div>
             </div>
 
             <div className="flex-1 overflow-y-auto scrollbar-thin px-4 py-4">
                 <div className="max-w-2xl mx-auto space-y-4">
                     {!guide && error && (
-                        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-6 text-center">
-                            <p className="text-sm text-red-600 mb-3">{error}</p>
-                            <button onClick={restart} className="px-4 py-1.5 bg-zinc-800 text-white rounded-full text-xs hover:bg-zinc-900">重试</button>
+                        <div className="rounded-2xl border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 px-4 py-6 text-center">
+                            <p className="text-sm text-red-600 dark:text-red-400 mb-3">{error}</p>
+                            <button onClick={restart} className="px-4 py-1.5 bg-zinc-800 dark:bg-zinc-700 text-white rounded-full text-xs hover:bg-zinc-900 dark:hover:bg-zinc-600">重试</button>
                         </div>
                     )}
                     {!guide && !error && (
                         <div className="py-20 text-center">
-                            <div className="text-sm text-zinc-400 animate-pulse">{status || '准备中…'}</div>
+                            <div className="text-sm text-zinc-400 dark:text-zinc-500 animate-pulse">{status || '准备中…'}</div>
                             <div className="text-[11px] text-zinc-300 mt-2">题单只出一次，之后一题一停</div>
                         </div>
                     )}
@@ -249,10 +251,10 @@ export default function GuideOverlay({ kind, book, chapter, onBack }) {
                     {guide && !finished && q && (
                         <>
                             {/* 题面 */}
-                            <div data-guide-question className="rounded-2xl border border-zinc-200 bg-white px-5 py-4">
+                            <div data-guide-question className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-5 py-4">
                                 <div className="text-[11px] font-semibold text-zinc-300 mb-1.5">第 {idx + 1} 题{isStrict ? '' : ' · 预读导问'}</div>
-                                <p className="text-[15px] leading-relaxed text-zinc-800">{q.q}</p>
-                                {q.pointer && <p className="text-[12px] text-zinc-400 mt-2">（去《{q.pointer}》找线索）</p>}
+                                <p className="text-[15px] leading-relaxed text-zinc-800 dark:text-zinc-200">{q.q}</p>
+                                {q.pointer && <p className="text-[12px] text-zinc-400 dark:text-zinc-500 mt-2">（去《{q.pointer}》找线索）</p>}
                             </div>
 
                             {/* 本题对话 */}
@@ -267,7 +269,7 @@ export default function GuideOverlay({ kind, book, chapter, onBack }) {
                                 {live && <Bubble role="coach" text={live} />}
                             </div>
 
-                            {error && <p className="text-[12px] text-red-500 text-center">{error}</p>}
+                            {error && <p className="text-[12px] text-red-500 dark:text-red-400 text-center">{error}</p>}
 
                             {/* 作答区 */}
                             <div className="space-y-2">
@@ -277,14 +279,14 @@ export default function GuideOverlay({ kind, book, chapter, onBack }) {
                                     onChange={e => setDraft(e.target.value)}
                                     rows={3}
                                     placeholder={isStrict ? '你的答案（哪怕只有方向）…' : '想法 / 猜想（可不填，直接下一题）…'}
-                                    className="w-full px-3.5 py-2.5 bg-white border border-zinc-200 rounded-xl text-[13px] leading-relaxed focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:border-transparent placeholder:text-zinc-300 resize-none"
+                                    className="w-full px-3.5 py-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-[13px] leading-relaxed focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:border-transparent placeholder:text-zinc-300 resize-none"
                                 />
                                 <div className="flex items-center gap-2">
                                     <button
                                         data-guide-send
                                         onClick={send}
                                         disabled={!draft.trim() || streaming}
-                                        className="px-4 py-1.5 bg-zinc-800 text-white rounded-full text-xs font-medium hover:bg-zinc-900 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                                        className="px-4 py-1.5 bg-zinc-800 dark:bg-zinc-700 text-white rounded-full text-xs font-medium hover:bg-zinc-900 dark:hover:bg-zinc-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                                     >
                                         发送答案
                                     </button>
@@ -293,7 +295,7 @@ export default function GuideOverlay({ kind, book, chapter, onBack }) {
                                         onClick={doSummarize}
                                         disabled={!hasReaderTurn || streaming || perQ.resolved}
                                         title={!hasReaderTurn ? '先作答' : undefined}
-                                        className={`px-4 py-1.5 rounded-full text-xs font-medium border transition-all ${perQ.resolved ? 'text-amber-600 border-amber-200 bg-amber-50' : 'text-zinc-600 border-zinc-300 bg-white hover:bg-zinc-100 disabled:opacity-40 disabled:cursor-not-allowed'}`}
+                                        className={`px-4 py-1.5 rounded-full text-xs font-medium border transition-all ${perQ.resolved ? 'text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10' : 'text-zinc-600 dark:text-zinc-300 border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed'}`}
                                     >
                                         {perQ.resolved ? '本题小结已出' : isStrict ? '想通了，出小结' : '帮我小结本题'}
                                     </button>
@@ -302,7 +304,7 @@ export default function GuideOverlay({ kind, book, chapter, onBack }) {
                                         onClick={next}
                                         disabled={!canNext}
                                         title={isStrict && !perQ.resolved ? '读书十问：出完本题小结才能进下一题' : undefined}
-                                        className="ml-auto px-4 py-1.5 bg-zinc-800 text-white rounded-full text-xs font-medium hover:bg-zinc-900 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex-shrink-0"
+                                        className="ml-auto px-4 py-1.5 bg-zinc-800 dark:bg-zinc-700 text-white rounded-full text-xs font-medium hover:bg-zinc-900 dark:hover:bg-zinc-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all flex-shrink-0"
                                     >
                                         下一题 →
                                     </button>
@@ -318,27 +320,27 @@ export default function GuideOverlay({ kind, book, chapter, onBack }) {
                     {guide && finished && (
                         <div className="space-y-4">
                             {isStrict ? (
-                                <div className="rounded-2xl border border-zinc-200 bg-white px-5 py-5" data-guide-closing>
-                                    <h2 className="text-sm font-semibold text-zinc-800 mb-1">收束：这一场十问</h2>
-                                    <p className="text-[12px] text-zinc-400 mb-3">基于全程问答的诚实清单——想通了什么、哪里还没啃动。</p>
+                                <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-5 py-5" data-guide-closing>
+                                    <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-1">收束：这一场十问</h2>
+                                    <p className="text-[12px] text-zinc-400 dark:text-zinc-500 mb-3">基于全程问答的诚实清单——想通了什么、哪里还没啃动。</p>
                                     {closing || guide.closing ? (
-                                        <p className="text-[13px] leading-relaxed text-zinc-700 whitespace-pre-wrap">{closing || guide.closing}</p>
+                                        <p className="text-[13px] leading-relaxed text-zinc-700 dark:text-zinc-200 whitespace-pre-wrap">{closing || guide.closing}</p>
                                     ) : (
                                         <button onClick={showClosing} disabled={streaming}
-                                            className="px-4 py-1.5 bg-zinc-800 text-white rounded-full text-xs font-medium hover:bg-zinc-900 disabled:opacity-40">
+                                            className="px-4 py-1.5 bg-zinc-800 dark:bg-zinc-700 text-white rounded-full text-xs font-medium hover:bg-zinc-900 dark:hover:bg-zinc-600 disabled:opacity-40">
                                             生成收束清单
                                         </button>
                                     )}
                                 </div>
                             ) : (
-                                <div className="rounded-2xl border border-zinc-200 bg-white px-5 py-5" data-guide-closing>
-                                    <h2 className="text-sm font-semibold text-zinc-800 mb-1">读后对答案</h2>
+                                <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-5 py-5" data-guide-closing>
+                                    <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 mb-1">读后对答案</h2>
                                     {(guide.check || []).length > 0 && (
                                         <div className="mb-4">
                                             <div className="text-[11px] font-semibold text-zinc-300 mb-1.5">自查清单（合上书自验）</div>
                                             <ul className="space-y-1.5">
                                                 {(guide.check || []).map((c, i) => (
-                                                    <li key={i} className="text-[13px] text-zinc-600 leading-relaxed">□ {c}</li>
+                                                    <li key={i} className="text-[13px] text-zinc-600 dark:text-zinc-300 leading-relaxed">□ {c}</li>
                                                 ))}
                                             </ul>
                                         </div>
@@ -346,19 +348,19 @@ export default function GuideOverlay({ kind, book, chapter, onBack }) {
                                     {overview || guide.overview ? (
                                         <div>
                                             <div className="text-[11px] font-semibold text-zinc-300 mb-1.5">核心概述</div>
-                                            <p className="text-[13px] leading-relaxed text-zinc-700 whitespace-pre-wrap">{overview || guide.overview}</p>
+                                            <p className="text-[13px] leading-relaxed text-zinc-700 dark:text-zinc-200 whitespace-pre-wrap">{overview || guide.overview}</p>
                                         </div>
                                     ) : (
                                         <button onClick={reveal} disabled={streaming}
-                                            className="px-4 py-1.5 bg-zinc-800 text-white rounded-full text-xs font-medium hover:bg-zinc-900 disabled:opacity-40">
+                                            className="px-4 py-1.5 bg-zinc-800 dark:bg-zinc-700 text-white rounded-full text-xs font-medium hover:bg-zinc-900 dark:hover:bg-zinc-600 disabled:opacity-40">
                                             我已读完，揭示核心概述
                                         </button>
                                     )}
                                 </div>
                             )}
-                            {error && <p className="text-[12px] text-red-500 text-center">{error}</p>}
+                            {error && <p className="text-[12px] text-red-500 dark:text-red-400 text-center">{error}</p>}
                             <div className="text-center">
-                                <button onClick={onBack} className="px-5 py-2 rounded-full border border-zinc-300 text-xs text-zinc-500 hover:bg-white transition-all">
+                                <button onClick={onBack} className="px-5 py-2 rounded-full border border-zinc-300 dark:border-zinc-700 text-xs text-zinc-500 dark:text-zinc-400 hover:bg-white transition-all">
                                     回到书页
                                 </button>
                             </div>

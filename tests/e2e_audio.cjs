@@ -118,8 +118,8 @@ let browser = null;
     await regenBtn.click();
     say('可再点回关', await regenBtn.getAttribute('aria-pressed') === 'false');
 
-    // 关抽屉（顶栏钮被 z-50 面板盖住是已知形态，点背板）
-    await page.locator('div.fixed.inset-0.z-40').last().click({ position: { x: 10, y: 10 } });
+    // 关弹层（v3.1 起工具并入 AI 面板 ➕ 级联，背板是 AiPanel 的 fixed inset-0 z-30）
+    await page.locator('div.fixed.inset-0.z-30').last().click({ position: { x: 10, y: 10 } });
     await sleep(400);
     say('播客表单可经背板关闭', await page.locator('[data-podcast-topic]').count() === 0);
 

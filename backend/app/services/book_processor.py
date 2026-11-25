@@ -22,6 +22,7 @@ from PIL import Image
 from app.config import get_settings
 from app.models.book_models import Chapter, TocItem, BookAnalysisResult, ChapterSearchResult
 from app.services.quality_check import run_quality_check
+from app.services import settings_store
 
 # ChromaDB
 import chromadb
@@ -45,7 +46,9 @@ class BookProcessor:
     """书籍处理器 - 智能章节切分"""
 
     def __init__(self, persist_directory: str = None):
-        self._llm = None  # 延迟初始化
+        self._llm = None  # 外部注入槽：测试打桩直注此属性，永远优先、绝不重建
+        self._llm_built = None  # 属性自建的 ChatOpenAI（v3.5 热生效只重建这个）
+        self._llm_built_ver = -1
         # 绝对锚定到 backend/data/chroma_db，与进程启动目录解耦
         self.persist_directory = persist_directory or os.path.join(
             settings.data_dir, "chroma_db"
@@ -77,19 +80,24 @@ class BookProcessor:
 
     @property
     def llm(self):
-        """延迟初始化LLM"""
-        if self._llm is None:
-            if not settings.deepseek_api_key:
-                raise ValueError("请配置DEEPSEEK_API_KEY环境变量")
-            self._llm = ChatOpenAI(
-                model=settings.deepseek_model,
-                openai_api_key=settings.deepseek_api_key,
-                openai_api_base=settings.deepseek_base_url,
+        """延迟初始化LLM；设置面板改过配置（版本变了）就重建（v3.5 热生效）"""
+        if self._llm is not None:  # 外部注入桩优先，绝不重建（v3.5 教训，见 ai_service）
+            return self._llm
+        ver = settings_store.version()
+        if self._llm_built is None or self._llm_built_ver != ver:
+            cfg = settings_store.llm_config()
+            if not cfg["api_key"]:
+                raise ValueError("请配置DEEPSEEK_API_KEY环境变量或在设置面板填写 API Key")
+            self._llm_built = ChatOpenAI(
+                model=cfg["model"],
+                openai_api_key=cfg["api_key"],
+                openai_api_base=cfg["base_url"],
                 temperature=0.1,
                 # 内部 vLLM 推理模型须关思考，见 analysis_service 注释
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
-        return self._llm
+            self._llm_built_ver = ver
+        return self._llm_built
 
     def extract_text_from_pdf(self, file_path: str, book_id: str = "") -> Tuple[str, dict]:
         """从PDF提取文本（自动降级到OCR处理扫描版PDF）"""

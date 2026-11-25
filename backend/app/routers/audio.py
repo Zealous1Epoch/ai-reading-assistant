@@ -40,7 +40,7 @@ async def _run_chapter_task(task_id: str, spoken: str, path: str, name: str) -> 
     if not task:
         return
     try:
-        await tts_service.synth_one(spoken, tts_service.VOICE_A, path)
+        await tts_service.synth_one(spoken, tts_service.voice_a(), path)
         task.update(status="done", url=_url(name))
     except Exception as e:  # edge-tts 网络抖动等
         task.update(status="error", error=f"合成失败：{e}")

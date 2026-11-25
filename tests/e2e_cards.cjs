@@ -45,28 +45,12 @@ let browser = null;
     page.on('pageerror', e => errors.push(String(e)));
     page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text()); });
 
-    // ---- 1 书架复习入口 + 复习页翻卡 ----
+    // ---- 1 书架复习入口 + 路由（翻卡评分挪到抽卡之后：本套件自包含，不再依赖冒烟种子卡） ----
     await page.goto(BASE + '/#/', { waitUntil: 'networkidle' });
     say('书架复习按钮存在', await page.locator('[data-open-review]').isVisible());
     await page.locator('[data-open-review]').click();
     await page.waitForFunction(() => location.hash === '#/review', null, { timeout: 8000 });
     say('进入复习页路由', true);
-    const hasCard = await page.waitForSelector('[data-review-card]', { timeout: 10000 }).catch(() => null);
-    say('到期队列渲染出卡片', !!hasCard);
-    if (hasCard) {
-        const front0 = (await page.locator('[data-review-front]').innerText()).trim();
-        await page.locator('[data-review-card]').click();           // 点卡翻面
-        await page.waitForSelector('[data-review-back]', { timeout: 3000 });
-        const back0 = await page.locator('[data-review-back]').innerText();
-        say('翻卡见正面问题与背面答案', front0.length > 3 && back0.length > 3);
-        await page.getByRole('button', { name: /记住了/ }).click();  // 评分 good
-        await sleep(500);
-        const prog = await page.locator('[data-review-progress]').innerText().catch(() => '');
-        say('评分后推进下一张', /2\s*\/\s*\d+/.test(prog), prog);
-        const allCards = JSON.parse(await api('GET', '/cards?book_id=' + bid)).cards;
-        const graded = allCards.find(c => c.front === front0);
-        say('评分落盘 box=2', !!(graded && graded.box === 2));
-    }
 
     // ---- 2 进书抽卡（选第四章：未抽过，保证出新卡） ----
     await page.goto(BASE + '/#/', { waitUntil: 'load' });
@@ -104,7 +88,30 @@ let browser = null;
     say('新卡归属所选章节', !!ch4 && newOnes.every(c => (c.chapter_title || '').includes('第四章')),
         newOnes[0] ? newOnes[0].chapter_title : '');
 
-    // ---- 3 书内卡片抽屉 ----
+    // ---- 2.5 复习页翻卡评分（新卡当天到期 → 此刻全局队列必有卡，套件自包含） ----
+    await page.goto(BASE + '/#/review', { waitUntil: 'load' });
+    const hasCard = await page.waitForSelector('[data-review-card]', { timeout: 10000 }).catch(() => null);
+    say('到期队列渲染出卡片', !!hasCard);
+    if (hasCard) {
+        const front0 = (await page.locator('[data-review-front]').innerText()).trim();
+        await page.locator('[data-review-card]').click();           // 点卡翻面
+        await page.waitForSelector('[data-review-back]', { timeout: 3000 });
+        const back0 = await page.locator('[data-review-back]').innerText();
+        say('翻卡见正面问题与背面答案', front0.length > 3 && back0.length > 3);
+        await page.getByRole('button', { name: /记住了/ }).click();  // 评分 good
+        await sleep(500);
+        const prog = await page.locator('[data-review-progress]').innerText().catch(() => '');
+        say('评分后推进下一张', /2\s*\/\s*\d+/.test(prog), prog);
+        // 全局队列首位不一定是本书卡（跨书残留会抢位）→ 全量查卡校验评分落盘
+        const allCards = JSON.parse(await api('GET', '/cards')).cards;
+        const graded = allCards.find(c => c.front === front0);
+        say('评分落盘 box=2', !!(graded && graded.box === 2));
+    }
+
+    // ---- 3 书内卡片抽屉（复习页是全屏路由，先回书内） ----
+    await page.goto(BASE + '/#/', { waitUntil: 'load' });
+    await page.locator('button').filter({ hasText: '非暴力沟通' }).first().click();
+    await page.waitForFunction(() => location.hash.startsWith('#/book/'), null, { timeout: 10000 });
     await page.locator('button[title="卡片"]').click();
     await page.waitForSelector('[data-cards-count]', { timeout: 5000 });
     const cntTxt = (await page.locator('[data-cards-count]').innerText()).replace(/\D/g, '');

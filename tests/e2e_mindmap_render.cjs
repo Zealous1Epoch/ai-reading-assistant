@@ -19,9 +19,10 @@ let browser = null;
     page.on('pageerror', e => errors.push(String(e)));
     page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text()); });
 
-    // 进非暴力沟通（存量导图会话所属书）→ 会话抽屉切到含导图的旧会话
+    // 进存量导图会话所属书 → 会话弹层切到含导图的旧会话
+    // 注意：该存量会话现归属《返璞归真》（早期跑在别的书上，馆藏漂移时须同步这里）
     await page.goto(BASE + '/#/', { waitUntil: 'domcontentloaded' });
-    await page.locator('button').filter({ hasText: '非暴力沟通' }).first().click();
+    await page.locator('button').filter({ hasText: '返璞归真' }).first().click();
     await page.waitForFunction(() => location.hash.startsWith('#/book/'), null, { timeout: 10000 });
     await page.locator('button[title="会话"]').click();
     await page.getByText('思维导图 · 工具产出').first().click();
@@ -41,7 +42,9 @@ let browser = null;
             circles: document.querySelectorAll('[data-mindmap="json"] svg circle').length,
         };
     });
-    say('章数=跳转链接数', attr.chapters === attr.jumps, JSON.stringify(attr));
+    // 全书图形态：每章挂 cid → 章数=锚数；章级展开子树形态：只有根挂 cid → 单锚。两种都合法
+    const anchorShape = attr.chapters === attr.jumps || (attr.jumps === 1 && attr.chapters > 1);
+    say('跳转锚与树形态匹配（全书图=章数锚/子树=单锚）', anchorShape, JSON.stringify(attr));
     // v2.9.1 起详分支入口并入折叠圆圈，无独立按钮；存量树章下必有主题层时圆圈=1根+N章，宽容断言下限
     say('折叠圆圈存在（根+章节点）', attr.circles >= 1 && attr.circles <= attr.chapters + 1, String(attr.circles));
     const n1 = await visibleNodes(page);
@@ -56,7 +59,8 @@ let browser = null;
     else say('展开到主题：数据无主题层时保持原节点且不报错', n2 === n1 && !errors.length, `${n1} → ${n2}（该存量树为两层骨架）`);
 
     // 跳原文（事件委托）：foreignObject 内 <a> 可能被面板吸顶头遮挡，用 JS 原生 click 验证委托链路本身
-    const cid = await page.locator('[data-mm-jump]').nth(1).getAttribute('data-mm-jump');
+    // 存量树形态会漂移（全书图=1根+N章多锚；章级展开子树=只有根挂 cid 单锚），取最后一个锚宽容两种形态
+    const cid = await page.locator('[data-mm-jump]').last().getAttribute('data-mm-jump');
     const label = (await page.locator(`[data-mm-jump="${cid}"]`).first().innerText()).trim();
     await page.evaluate(c => document.querySelector(`[data-mm-jump="${c}"]`).click(), cid);
     await sleep(1500);

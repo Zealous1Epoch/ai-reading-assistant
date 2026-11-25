@@ -48,7 +48,7 @@ function Cover({ book }) {
 
 // 书架首页：网格封面 + 全局语义搜索 + 上传（含右下角进度浮层）+ hover 删除
 // drafts=二期待核对草稿（不进书架，通过徽标/横幅进入核对弹层）
-function Bookshelf({ books, progressMap, uploading, cardDue, drafts = [], onOpenDraftReview, onOpenReview, onEnterBook, onUploadMultiple, onDeleteBook }) {
+function Bookshelf({ books, progressMap, uploading, cardDue, drafts = [], onOpenDraftReview, onOpenReview, onEnterBook, onUploadMultiple, onDeleteBook, onOpenSettings }) {
     const [query, setQuery] = useState('');
     const [results, setResults] = useState(null);
     const [searching, setSearching] = useState(false);
@@ -95,14 +95,14 @@ function Bookshelf({ books, progressMap, uploading, cardDue, drafts = [], onOpen
 
     return (
         <div
-            className="h-screen overflow-y-auto scrollbar-thin bg-zinc-50"
+            className="h-screen overflow-y-auto scrollbar-thin bg-zinc-50 dark:bg-zinc-950"
             onDragOver={e => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
             onDrop={handleDrop}
         >
             {dragOver && (
-                <div className="fixed inset-3 z-50 rounded-3xl border-2 border-dashed border-zinc-400 bg-white/80 backdrop-blur-sm flex items-center justify-center pointer-events-none">
-                    <p className="text-sm text-zinc-500">松手上传 · PDF / EPUB / TXT</p>
+                <div className="fixed inset-3 z-50 rounded-3xl border-2 border-dashed border-zinc-400 dark:border-zinc-600 bg-white/80 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+                    <p className="text-sm text-zinc-500 dark:text-zinc-400">松手上传 · PDF / EPUB / TXT</p>
                 </div>
             )}
 
@@ -110,14 +110,14 @@ function Bookshelf({ books, progressMap, uploading, cardDue, drafts = [], onOpen
                 {/* 顶行 */}
                 <div className="flex items-end justify-between gap-4 mb-8 flex-wrap">
                     <div>
-                        <h1 className="text-2xl font-serif-heading font-bold text-zinc-900">书架</h1>
-                        <p className="text-xs text-zinc-400 mt-1 tabular-nums">{books.length} 本</p>
+                        <h1 className="text-2xl font-serif-heading font-bold text-zinc-900 dark:text-zinc-100">书架</h1>
+                        <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1 tabular-nums">{books.length} 本</p>
                     </div>
                     <div className="flex items-center gap-2">
                         {drafts.length > 0 && (
                             <button
                                 onClick={() => onOpenDraftReview(drafts[0].book_id)}
-                                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-200 bg-amber-50 text-xs font-medium text-amber-700 hover:border-amber-400 transition-all"
+                                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-xs font-medium text-amber-700 dark:text-amber-400 hover:border-amber-400 dark:hover:border-amber-400/70 transition-all"
                                 data-testid="draft-review-entry"
                             >
                                 <svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -131,18 +131,30 @@ function Bookshelf({ books, progressMap, uploading, cardDue, drafts = [], onOpen
                         )}
                         <button
                             onClick={onOpenReview}
-                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-zinc-200 bg-white text-xs font-medium text-zinc-600 hover:border-zinc-400 transition-all"
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:border-zinc-400 dark:hover:border-zinc-600 transition-all"
                             data-open-review
                         >
-                            <svg className="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-4 h-4 text-zinc-400 dark:text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                             </svg>
                             复习
                             {cardDue > 0 && (
-                                <span className="min-w-[16px] h-4 px-1 rounded-full bg-zinc-800 text-white text-[10px] leading-4 text-center tabular-nums" data-review-badge>
+                                <span className="min-w-[16px] h-4 px-1 rounded-full bg-zinc-800 dark:bg-zinc-700 text-white text-[10px] leading-4 text-center tabular-nums" data-review-badge>
                                     {cardDue > 99 ? '99+' : cardDue}
                                 </span>
                             )}
+                        </button>
+                        {/* v3.5 设置：主题/纸张/字号 + LLM 配置 + 音色语速 + 数据导出 */}
+                        <button
+                            onClick={onOpenSettings}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:border-zinc-400 dark:hover:border-zinc-600 transition-all"
+                            data-open-settings
+                            title="设置"
+                        >
+                            <svg className="w-4 h-4 text-zinc-400 dark:text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
                         </button>
                         <div className="relative">
                             <input
@@ -150,19 +162,19 @@ function Bookshelf({ books, progressMap, uploading, cardDue, drafts = [], onOpen
                                 value={query}
                                 onChange={e => onQueryChange(e.target.value)}
                                 placeholder="搜书里的内容"
-                                className="w-64 pl-8 pr-3 py-2 bg-white border border-zinc-200 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:border-transparent placeholder:text-zinc-300"
+                                className="w-64 pl-8 pr-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-zinc-400 focus:border-transparent placeholder:text-zinc-300"
                             />
                             <svg className="w-4 h-4 text-zinc-300 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                             </svg>
                             {searching && (
-                                <div className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin h-3.5 w-3.5 border-2 border-zinc-300 border-t-transparent rounded-full"></div>
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin h-3.5 w-3.5 border-2 border-zinc-300 dark:border-zinc-700 border-t-transparent rounded-full"></div>
                             )}
                         </div>
                         <button
                             onClick={() => fileRef.current?.click()}
                             disabled={!!uploading}
-                            className="flex items-center gap-1.5 px-4 py-2 bg-zinc-800 text-white rounded-full text-sm font-medium hover:bg-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                            className="flex items-center gap-1.5 px-4 py-2 bg-zinc-800 dark:bg-zinc-700 text-white rounded-full text-sm font-medium hover:bg-zinc-900 dark:hover:bg-zinc-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                         >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -175,8 +187,8 @@ function Bookshelf({ books, progressMap, uploading, cardDue, drafts = [], onOpen
 
                 {/* 待核对横幅：解析可疑的草稿不进书架，在此逐本进入核对 */}
                 {drafts.length > 0 && results === null && (
-                    <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/60 px-4 py-3" data-testid="draft-banner">
-                        <p className="text-xs text-amber-700 font-medium mb-2">
+                    <div className="mb-6 rounded-2xl border border-amber-200 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-500/10 px-4 py-3" data-testid="draft-banner">
+                        <p className="text-xs text-amber-700 dark:text-amber-400 font-medium mb-2">
                             {drafts.length} 本书解析结果可疑，核对确认后才会进入书架
                         </p>
                         <div className="flex flex-wrap gap-2">
@@ -184,11 +196,11 @@ function Bookshelf({ books, progressMap, uploading, cardDue, drafts = [], onOpen
                                 <button
                                     key={d.book_id}
                                     onClick={() => onOpenDraftReview(d.book_id)}
-                                    className="flex items-center gap-1.5 pl-2.5 pr-3 py-1.5 rounded-lg bg-white border border-amber-200 hover:border-amber-400 transition-all"
+                                    className="flex items-center gap-1.5 pl-2.5 pr-3 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-amber-200 dark:border-amber-500/30 hover:border-amber-400 dark:hover:border-amber-400/70 transition-all"
                                 >
                                     {d.blocking && <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" title="存在阻断性问题"></span>}
-                                    <span className="text-xs text-zinc-700 max-w-[10em] truncate">{d.title || d.book_id.slice(0, 8)}</span>
-                                    <span className="text-[10px] text-zinc-400 tabular-nums">{d.total_chapters} 章</span>
+                                    <span className="text-xs text-zinc-700 dark:text-zinc-200 max-w-[10em] truncate">{d.title || d.book_id.slice(0, 8)}</span>
+                                    <span className="text-[10px] text-zinc-400 dark:text-zinc-500 tabular-nums">{d.total_chapters} 章</span>
                                     {d.warning_count > 0 && <span className="text-[10px] text-amber-500 tabular-nums">{d.warning_count} 项可疑</span>}
                                     {d.resegmented && <span className="text-[10px] text-indigo-400">AI已重切</span>}
                                 </button>
@@ -200,7 +212,7 @@ function Bookshelf({ books, progressMap, uploading, cardDue, drafts = [], onOpen
                 {/* 搜索结果 */}
                 {results !== null ? (
                     <div>
-                        <p className="text-xs text-zinc-400 mb-3 tabular-nums">{results.length} 处相关段落</p>
+                        <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-3 tabular-nums">{results.length} 处相关段落</p>
                         {results.length === 0 ? (
                             <p className="text-sm text-zinc-300 text-center py-16">没有匹配的内容</p>
                         ) : (
@@ -212,15 +224,15 @@ function Bookshelf({ books, progressMap, uploading, cardDue, drafts = [], onOpen
                                             key={i}
                                             onClick={() => { if (known) onEnterBook(r.book_id, r.chapter_id); }}
                                             disabled={!known}
-                                            className="text-left bg-white border border-zinc-200 rounded-2xl p-4 transition-all disabled:opacity-40 enabled:hover:border-zinc-300 enabled:hover:shadow-md"
+                                            className="text-left bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4 transition-all disabled:opacity-40 enabled:hover:border-zinc-300 enabled:hover:shadow-md"
                                         >
                                             <div className="flex items-center gap-2 mb-1.5">
-                                                <span className="text-xs font-semibold text-zinc-700 truncate">{r.book_title}</span>
+                                                <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 truncate">{r.book_title}</span>
                                                 <span className="text-zinc-200 flex-shrink-0">·</span>
-                                                <span className="text-[11px] text-zinc-400 truncate">{r.title}</span>
+                                                <span className="text-[11px] text-zinc-400 dark:text-zinc-500 truncate">{r.title}</span>
                                                 <span className="ml-auto text-[10px] text-zinc-300 tabular-nums flex-shrink-0">{Math.round(r.relevance_score * 100)}% 相关</span>
                                             </div>
-                                            <p className="text-xs text-zinc-500 leading-relaxed line-clamp-3">{r.content_snippet}</p>
+                                            <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed line-clamp-3">{r.content_snippet}</p>
                                         </button>
                                     );
                                 })}
@@ -231,12 +243,12 @@ function Bookshelf({ books, progressMap, uploading, cardDue, drafts = [], onOpen
                     /* 空书架 */
                     <div
                         onClick={() => fileRef.current?.click()}
-                        className="border-2 border-dashed border-zinc-200 hover:border-zinc-300 rounded-3xl py-24 text-center cursor-pointer transition-colors"
+                        className="border-2 border-dashed border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 rounded-3xl py-24 text-center cursor-pointer transition-colors"
                     >
                         <svg className="w-10 h-10 mx-auto text-zinc-200 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                         </svg>
-                        <p className="text-sm text-zinc-400">上传第一本书</p>
+                        <p className="text-sm text-zinc-400 dark:text-zinc-500">上传第一本书</p>
                         <p className="text-xs text-zinc-300 mt-1">PDF · EPUB · TXT，拖入此页亦可</p>
                     </div>
                 ) : (
@@ -261,9 +273,9 @@ function Bookshelf({ books, progressMap, uploading, cardDue, drafts = [], onOpen
                                     <div className="mt-2.5 px-0.5">
                                         {p ? (
                                             <>
-                                                <p className="text-[11px] text-zinc-500 truncate">读到 {p.chapterTitle || '进行中'}</p>
-                                                <div className="mt-1.5 h-0.5 bg-zinc-200/70 rounded-full overflow-hidden">
-                                                    <div className="h-full bg-zinc-400 rounded-full" style={{ width: `${p.total > 0 && p.idx >= 0 ? Math.round(((p.idx + 1) / p.total) * 100) : 0}%` }}></div>
+                                                <p className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate">读到 {p.chapterTitle || '进行中'}</p>
+                                                <div className="mt-1.5 h-0.5 bg-zinc-200/70 dark:bg-zinc-700/70 rounded-full overflow-hidden">
+                                                    <div className="h-full bg-zinc-400 dark:bg-zinc-600 rounded-full" style={{ width: `${p.total > 0 && p.idx >= 0 ? Math.round(((p.idx + 1) / p.total) * 100) : 0}%` }}></div>
                                                 </div>
                                             </>
                                         ) : (
@@ -279,18 +291,18 @@ function Bookshelf({ books, progressMap, uploading, cardDue, drafts = [], onOpen
 
             {/* 上传进度浮层 */}
             {uploading && (
-                <div className="fixed bottom-5 right-5 z-50 w-72 bg-white rounded-2xl border border-zinc-200 shadow-2xl px-4 py-3.5 animate-fade-in">
+                <div className="fixed bottom-5 right-5 z-50 w-72 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl px-4 py-3.5 animate-fade-in">
                     <div className="flex items-center gap-2 mb-2">
-                        <div className="animate-spin h-3.5 w-3.5 border-2 border-zinc-300 border-t-transparent rounded-full"></div>
-                        <span className="text-xs font-medium text-zinc-600 tabular-nums">
+                        <div className="animate-spin h-3.5 w-3.5 border-2 border-zinc-300 dark:border-zinc-700 border-t-transparent rounded-full"></div>
+                        <span className="text-xs font-medium text-zinc-600 dark:text-zinc-300 tabular-nums">
                             {uploading.phase === 'uploading' ? `上传中 ${uploading.current}/${uploading.total}` : `解析中 ${uploading.current}/${uploading.total}`}
                         </span>
                     </div>
-                    <div className="h-1 bg-zinc-100 rounded-full overflow-hidden">
+                    <div className="h-1 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
                         <div className="h-full bg-zinc-500 rounded-full transition-all duration-500" style={{ width: `${uploading.total > 0 ? Math.round((uploading.current / uploading.total) * 100) : 5}%` }}></div>
                     </div>
                     {uploading.ocrProgress && (
-                        <p className="text-[10px] text-zinc-400 mt-2 truncate tabular-nums">
+                        <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-2 truncate tabular-nums">
                             OCR {uploading.ocrFilename || ''} {uploading.ocrProgress.current}/{uploading.ocrProgress.total} 页
                         </p>
                     )}

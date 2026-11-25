@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from app.config import get_settings
-from app.routers import chat, book_processor, search, analysis, tools, sessions, experts, cards, assets, audio, highlights, guides
+from app.routers import chat, book_processor, search, analysis, tools, sessions, experts, cards, assets, audio, highlights, guides, settings as settings_router
 import os
 
 settings = get_settings()
@@ -37,12 +37,12 @@ app.include_router(assets.router)
 app.include_router(audio.router)
 app.include_router(highlights.router)
 app.include_router(guides.router)
+app.include_router(settings_router.router)
 
 
 # 前端页面路由
 frontend_dir = os.path.join(os.path.dirname(__file__), "..", "..", "frontend")
 dist_dir = os.path.join(frontend_dir, "dist")
-use_dist = os.path.isdir(os.path.join(dist_dir, "assets"))
 
 # 路径安全校验辅助函数
 def safe_path(base_dir: str, filename: str) -> str | None:
@@ -93,9 +93,11 @@ async def serve_vendor(filename: str):
 @app.get("/")
 async def serve_frontend():
     """提供前端页面"""
-    # 优先使用 Vite 构建产物
+    # 优先使用 Vite 构建产物。逐请求现查（v3.5 教训：启动时一次性 isdir 判定会被
+    # npm build 清空 dist 的窗口期骗到，导致服务的是引 /src/main.jsx 的源码 index——
+    # 浏览器白屏且资源全 404 的玄学现场）
     headers = {"Cache-Control": "no-cache, no-store, must-revalidate"}
-    if use_dist:
+    if os.path.isdir(os.path.join(dist_dir, "assets")):
         return FileResponse(os.path.join(dist_dir, "index.html"), headers=headers)
     frontend_path = os.path.join(frontend_dir, "index.html")
     if os.path.exists(frontend_path):

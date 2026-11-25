@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { loadAppearance, PAPER_THEMES } from '../appearance.js';
 
 const API_BASE = '';
 
@@ -103,15 +104,15 @@ function ChapterParagraphs({ text, hlsByP }) {
                     const bodyLines = lines.slice(1).filter(l => l.trim());
                     return (
                         <div key={i} data-p={i} className={`${avoid} mb-5`}>
-                            <p className="text-lg font-serif-heading font-bold text-zinc-900 mb-2" style={{ breakAfter: 'avoid' }}>{wrapHighlights(firstLine, hlOf(i))}</p>
+                            <p className="text-lg font-serif-heading font-bold text-zinc-900 dark:text-zinc-100 reader-heading mb-2" style={{ breakAfter: 'avoid' }}>{wrapHighlights(firstLine, hlOf(i))}</p>
                             {bodyLines.map((l, j) => (
-                                <p key={j} className="text-[15px] text-zinc-700 leading-8 mb-2" style={{ textIndent: '2em' }}>{wrapHighlights(l.trim(), hlOf(i))}</p>
+                                <p key={j} className="text-[15px] text-zinc-700 dark:text-zinc-200 leading-8 mb-2" style={{ textIndent: '2em' }}>{wrapHighlights(l.trim(), hlOf(i))}</p>
                             ))}
                         </div>
                     );
                 }
                 return (
-                    <p key={i} data-p={i} className={`text-[15px] text-zinc-700 leading-8 mb-3 ${avoid}`} style={{ textIndent: '2em' }}>
+                    <p key={i} data-p={i} className={`text-[15px] text-zinc-700 dark:text-zinc-200 leading-8 mb-3 ${avoid}`} style={{ textIndent: '2em' }}>
                         {wrapHighlights(block.trim(), hlOf(i))}
                     </p>
                 );
@@ -125,7 +126,7 @@ function ChapterNavButton({ dir, disabled, title, onClick }) {
         <button
             onClick={onClick}
             disabled={disabled}
-            className="p-1.5 rounded-lg text-zinc-300 hover:text-zinc-700 hover:bg-zinc-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            className="reader-navbtn p-1.5 rounded-lg text-zinc-300 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-900 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
             title={title}
         >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -146,6 +147,14 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget,
     const [selBar, setSelBar] = useState(null);   // 选区操作条 {top,left,frags,text}
     const [hlMenu, setHlMenu] = useState(null);   // 点已划线弹层 {top,left,id}
     const [hlBusy, setHlBusy] = useState(false);
+    // v3.5 外观：纸张/字号即时响应设置面板（'wb-appearance' 广播，不走 props 层层透传）
+    const [ap, setAp] = useState(loadAppearance);
+    useEffect(() => {
+        const h = () => setAp(loadAppearance());
+        window.addEventListener('wb-appearance', h);
+        return () => window.removeEventListener('wb-appearance', h);
+    }, []);
+    const paper = PAPER_THEMES[ap.paper] || PAPER_THEMES.white;
     const rootRef = useRef(null);
     // 听本章（v2.5）：POST /audio/chapter → 任务轮询 → mp3 播放条。edge-tts 免费接口，不占内部模型算力
     const [listen, setListen] = useState({ st: 'idle', msg: '', url: '' });
@@ -357,7 +366,7 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget,
 
     if (!currentBook) {
         return (
-            <div className="flex-1 bg-white rounded-2xl border border-zinc-200 flex items-center justify-center min-w-0">
+            <div className="flex-1 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 flex items-center justify-center min-w-0">
                 <p className="text-sm text-zinc-300">书籍不存在</p>
             </div>
         );
@@ -371,22 +380,26 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget,
     const next = chapterIdx >= 0 && chapterIdx < chapters.length - 1 ? chapters[chapterIdx + 1] : null;
 
     return (
-        <div ref={rootRef} onClick={handleBodyClick} className="relative flex-1 min-w-0 bg-white rounded-2xl border border-zinc-200 flex flex-col overflow-hidden">
+        <div ref={rootRef} onClick={handleBodyClick} data-paper={ap.paper}
+             className="reader-surface relative flex-1 min-w-0 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 flex flex-col overflow-hidden"
+             style={{ backgroundColor: paper.bg, borderColor: paper.border,
+                      '--paper-fg': paper.fg, '--paper-strong': paper.strong, '--paper-muted': paper.muted,
+                      '--paper-panel': paper.panel, '--paper-border': paper.border, '--reader-fs': `${ap.fontSize}px` }}>
             {/* 章头：标题 + 字数 + 翻页 */}
-            <div className="px-6 pt-4 pb-3 border-b border-zinc-100 flex-shrink-0">
+            <div className="px-6 pt-4 pb-3 border-b border-zinc-100 dark:border-zinc-800 reader-panel flex-shrink-0" style={{ borderWidth: '0 0 1px' }}>
                 <div className="flex items-center gap-3 min-w-0">
-                    <h2 className="text-base font-serif-heading font-semibold text-zinc-900 truncate">
+                    <h2 className="text-base font-serif-heading font-semibold text-zinc-900 dark:text-zinc-100 reader-title truncate">
                         {currentChapter?.title || ''}
                     </h2>
                     {currentChapter?.word_count ? (
-                        <span className="text-[11px] text-zinc-300 flex-shrink-0 tabular-nums">{currentChapter.word_count} 字</span>
+                        <span className="text-[11px] text-zinc-300 reader-muted flex-shrink-0 tabular-nums">{currentChapter.word_count} 字</span>
                     ) : null}
                     <button
                         onClick={startListen}
                         disabled={!currentChapter || listen.st === 'busy'}
                         title="听本章"
                         data-listen-chapter
-                        className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] transition-all ${listen.st === 'ready' ? 'bg-zinc-800 text-white' : 'border border-zinc-200 text-zinc-500 hover:bg-zinc-50'} disabled:opacity-50`}
+                        className={`flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] transition-all ${listen.st === 'ready' ? 'bg-zinc-800 dark:bg-zinc-700 text-white' : 'border border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900'} disabled:opacity-50`}
                     >
                         <svg className={`w-3.5 h-3.5 ${listen.st === 'busy' ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
@@ -395,7 +408,7 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget,
                     </button>
                     <span className="ml-auto flex items-center gap-1 flex-shrink-0">
                         <ChapterNavButton dir="prev" disabled={!prev} title={prev?.title} onClick={() => prev && onSelectChapter?.(prev)} />
-                        <span className="text-[11px] text-zinc-300 tabular-nums px-1">
+                        <span className="text-[11px] text-zinc-300 reader-muted tabular-nums px-1">
                             {chapterIdx >= 0 ? `${chapterIdx + 1}/${chapters.length}` : ''}
                         </span>
                         <ChapterNavButton dir="next" disabled={!next} title={next?.title} onClick={() => next && onSelectChapter?.(next)} />
@@ -406,7 +419,7 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget,
                         {listen.st === 'ready' ? (
                             <audio controls autoPlay preload="metadata" src={listen.url} className="w-full h-9" data-audio-player />
                         ) : (
-                            <p className={`text-[11px] ${listen.st === 'err' ? 'text-red-400' : 'text-zinc-400'}`} data-listen-status>
+                            <p className={`text-[11px] ${listen.st === 'err' ? 'text-red-400' : 'text-zinc-400 dark:text-zinc-500'}`} data-listen-status>
                                 {listen.st === 'busy' ? `${listen.msg}……（整章约需几十秒到几分钟，可继续翻页阅读）` : `${listen.msg}，再点一次「听本章」重试`}
                             </p>
                         )}
@@ -418,12 +431,12 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget,
                 {/* 摘要条：全宽（不随双栏断开） */}
                 {(summaryLoading || summary) && (
                     <div className="px-6 pt-4">
-                        <div className="bg-zinc-50/80 border border-zinc-100 rounded-xl">
+                        <div className="reader-panel bg-zinc-50/80 dark:bg-zinc-900/70 border border-zinc-100 dark:border-zinc-800 rounded-xl">
                             <button
                                 onClick={() => setSummaryOpen(o => !o)}
                                 className="w-full flex items-center gap-2 px-4 py-2"
                             >
-                                <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">本章摘要</span>
+                                <span className="text-[11px] font-semibold text-zinc-400 dark:text-zinc-500 reader-muted uppercase tracking-wider">本章摘要</span>
                                 {!summaryLoading && (
                                     <svg className={`w-3.5 h-3.5 text-zinc-300 transition-transform ${summaryOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -433,17 +446,17 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget,
                             {summaryOpen && (
                                 <div className="px-4 pb-3">
                                     {summaryLoading ? (
-                                        <div className="flex items-center gap-2 text-zinc-300 text-xs py-1">
-                                            <div className="animate-spin h-3.5 w-3.5 border-2 border-zinc-200 border-t-transparent rounded-full"></div>
+                                        <div className="flex items-center gap-2 text-zinc-300 reader-muted text-xs py-1">
+                                            <div className="animate-spin h-3.5 w-3.5 border-2 border-zinc-200 dark:border-zinc-800 border-t-transparent rounded-full"></div>
                                             摘要生成中
                                         </div>
                                     ) : (
                                         <>
-                                            <p className="text-[13px] text-zinc-600 leading-relaxed">{summary.summary}</p>
+                                            <p className="text-[13px] text-zinc-600 dark:text-zinc-300 reader-fg leading-relaxed">{summary.summary}</p>
                                             {summary.keywords?.length > 0 && (
                                                 <div className="flex flex-wrap gap-1.5 mt-2">
                                                     {summary.keywords.map((kw, i) => (
-                                                        <span key={i} className="text-[11px] px-2 py-0.5 rounded-full bg-white text-zinc-400 border border-zinc-200">{kw}</span>
+                                                        <span key={i} className="text-[11px] px-2 py-0.5 rounded-full bg-white dark:bg-zinc-900 text-zinc-400 dark:text-zinc-500 border border-zinc-200 dark:border-zinc-800">{kw}</span>
                                                     ))}
                                                 </div>
                                             )}
@@ -459,18 +472,18 @@ function ReadingPane({ currentBook, currentChapter, onSelectChapter, citeTarget,
                 <div className="px-6 py-5">
                     {currentChapter ? (
                         currentChapter.content ? (
-                            <div ref={setColBoxEl}>
+                            <div ref={setColBoxEl} className="reader-body">
                                 <div className={twoCol ? 'book-columns' : ''}>
                                     <ChapterParagraphs text={currentChapter.content} hlsByP={hlsByP} />
                                 </div>
                             </div>
                         ) : currentChapter.loadError ? (
-                            <p className="text-zinc-300 text-sm py-8 text-center">本章内容缺失</p>
+                            <p className="text-zinc-300 reader-muted text-sm py-8 text-center">本章内容缺失</p>
                         ) : (
-                            <p className="text-zinc-300 text-sm py-8 text-center">章节加载中…</p>
+                            <p className="text-zinc-300 reader-muted text-sm py-8 text-center">章节加载中…</p>
                         )
                     ) : (
-                        <div className="text-center text-zinc-300 text-sm py-16">
+                        <div className="text-center text-zinc-300 reader-muted text-sm py-16">
                             {currentBook.total_chapters ? '从顶栏「目录」选择一章开始' : '该书暂无章节'}
                         </div>
                     )}

@@ -15,11 +15,27 @@ from typing import List, Optional, Tuple
 import edge_tts
 
 from app.config import get_settings
+from app.services import settings_store
 
 settings = get_settings()
 
-VOICE_A = "zh-CN-YunxiNeural"    # 男主播（听书也用此声）
-VOICE_B = "zh-CN-XiaoyiNeural"   # 女主播
+
+# v3.5 设置面板：音色/语速可在运行时改（settings_store.tts_config），下列函数是
+# 唯一取用口径——旧常量已退役，勿再直接引用（改了也不会生效的假配置最坑）。
+def voice_a() -> str:
+    return settings_store.tts_config()["voice_a"]
+
+
+def voice_b() -> str:
+    return settings_store.tts_config()["voice_b"]
+
+
+def podcast_rate() -> str:
+    return settings_store.tts_config()["rate"]
+
+
+VOICE_A = "zh-CN-YunxiNeural"    # 默认男主播（兼容保留；取用一律走 voice_a()）
+VOICE_B = "zh-CN-XiaoyiNeural"   # 默认女主播（兼容保留；取用一律走 voice_b()）
 TTS_CHAR_CAP = 20000             # 听书单章合成字数上限（约 80+ 分钟语量，再长按上限截断）
 PODCAST_CHARS_PER_MIN = 280     # LLM 实测生效语速约 280 字/分钟（含 +9% 语速与句间停顿），用于时长→字数换算
 PODCAST_MINUTES = (10, 20, 30)   # 时长档
@@ -67,16 +83,19 @@ def _sha1(*parts: str) -> str:
 
 
 def chapter_audio_name(book_id: str, chapter_id: str, spoken_text: str) -> str:
-    """章名含正文哈希：重切章/改内容后自动重合成，未变则命中缓存"""
-    return _sha1("chapter", book_id, chapter_id, _sha1(spoken_text)) + ".mp3"
+    """章名含正文哈希：重切章/改内容后自动重合成，未变则命中缓存。
+    v3.5：键带上音色——设置面板换声后旧 mp3 不再误命中（旧文件沦为孤儿无害）。"""
+    return _sha1("chapter", "v2", voice_a(), book_id, chapter_id, _sha1(spoken_text)) + ".mp3"
 
 
 def podcast_audio_name(book_id: str, topic: str, minutes: int, nonce: str = "") -> str:
     """v2.8-B 缓存语义修正：键 = 书+主题+时长。v2.5 曾把台本哈希拼进键——LLM 每次都
     重写台本，重跑必不命中，缓存形同虚设。"同一期节目"由用户意图（书/主题/时长）
-    决定而非字节。nonce 供"重新生成一期"（regen）另起新文件名，不覆盖旧期；
-    版本前缀与 v2.5 旧键（含台本哈希）区隔——v3 起音频带语速与句间停顿，再 bump 一次。"""
-    return _sha1("podcast", "v3", book_id, topic, str(minutes), nonce) + ".mp3"
+    决定而非字节。    nonce 供"重新生成一期"（regen）另起新文件名，不覆盖旧期；
+    版本前缀与 v2.5 旧键（含台本哈希）区隔——v3 起音频带语速与句间停顿，再 bump 一次；
+    v4（v3.5 设置面板）把双主播音色与语速并进键，改配置后新一期不蹭旧声缓存。"""
+    return _sha1("podcast", "v4", voice_a(), voice_b(), podcast_rate(),
+                 book_id, topic, str(minutes), nonce) + ".mp3"
 
 
 async def synth_one(text: str, voice: str, path: str) -> None:
@@ -162,7 +181,7 @@ def lines_from_obj(obj) -> Optional[List[Tuple[str, str]]]:
         if not text:
             continue
         s = str(item.get("s") or "A").strip().upper()
-        voice = VOICE_B if ("B" in s or "女" in s) else VOICE_A
+        voice = voice_b() if ("B" in s or "女" in s) else voice_a()
         out.append((text, voice))
     return out or None
 
@@ -213,5 +232,5 @@ def validate_script(lines: List[Tuple[str, str]], target_chars: int) -> List[str
 def script_json(lines: List[Tuple[str, str]]) -> str:
     """台本序列化（用于缓存名哈希与资产记录）"""
     return json.dumps(
-        [{"s": "B" if v == VOICE_B else "A", "t": t} for t, v in lines],
+        [{"s": "B" if v == voice_b() else "A", "t": t} for t, v in lines],
         ensure_ascii=False)

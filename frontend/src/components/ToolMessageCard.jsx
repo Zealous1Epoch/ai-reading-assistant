@@ -22,23 +22,23 @@ function renderLine(line, idx, opts = {}) {
 
     if (isTitle) {
         const tm = afterH.match(/^(\d+[\.\、]|[一二三四五六七八九十]+[、\.])\s*(.*)/);
-        return <p key={idx} className="text-base font-bold text-zinc-900 leading-snug">
+        return <p key={idx} className="text-base font-bold text-zinc-900 dark:text-zinc-100 leading-snug">
             {tm ? [tm[1] + ' ', ...processText(tm[2])] : processText(afterH)}
         </p>;
     }
 
     const sbm = t.match(/^(\s{2,})[-*]\s+(.*)/);
-    if (sbm) return <p key={idx} className="text-sm text-zinc-600 leading-relaxed pl-7 mt-1.5">{'◦ '}{processText(sbm[2])}</p>;
+    if (sbm) return <p key={idx} className="text-sm text-zinc-600 dark:text-zinc-300 leading-relaxed pl-7 mt-1.5">{'◦ '}{processText(sbm[2])}</p>;
 
     const bm = t.match(/^[-*]\s+(.*)/);
-    if (bm) return <p key={idx} className="text-sm text-zinc-700 leading-relaxed pl-5 mt-1.5">{'· '}{processText(bm[1])}</p>;
+    if (bm) return <p key={idx} className="text-sm text-zinc-700 dark:text-zinc-200 leading-relaxed pl-5 mt-1.5">{'· '}{processText(bm[1])}</p>;
 
     const nm = t.match(/^(\d+[\.\、])\s*(.*)/);
-    if (nm) return <p key={idx} className="text-sm text-zinc-700 leading-relaxed pl-5 mt-1.5">{nm[1] + ' '}{processText(nm[2])}</p>;
+    if (nm) return <p key={idx} className="text-sm text-zinc-700 dark:text-zinc-200 leading-relaxed pl-5 mt-1.5">{nm[1] + ' '}{processText(nm[2])}</p>;
 
-    if (isBody) return <p key={idx} className="text-sm text-zinc-700 leading-relaxed mt-1.5" style={{ textIndent: '2em' }}>{processText(afterH)}</p>;
+    if (isBody) return <p key={idx} className="text-sm text-zinc-700 dark:text-zinc-200 leading-relaxed mt-1.5" style={{ textIndent: '2em' }}>{processText(afterH)}</p>;
 
-    return <p key={idx} className="text-sm text-zinc-700 leading-relaxed mt-1.5">{processText(afterH)}</p>;
+    return <p key={idx} className="text-sm text-zinc-700 dark:text-zinc-200 leading-relaxed mt-1.5">{processText(afterH)}</p>;
 }
 
 function convertTables(text) {
@@ -78,8 +78,8 @@ function renderToolBlocks(raw) {
                 const bodyText = firstLine.substring(idx + 1).trim();
                 const bodyLines = bodyText.split('\n').filter(l => l.trim());
                 return (
-                    <div key={i} className="bg-zinc-50/60 border border-zinc-100 rounded-xl overflow-hidden">
-                        <div className="px-4 pt-4 pb-2 border-b border-zinc-50">{renderLine(titleText, 0, { isTitle: true })}</div>
+                    <div key={i} className="bg-zinc-50/60 dark:bg-zinc-900/60 border border-zinc-100 dark:border-zinc-800 rounded-xl overflow-hidden">
+                        <div className="px-4 pt-4 pb-2 border-b border-zinc-50 dark:border-zinc-800">{renderLine(titleText, 0, { isTitle: true })}</div>
                         <div className="px-4 pt-3 pb-4">{bodyLines.map((line, j) => renderLine(line, j + 1, { isBody: true }))}</div>
                     </div>
                 );
@@ -87,12 +87,12 @@ function renderToolBlocks(raw) {
         }
         const title = renderLine(firstLine, 0, { isTitle: true });
         if (lines.length === 1) {
-            return <div key={i} className="bg-zinc-50/60 border border-zinc-100 rounded-xl overflow-hidden"><div className="px-4 pt-4 pb-2">{title}</div></div>;
+            return <div key={i} className="bg-zinc-50/60 dark:bg-zinc-900/60 border border-zinc-100 dark:border-zinc-800 rounded-xl overflow-hidden"><div className="px-4 pt-4 pb-2">{title}</div></div>;
         }
         const body = lines.slice(1).map((line, j) => renderLine(line, j + 1, { isBody: true }));
         return (
-            <div key={i} className="bg-zinc-50/60 border border-zinc-100 rounded-xl overflow-hidden">
-                <div className="px-4 pt-4 pb-2 border-b border-zinc-50">{title}</div>
+            <div key={i} className="bg-zinc-50/60 dark:bg-zinc-900/60 border border-zinc-100 dark:border-zinc-800 rounded-xl overflow-hidden">
+                <div className="px-4 pt-4 pb-2 border-b border-zinc-50 dark:border-zinc-800">{title}</div>
                 <div className="px-4 pt-3 pb-4">{body}</div>
             </div>
         );
@@ -110,8 +110,8 @@ function renderToolBlocks(raw) {
                     const bodyText = firstLine.substring(idx + 1).trim();
                     const bodyLines = bodyText.split('\n').filter(l => l.trim());
                     return (
-                        <div key={i} className="bg-zinc-50/60 border border-zinc-100 rounded-xl overflow-hidden">
-                            <div className="px-4 pt-4 pb-2 border-b border-zinc-50">{renderLine(titleText, 0, { isTitle: true })}</div>
+                        <div key={i} className="bg-zinc-50/60 dark:bg-zinc-900/60 border border-zinc-100 dark:border-zinc-800 rounded-xl overflow-hidden">
+                            <div className="px-4 pt-4 pb-2 border-b border-zinc-50 dark:border-zinc-800">{renderLine(titleText, 0, { isTitle: true })}</div>
                             <div className="px-4 pt-3 pb-4">{bodyLines.map((line, j) => renderLine(line, j + 1, { isBody: true }))}</div>
                         </div>
                     );
@@ -119,12 +119,12 @@ function renderToolBlocks(raw) {
             }
             const titleEl = renderLine(firstLine, 0, { isTitle: true });
             if (lines.length === 1) {
-                return <div key={i} className="bg-zinc-50/60 border border-zinc-100 rounded-xl overflow-hidden"><div className="px-4 pt-4 pb-2">{titleEl}</div></div>;
+                return <div key={i} className="bg-zinc-50/60 dark:bg-zinc-900/60 border border-zinc-100 dark:border-zinc-800 rounded-xl overflow-hidden"><div className="px-4 pt-4 pb-2">{titleEl}</div></div>;
             }
             const body = lines.slice(1).map((line, j) => renderLine(line, j + 1, { isBody: true }));
             return (
-                <div key={i} className="bg-zinc-50/60 border border-zinc-100 rounded-xl overflow-hidden">
-                    <div className="px-4 pt-4 pb-2 border-b border-zinc-50">{titleEl}</div>
+                <div key={i} className="bg-zinc-50/60 dark:bg-zinc-900/60 border border-zinc-100 dark:border-zinc-800 rounded-xl overflow-hidden">
+                    <div className="px-4 pt-4 pb-2 border-b border-zinc-50 dark:border-zinc-800">{titleEl}</div>
                     <div className="px-4 pt-3 pb-4">{body}</div>
                 </div>
             );
@@ -161,12 +161,12 @@ function MindmapSvg({ data, height = 420, onExpand }) {
     return (
         <div>
             <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-zinc-400">可缩放、折叠</span>
-                <button onClick={onExpand} className="text-xs font-medium text-zinc-500 hover:text-zinc-700 bg-zinc-100 hover:bg-zinc-200 px-3 py-1 rounded-full transition-all">
+                <span className="text-xs text-zinc-400 dark:text-zinc-500">可缩放、折叠</span>
+                <button onClick={onExpand} className="text-xs font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 px-3 py-1 rounded-full transition-all">
                     放大
                 </button>
             </div>
-            <svg ref={ref} className="w-full bg-white rounded-xl border border-zinc-100" style={{ height }}></svg>
+            <svg ref={ref} className="w-full bg-white dark:bg-zinc-900 rounded-xl border border-zinc-100 dark:border-zinc-800" style={{ height }}></svg>
         </div>
     );
 }
@@ -190,12 +190,12 @@ function MindmapOverlay({ data, onClose }) {
     }, [data]);
     return (
         <div onClick={onClose} className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', animation: 'fade-in 0.2s ease-out' }}>
-            <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl shadow-2xl border border-zinc-200 flex flex-col overflow-hidden" style={{ width: '92vw', height: '90vh' }}>
-                <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between flex-shrink-0">
-                    <h2 className="text-base font-serif-heading font-semibold text-zinc-800 truncate">
+            <div onClick={(e) => e.stopPropagation()} className="bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl border border-zinc-200 dark:border-zinc-800 flex flex-col overflow-hidden" style={{ width: '92vw', height: '90vh' }}>
+                <div className="px-6 py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between flex-shrink-0">
+                    <h2 className="text-base font-serif-heading font-semibold text-zinc-800 dark:text-zinc-200 truncate">
                         {cleanMindmapData(data || '').split('\n')[0]?.replace(/^#\s*/, '') || '思维导图'}
                     </h2>
-                    <button onClick={onClose} className="p-2 rounded-full hover:bg-zinc-100 text-zinc-400 hover:text-zinc-600 transition-all">
+                    <button onClick={onClose} className="p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 transition-all">
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
@@ -461,13 +461,13 @@ export function MindmapTree({ root, bookId, onNavigateToSource, height = 400 }) 
 
     const chapterCount = root.c?.length || 0;
     const btn = 'text-[11px] px-2 py-0.5 rounded-full border transition-colors';
-    const btnOn = 'border-zinc-700 bg-zinc-800 text-white';
-    const btnOff = 'border-zinc-200 text-zinc-500 hover:border-zinc-400 hover:text-zinc-700';
+    const btnOn = 'border-zinc-700 bg-zinc-800 dark:bg-zinc-700 text-white';
+    const btnOff = 'border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 hover:border-zinc-400 dark:hover:border-zinc-600 hover:text-zinc-700 dark:hover:text-zinc-200';
 
     return (
         <div data-mindmap="json" data-mm-chapters={chapterCount} data-mm-ready={ready ? '1' : '0'}>
             <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
-                <span className="text-[11px] text-zinc-400 tabular-nums">
+                <span className="text-[11px] text-zinc-400 dark:text-zinc-500 tabular-nums">
                     {chapterCount > 1 ? `${chapterCount} 章 · 拖拽平移 · 滚轮缩放 · 点章节点的圆圈生成并展开详分支` : ''}
                 </span>
                 <div className="flex items-center gap-1 flex-wrap" data-mm-toolbar>
@@ -488,14 +488,14 @@ export function MindmapTree({ root, bookId, onNavigateToSource, height = 400 }) 
             <div
                 onClick={handleCanvasClick}
                 className={fullscreen
-                    ? 'fixed inset-0 z-50 bg-white'
-                    : 'relative bg-white rounded-xl border border-zinc-100 overflow-hidden'}
+                    ? 'fixed inset-0 z-50 bg-white dark:bg-zinc-900'
+                    : 'relative bg-white dark:bg-zinc-900 rounded-xl border border-zinc-100 dark:border-zinc-800 overflow-hidden'}
                 style={fullscreen ? undefined : { height }}
             >
                 {fullscreen && (
-                    <div className="absolute top-0 inset-x-0 z-10 flex items-center justify-between px-6 py-3 bg-white/85 backdrop-blur border-b border-zinc-100">
-                        <h2 className="text-base font-serif-heading font-semibold text-zinc-800 truncate">{root.t}</h2>
-                        <button onClick={() => setFullscreen(false)} className="p-2 rounded-full hover:bg-zinc-100 text-zinc-400 hover:text-zinc-600 transition-all" title="关闭">
+                    <div className="absolute top-0 inset-x-0 z-10 flex items-center justify-between px-6 py-3 bg-white/85 backdrop-blur border-b border-zinc-100 dark:border-zinc-800">
+                        <h2 className="text-base font-serif-heading font-semibold text-zinc-800 dark:text-zinc-200 truncate">{root.t}</h2>
+                        <button onClick={() => setFullscreen(false)} className="p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 transition-all" title="关闭">
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                             </svg>
@@ -520,12 +520,12 @@ function parseCardsResult(raw) {
 function CardsResult({ data }) {
     return (
         <div className="space-y-2.5" data-tool-cards>
-            <p className="text-sm text-zinc-600">{data.note || ''}</p>
+            <p className="text-sm text-zinc-600 dark:text-zinc-300">{data.note || ''}</p>
             {data.cards.map((c, i) => (
-                <div key={c.card_id || i} className="rounded-xl border border-zinc-100 bg-zinc-50/60 px-3.5 py-2.5">
-                    <p className="text-xs font-medium text-zinc-800 leading-relaxed" data-card-front>{c.front}</p>
-                    <p className="text-xs text-zinc-500 leading-relaxed mt-1" data-card-back>{c.back}</p>
-                    {c.cite && <p className="text-[11px] text-zinc-400 italic mt-1 border-l-2 border-zinc-100 pl-2 leading-relaxed">「{c.cite}」</p>}
+                <div key={c.card_id || i} className="rounded-xl border border-zinc-100 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/60 px-3.5 py-2.5">
+                    <p className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-relaxed" data-card-front>{c.front}</p>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed mt-1" data-card-back>{c.back}</p>
+                    {c.cite && <p className="text-[11px] text-zinc-400 dark:text-zinc-500 italic mt-1 border-l-2 border-zinc-100 dark:border-zinc-800 pl-2 leading-relaxed">「{c.cite}」</p>}
                 </div>
             ))}
         </div>
@@ -547,24 +547,24 @@ function ToolMessageCard({ msg, bookId, favorites, onToggleFavorite, onNavigateT
 
     return (
         <div className="message-enter">
-            <div className="rounded-2xl border border-zinc-200 bg-white overflow-hidden">
+            <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
                 {/* 卡片头：工具名 + 范围 + 收藏 */}
-                <div className="px-4 py-2.5 border-b border-zinc-100 bg-zinc-50/60 flex items-center gap-2">
-                    <svg className="w-3.5 h-3.5 text-zinc-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="px-4 py-2.5 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/60 flex items-center gap-2">
+                    <svg className="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                     </svg>
-                    <span className="text-xs font-semibold text-zinc-700">{msg.tool_name || msg.tool_id}</span>
-                    {msg.scope && <span className="text-[11px] text-zinc-400 truncate">· {msg.scope}</span>}
+                    <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">{msg.tool_name || msg.tool_id}</span>
+                    {msg.scope && <span className="text-[11px] text-zinc-400 dark:text-zinc-500 truncate">· {msg.scope}</span>}
                     {streaming && (
-                        <span className="ml-auto flex items-center gap-1.5 text-[11px] text-zinc-400 flex-shrink-0">
-                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-zinc-400 animate-pulse"></span>
+                        <span className="ml-auto flex items-center gap-1.5 text-[11px] text-zinc-400 dark:text-zinc-500 flex-shrink-0">
+                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-zinc-400 dark:bg-zinc-600 animate-pulse"></span>
                             {msg.status || '生成中'}
                         </span>
                     )}
                     {canFavorite && (
                         <button
                             onClick={() => onToggleFavorite({ type: 'tool', toolId: msg.tool_id, toolLabel: msg.tool_name, outputType: msg.output_type || 'text', question: msg.scope || '整本书', answer: content })}
-                            className={`ml-auto p-1 rounded-lg transition-all flex-shrink-0 ${alreadyFav ? 'text-zinc-500 bg-zinc-100' : 'text-zinc-300 hover:text-zinc-500 hover:bg-zinc-100'}`}
+                            className={`ml-auto p-1 rounded-lg transition-all flex-shrink-0 ${alreadyFav ? 'text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800' : 'text-zinc-300 hover:text-zinc-500 dark:hover:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
                             title={alreadyFav ? '取消收藏' : '收藏结果'}
                         >
                             <svg className="w-3.5 h-3.5" fill={alreadyFav ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
@@ -577,7 +577,7 @@ function ToolMessageCard({ msg, bookId, favorites, onToggleFavorite, onNavigateT
                 {/* 卡片体 */}
                 <div className="px-4 py-3">
                     {msg.error ? (
-                        <div className="flex items-start gap-2 text-zinc-500">
+                        <div className="flex items-start gap-2 text-zinc-500 dark:text-zinc-400">
                             <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
@@ -585,11 +585,11 @@ function ToolMessageCard({ msg, bookId, favorites, onToggleFavorite, onNavigateT
                         </div>
                     ) : msg.output_type === 'html' ? (
                         <div className="space-y-3">
-                            <p className="text-sm text-zinc-600 leading-relaxed">已生成精读笔记 HTML 页（章节摘要、关键词、原文摘录与 AI 批注）。</p>
+                            <p className="text-sm text-zinc-600 dark:text-zinc-300 leading-relaxed">已生成精读笔记 HTML 页（章节摘要、关键词、原文摘录与 AI 批注）。</p>
                             <div className="flex gap-2">
                                 <button
                                     onClick={() => setHtmlExpanded(true)}
-                                    className="flex-1 py-2 bg-zinc-800 text-white rounded-full text-sm font-medium hover:bg-zinc-900 transition-all"
+                                    className="flex-1 py-2 bg-zinc-800 dark:bg-zinc-700 text-white rounded-full text-sm font-medium hover:bg-zinc-900 dark:hover:bg-zinc-600 transition-all"
                                 >
                                     查看
                                 </button>
@@ -601,7 +601,7 @@ function ToolMessageCard({ msg, bookId, favorites, onToggleFavorite, onNavigateT
                                         a.href = url; a.download = msg.filename || '精读笔记.html'; a.click();
                                         URL.revokeObjectURL(url);
                                     }}
-                                    className="flex-1 py-2 bg-white border border-zinc-200 text-zinc-600 rounded-full text-sm font-medium hover:bg-zinc-50 transition-all"
+                                    className="flex-1 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 rounded-full text-sm font-medium hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-all"
                                 >
                                     下载
                                 </button>
@@ -611,7 +611,7 @@ function ToolMessageCard({ msg, bookId, favorites, onToggleFavorite, onNavigateT
                         <CardsResult data={parseCardsResult(content)} />
                     ) : msg.output_type === 'audio' && !streaming && content.trim() ? (
                         <div className="space-y-2" data-audio-card>
-                            <p className="text-xs text-zinc-400">双主播对谈 · 成品已存 data/audio，可点右上角收藏进资产区</p>
+                            <p className="text-xs text-zinc-400 dark:text-zinc-500">双主播对谈 · 成品已存 data/audio，可点右上角收藏进资产区</p>
                             <audio controls preload="metadata" src={content} className="w-full" data-audio-src={content} />
                         </div>
                     ) : msg.tool_id === 'mindmap' && !streaming && content.trim() ? (
@@ -622,12 +622,12 @@ function ToolMessageCard({ msg, bookId, favorites, onToggleFavorite, onNavigateT
                         <div className="space-y-3">
                             {content.trim()
                                 ? renderToolBlocks(content)
-                                : <p className="text-xs text-zinc-400">生成中…</p>}
+                                : <p className="text-xs text-zinc-400 dark:text-zinc-500">生成中…</p>}
                             {!streaming && msg.sources?.length > 0 && (
-                                <div className="pt-2 border-t border-zinc-100 flex flex-wrap gap-1.5 items-center">
-                                    <span className="text-[11px] text-zinc-400">引用：</span>
+                                <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 flex flex-wrap gap-1.5 items-center">
+                                    <span className="text-[11px] text-zinc-400 dark:text-zinc-500">引用：</span>
                                     {(msg.book_id ? msg.sources : msg.sources).map((s, i) => (
-                                        <button key={i} onClick={() => onNavigateToSource?.(s.book_id, s.chapter_id)} className="text-[11px] px-2 py-0.5 bg-zinc-50 text-zinc-500 rounded-full border border-zinc-100 hover:bg-zinc-100 transition-colors">
+                                        <button key={i} onClick={() => onNavigateToSource?.(s.book_id, s.chapter_id)} className="text-[11px] px-2 py-0.5 bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 rounded-full border border-zinc-100 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
                                             {s.chapter_title}
                                         </button>
                                     ))}
@@ -641,10 +641,10 @@ function ToolMessageCard({ msg, bookId, favorites, onToggleFavorite, onNavigateT
             {mindmapExpanded && <MindmapOverlay data={content} onClose={() => setMindmapExpanded(false)} />}
             {htmlExpanded && (
                 <div onClick={() => setHtmlExpanded(false)} className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', animation: 'fade-in 0.2s ease-out' }}>
-                    <div onClick={(e) => e.stopPropagation()} className="bg-white rounded-3xl shadow-2xl border border-zinc-200 flex flex-col overflow-hidden" style={{ width: '92vw', height: '90vh' }}>
-                        <div className="px-6 py-4 border-b border-zinc-100 flex items-center justify-between flex-shrink-0">
-                            <h2 className="text-base font-serif-heading font-semibold text-zinc-800 truncate">精读笔记</h2>
-                            <button onClick={() => setHtmlExpanded(false)} className="p-2 rounded-full hover:bg-zinc-100 text-zinc-400 hover:text-zinc-600 transition-all">
+                    <div onClick={(e) => e.stopPropagation()} className="bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl border border-zinc-200 dark:border-zinc-800 flex flex-col overflow-hidden" style={{ width: '92vw', height: '90vh' }}>
+                        <div className="px-6 py-4 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between flex-shrink-0">
+                            <h2 className="text-base font-serif-heading font-semibold text-zinc-800 dark:text-zinc-200 truncate">精读笔记</h2>
+                            <button onClick={() => setHtmlExpanded(false)} className="p-2 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 transition-all">
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                 </svg>

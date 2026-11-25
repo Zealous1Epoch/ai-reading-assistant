@@ -24,26 +24,26 @@ function SessionMenu({ sessions = [], currentSessionId, onNewSession, onSelectSe
             <div className="fixed inset-0 z-30" onClick={onClose} />
             <div
                 data-session-menu
-                className="absolute top-full left-0 mt-2 z-40 w-80 bg-white border border-zinc-200 rounded-xl shadow-lg flex flex-col overflow-hidden"
+                className="absolute top-full left-0 mt-2 z-40 w-80 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-lg flex flex-col overflow-hidden"
                 style={{ animation: 'fade-in 0.2s ease-out', maxWidth: 'calc(100vw - 32px)' }}
             >
-                <div className="px-3.5 pt-3 pb-2 border-b border-zinc-100 flex items-center gap-2 flex-shrink-0">
-                    <h3 className="text-sm font-serif-heading font-semibold text-zinc-800">会话</h3>
+                <div className="px-3.5 pt-3 pb-2 border-b border-zinc-100 dark:border-zinc-800 flex items-center gap-2 flex-shrink-0">
+                    <h3 className="text-sm font-serif-heading font-semibold text-zinc-800 dark:text-zinc-200">会话</h3>
                     {sessions.length > 0 && (
-                        <span className="text-[11px] text-zinc-400 tabular-nums">({sessions.length})</span>
+                        <span className="text-[11px] text-zinc-400 dark:text-zinc-500 tabular-nums">({sessions.length})</span>
                     )}
                     <div className="ml-auto flex items-center gap-1">
                         <button
                             onClick={() => { onNewSession(); onClose(); }}
                             disabled={disabled}
-                            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-50 transition-all disabled:opacity-40"
+                            className="p-1.5 rounded-lg text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-all disabled:opacity-40"
                             title="新对话"
                         >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                             </svg>
                         </button>
-                        <button onClick={onClose} className="p-1 rounded-lg text-zinc-300 hover:text-zinc-600 hover:bg-zinc-50 transition-all" title="关闭">
+                        <button onClick={onClose} className="p-1 rounded-lg text-zinc-300 hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-all" title="关闭">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                             </svg>
@@ -60,16 +60,16 @@ function SessionMenu({ sessions = [], currentSessionId, onNewSession, onSelectSe
                         <div
                             key={s.session_id}
                             onClick={() => { onSelectSession(s.session_id); onClose(); }}
-                            className={`group px-2.5 py-2 rounded-lg cursor-pointer transition-all ${s.session_id === currentSessionId ? 'bg-zinc-50 ring-1 ring-zinc-200' : 'hover:bg-zinc-50'}`}
+                            className={`group px-2.5 py-2 rounded-lg cursor-pointer transition-all ${s.session_id === currentSessionId ? 'bg-zinc-50 dark:bg-zinc-950 ring-1 ring-zinc-200 dark:ring-zinc-700' : 'hover:bg-zinc-50 dark:hover:bg-zinc-900'}`}
                         >
                             <div className="flex items-start gap-1.5">
                                 <ChatIcon className="w-3.5 h-3.5 text-zinc-300 flex-shrink-0 mt-0.5" />
                                 <div className="flex-1 min-w-0">
-                                    <div className={`truncate text-[13px] ${s.session_id === currentSessionId ? 'text-zinc-800 font-medium' : 'text-zinc-600'}`}>{s.title}</div>
-                                    <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 mt-0.5">
+                                    <div className={`truncate text-[13px] ${s.session_id === currentSessionId ? 'text-zinc-800 dark:text-zinc-200 font-medium' : 'text-zinc-600 dark:text-zinc-300'}`}>{s.title}</div>
+                                    <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5">
                                         <span className="truncate">{fmtTime(s.updated_at)} · {s.message_count} 条</span>
                                         {s.expert_id && expertNameOf(s.expert_id) && (
-                                            <span className="px-1 py-px rounded bg-zinc-100 text-zinc-500 border border-zinc-200 flex-shrink-0 text-[10px]">{expertNameOf(s.expert_id)}</span>
+                                            <span className="px-1 py-px rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 flex-shrink-0 text-[10px]">{expertNameOf(s.expert_id)}</span>
                                         )}
                                     </div>
                                 </div>

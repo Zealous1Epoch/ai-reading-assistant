@@ -10,9 +10,9 @@ const API_BASE = '';
 //   onResolved  — 该书已处理完（入库/放弃），父组件推进队列或关闭
 //   onBooksChanged — commit 成功后父组件刷新书架
 const LEVEL_STYLE = {
-    blocking: 'bg-red-50 text-red-600 border-red-200',
-    warning: 'bg-amber-50 text-amber-600 border-amber-200',
-    info: 'bg-zinc-50 text-zinc-500 border-zinc-200',
+    blocking: 'bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 border-red-200 dark:border-red-500/30',
+    warning: 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-500/30',
+    info: 'bg-zinc-50 dark:bg-zinc-950 text-zinc-500 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800',
 };
 const RULE_LABEL = {
     R1: '单章吞书', R2: '章数过少', R3: '疑似前置页', R4: '清洗后近空章',
@@ -37,7 +37,7 @@ function ChapterRow({ ch, removed, editedTitle, onToggleRemoved, onRename }) {
     const worst = ch.marks.some(m => m.level === 'blocking') ? 'blocking'
         : ch.marks.some(m => m.level === 'warning') ? 'warning' : null;
     return (
-        <div className={`border rounded-xl transition-colors ${removed ? 'border-zinc-100 bg-zinc-50 opacity-50' : worst === 'blocking' ? 'border-red-200 bg-red-50/40' : worst === 'warning' ? 'border-amber-200 bg-amber-50/30' : 'border-zinc-200 bg-white'}`}>
+        <div className={`border rounded-xl transition-colors ${removed ? 'border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 opacity-50' : worst === 'blocking' ? 'border-red-200 dark:border-red-500/30 bg-red-50/40 dark:bg-red-500/10' : worst === 'warning' ? 'border-amber-200 dark:border-amber-500/30 bg-amber-50/30 dark:bg-amber-500/10' : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900'}`}>
             <div className="flex items-center gap-2 px-3 py-2">
                 <input
                     type="checkbox"
@@ -50,11 +50,11 @@ function ChapterRow({ ch, removed, editedTitle, onToggleRemoved, onRename }) {
                     value={editedTitle}
                     onChange={e => onRename(ch.chapter_id, e.target.value)}
                     disabled={removed}
-                    className={`flex-1 min-w-0 bg-transparent text-sm outline-none border-b border-transparent focus:border-zinc-300 px-0.5 ${removed ? 'line-through text-zinc-400' : 'text-zinc-800'}`}
+                    className={`flex-1 min-w-0 bg-transparent text-sm outline-none border-b border-transparent focus:border-zinc-300 px-0.5 ${removed ? 'line-through text-zinc-400 dark:text-zinc-500' : 'text-zinc-800 dark:text-zinc-200'}`}
                     title="点击可直接修改章名"
                     data-pr-title={ch.chapter_id}
                 />
-                <span className="text-[10px] text-zinc-400 tabular-nums flex-shrink-0">
+                <span className="text-[10px] text-zinc-400 dark:text-zinc-500 tabular-nums flex-shrink-0">
                     {(ch.cleaned_word_count ?? ch.word_count ?? 0).toLocaleString()} 字
                 </span>
                 {ch.marks.length > 0 && (
@@ -64,13 +64,13 @@ function ChapterRow({ ch, removed, editedTitle, onToggleRemoved, onRename }) {
                 )}
                 <button
                     onClick={() => setOpen(o => !o)}
-                    className="text-[11px] text-zinc-400 hover:text-zinc-600 flex-shrink-0 w-8 text-right"
+                    className="text-[11px] text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 flex-shrink-0 w-8 text-right"
                 >
                     {open ? '收起' : '预览'}
                 </button>
             </div>
             {open && (
-                <p className="px-3 py-2 mx-3 mb-2.5 text-[11px] text-zinc-500 leading-relaxed whitespace-pre-wrap break-all border-t border-dashed border-zinc-200 rounded-b-lg bg-zinc-50/60">
+                <p className="px-3 py-2 mx-3 mb-2.5 text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed whitespace-pre-wrap break-all border-t border-dashed border-zinc-200 dark:border-zinc-800 rounded-b-lg bg-zinc-50/60 dark:bg-zinc-900/60">
                     {ch.content_head || '（正文为空）'}…
                 </p>
             )}
@@ -199,26 +199,26 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
 
     return (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" data-testid="parse-review-modal">
-            <div className="w-full max-w-3xl max-h-[88vh] bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+            <div className="w-full max-w-3xl max-h-[88vh] bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl flex flex-col overflow-hidden">
                 {/* 头 */}
-                <div className="px-6 pt-5 pb-4 border-b border-zinc-100 flex-shrink-0">
+                <div className="px-6 pt-5 pb-4 border-b border-zinc-100 dark:border-zinc-800 flex-shrink-0">
                     <div className="flex items-center gap-2">
                         <span className="text-[10px] font-semibold tracking-widest uppercase text-amber-500">解析核对</span>
                         {queueTotal > 1 && (
-                            <span className="text-[11px] text-zinc-400 tabular-nums" data-testid="pr-queue-pos">{queuePos} / {queueTotal}</span>
+                            <span className="text-[11px] text-zinc-400 dark:text-zinc-500 tabular-nums" data-testid="pr-queue-pos">{queuePos} / {queueTotal}</span>
                         )}
                         {detail?.resegmented && (
-                            <span className="px-1.5 py-0.5 rounded-md bg-indigo-50 text-indigo-500 border border-indigo-200 text-[10px]">AI 已重切</span>
+                            <span className="px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/30 text-[10px]">AI 已重切</span>
                         )}
-                        <span className="ml-auto text-[11px] text-zinc-400 tabular-nums">
+                        <span className="ml-auto text-[11px] text-zinc-400 dark:text-zinc-500 tabular-nums">
                             {detail ? `${detail.chapters.length} 章 · ${detail.chapters.reduce((s, c) => s + (c.cleaned_word_count ?? c.word_count ?? 0), 0).toLocaleString()} 字` : ''}
                         </span>
                     </div>
-                    <h2 className="mt-1 text-lg font-serif-heading font-bold text-zinc-900 truncate">
+                    <h2 className="mt-1 text-lg font-serif-heading font-bold text-zinc-900 dark:text-zinc-100 truncate">
                         {detail?.title || bookId}
                     </h2>
                     {detail && blockingCount > 0 && (
-                        <p className="mt-1 text-xs text-red-500" data-testid="pr-blocking-hint">
+                        <p className="mt-1 text-xs text-red-500 dark:text-red-400" data-testid="pr-blocking-hint">
                             {blockingCount} 项阻断性问题——直接入库会被拦截，建议先「重新解析」或删掉问题章
                         </p>
                     )}
@@ -228,38 +228,38 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
                 <div className="flex-1 overflow-y-auto scrollbar-thin px-6 py-4 space-y-4">
                     {loadError && (
                         <div className="text-center py-10">
-                            <p className="text-sm text-zinc-500">草稿读取失败: {loadError}</p>
-                            <button onClick={reload} className="mt-3 px-3 py-1.5 rounded-lg border border-zinc-200 text-xs text-zinc-600 hover:border-zinc-400">重试</button>
+                            <p className="text-sm text-zinc-500 dark:text-zinc-400">草稿读取失败: {loadError}</p>
+                            <button onClick={reload} className="mt-3 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-600 dark:text-zinc-300 hover:border-zinc-400 dark:hover:border-zinc-600">重试</button>
                         </div>
                     )}
                     {!detail && !loadError && (
-                        <div className="flex items-center justify-center py-16 gap-2 text-zinc-400 text-sm">
-                            <div className="animate-spin h-4 w-4 border-2 border-zinc-300 border-t-transparent rounded-full"></div>
+                        <div className="flex items-center justify-center py-16 gap-2 text-zinc-400 dark:text-zinc-500 text-sm">
+                            <div className="animate-spin h-4 w-4 border-2 border-zinc-300 dark:border-zinc-700 border-t-transparent rounded-full"></div>
                             读取草稿…
                         </div>
                     )}
                     {detail && (<>
                         {qcItems.length > 0 && (
                             <div>
-                                <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">质检报告</p>
-                                <div className="rounded-xl border border-zinc-200 divide-y divide-zinc-100 overflow-hidden">
+                                <p className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-1.5">质检报告</p>
+                                <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-100 dark:divide-zinc-800 overflow-hidden">
                                     {qcItems.map((it, i) => (
-                                        <div key={i} className="flex items-start gap-2 px-3 py-2 bg-white">
+                                        <div key={i} className="flex items-start gap-2 px-3 py-2 bg-white dark:bg-zinc-900">
                                             <QcChip item={it} />
-                                            <span className="text-[11px] text-zinc-500 leading-relaxed flex-1">{it.msg}</span>
+                                            <span className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed flex-1">{it.msg}</span>
                                         </div>
                                     ))}
                                 </div>
                             </div>
                         )}
                         {detail.dropped.length > 0 && (
-                            <p className="text-[11px] text-zinc-400">
+                            <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
                                 入库时将自动丢弃 {detail.dropped.length} 个清洗后空章：
                                 {detail.dropped.map(d => `《${d.title || d.chapter_id}》`).join('、')}
                             </p>
                         )}
                         <div>
-                            <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">
+                            <p className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-1.5">
                                 章节树（改章名 / 勾选删除，确认后入库）
                             </p>
                             <div className="space-y-1.5">
@@ -277,16 +277,16 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
                         </div>
                     </>)}
                     {notice && (
-                        <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-testid="pr-notice">{notice}</p>
+                        <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg px-3 py-2" data-testid="pr-notice">{notice}</p>
                     )}
                 </div>
 
                 {/* 底 */}
-                <div className="px-6 py-4 border-t border-zinc-100 flex items-center gap-2 flex-shrink-0">
+                <div className="px-6 py-4 border-t border-zinc-100 dark:border-zinc-800 flex items-center gap-2 flex-shrink-0">
                     <button
                         onClick={handleDiscard}
                         disabled={busy || !detail}
-                        className="px-3 py-2 rounded-xl border border-zinc-200 text-xs text-zinc-500 hover:border-red-300 hover:text-red-500 disabled:opacity-40 transition-all"
+                        className="px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-500 dark:text-zinc-400 hover:border-red-300 dark:hover:border-red-400/70 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-40 transition-all"
                         data-testid="pr-discard"
                     >
                         放弃此书
@@ -294,7 +294,7 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
                     <button
                         onClick={handleResegment}
                         disabled={busy || !detail}
-                        className="px-3 py-2 rounded-xl border border-zinc-200 text-xs text-zinc-600 hover:border-zinc-400 disabled:opacity-40 transition-all"
+                        className="px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-600 dark:text-zinc-300 hover:border-zinc-400 dark:hover:border-zinc-600 disabled:opacity-40 transition-all"
                         data-testid="pr-reseg"
                         title="用已上传的原文件整体重跑解析（可疑时自动 AI 重切）"
                     >
@@ -305,7 +305,7 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
                             <button
                                 onClick={onResolved}
                                 disabled={busy}
-                                className="px-3 py-2 rounded-xl text-xs text-zinc-400 hover:text-zinc-600 disabled:opacity-40"
+                                className="px-3 py-2 rounded-xl text-xs text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 disabled:opacity-40"
                                 title="暂不处理，核对完队列后从书架徽标再进入"
                             >
                                 稍后再说
@@ -314,7 +314,7 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
                         <button
                             onClick={() => handleCommit(false)}
                             disabled={busy || !detail}
-                            className="px-4 py-2 rounded-xl bg-zinc-800 text-white text-xs font-medium hover:bg-zinc-900 disabled:opacity-40 transition-all"
+                            className="px-4 py-2 rounded-xl bg-zinc-800 dark:bg-zinc-700 text-white text-xs font-medium hover:bg-zinc-900 dark:hover:bg-zinc-600 disabled:opacity-40 transition-all"
                             data-testid="pr-commit"
                         >
                             确认入库（{detail ? detail.chapters.length - removed.length : 0} 章）

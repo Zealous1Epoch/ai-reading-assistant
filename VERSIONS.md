@@ -1,5 +1,18 @@
 # 智能读书助手 — 版本历史
 
+## v3.5 — 2026-11-25（设置中心：全站深色模式 + 纸张主题/字号 + LLM 配置热生效 + TTS 音色/语速 + 数据导出）
+- **后端双层配置**（`services/settings_store.py`）：运行时覆盖 `data/runtime_settings.json`（原子写）> `.env`（lru_cache 单例不动）；进程内 `_version` 单调计数，`ai_service/book_processor/analysis_service` 共 4 个延迟初始化 `@property` 在版本变化时重建 ChatOpenAI——**设置面板改 base_url/model/key 保存即生效，无需重启**。api_key 接口只回掩码（`••••+后4位`），PUT 空串=不修改
+- **双槽设计（本轮根修）**：属性首版直接拿 `_llm` 比版本，把测试注入的桩（`proc._llm = BrokenLLM()`）无声换成真 ChatOpenAI——test_draft_flow 实锤跑了真内网模型并"幸运通过"的 test_resegment 232 都是受害者。改 `_llm`=外部注入槽（永远优先、绝不重建）、`_llm_built`/`_llm_built_ver`=属性自建槽（热生效只动它），新增 `test_injected_stub_survives_version_bump` 防复发
+- **`POST /api/settings/llm/test` 连通性测试**：表单值>已存配置合并构建临时实例，`asyncio.wait_for(ainvoke, 30)`，失败回 `{ok:false, detail}` 不抛 5xx
+- **TTS 设置进面板**：voice_a/voice_b/rate（edge-tts 8 音色预设、`^[+-]\d{1,3}%$` 校验）；**缓存键并进音色/语速**（chapter v2、podcast v4）——换音色后必不命中旧声缓存
+- **全站深色模式**：tailwind `darkMode:'class'`，脚本给 17 个组件批量注入 **643 处 `dark:` 变体**（单趟最长 token 优先正则防自嵌套；`bg-zinc-900` 选区条等深色孤岛刻意不映射）；外观持久化走前端 `localStorage('app_appearance')` + `window.dispatchEvent(new Event('wb-appearance'))` 广播（主题/纸张/字号纯前端，不落库不占接口）
+- **纸张主题**：white/cream/eye/dark 四档，容器 inline style CSS 变量（`--paper-fg` 等，inline 压工具类）+ `.reader-surface .reader-body p` 双 class+元素选择器压段落工具类；字号 13–22px range、行高 `max(fs*2.1, 32px)`。**dark chrome + white 纸=Kindle 夜读式**，纸张与全站主题完全独立选择
+- **main.py 静态服务修正**：`use_dist` 启动时一次性 `isdir` 判定改为**逐请求判定**——曾与 vite build 清空 dist 的窗口期并发，服务出引 `/src/main.jsx` 的源码 index 导致 headless 全空白
+- **GuideOverlay 闪烁根修（E2E 抓出的真用户 bug）**：`send()` 流结束后先 `setLive('')` 再 `await refresh()`，教练气泡在两个网络动作之间**整拍消失再复现**；rAF 轮询的 waitForFunction 几乎必中该窗口 → e2e_guides「教练讲评气泡出现」确定性红。改为 settle() 内 `setGuide+setLive('')` 同批 setState（React 18 自动合批无间隙）
+- **E2E 存量漂移清账 3 处**（皆非 v3.5 引入）：e2e_audio 关弹层选择器还写着 ToolDrawer 时代的 `z-40`（v3.1 起 ➕ 背板是 z-30）；e2e_mindmap_render 硬编码「非暴力沟通」但存量导图会话已漂到《返璞归真》、且全书图不变量（章数=跳转锚数）对章级子树（单锚）不成立→宽容两形态；e2e_cards 依赖"冒烟第三章 8 张种子卡"库已空→**改自包含**：翻卡评分段挪到抽卡之后（新卡当天到期，队列必有货），评分落盘校验改全局查卡
+- **测试**：pytest **209 passed**（+13 test_settings：两层合并/空值不改/落盘回读/TTS 校验/掩码/非法 scheme 422/热重建/注入桩幸存）；E2E 复跑 **10 套件全绿**——settings 19（新）、layout 35、review 27、assets 21、audio 18、mindmap_render 11、cards 16、citations 12、guides 24、v20 25；e2e_selection 存量红（v3.1 起 P1）与导图全书图生成套件（v3.5 未触碰该链路）本轮未计入
+- 踩坑：① 受控 `<select>` 在 GET 未回时 `value=''` 被浏览器**显示为首个 option**——假象骗过 waitForFunction，用户改完值被迟到的 GET 响应覆盖（真实用户同样丢设置）。修复=模态 `data-ready="1"` 真就绪信号 + `remote===null` 时表单物理锁定；② `[data-testid][data-ready]` 复合选择器落空（两属性挂不同元素）；③ 正文 `<p>` 同时存在标题类（fs+3）——字号断言选择器必须排除 `reader-heading`
+
 ## v2.9.1 — 2026-11-24（思维导图：删「展开详分支」独立按钮，深层生成并入折叠圆圈）
 - **交互合并**：点章节点的折叠圆圈＝首次现场调大模型生成该章深层分支；实现＝外层容器事件委托 `closest('circle')` + d3 绑定的 `circle.__data__.content` 反解 cid（content 即 foreignObject 渲染源，内嵌的 data-mm-jump 锚天然可当节点身份键）——**不拦冒泡**，markmap 自带圆圈点击照常折叠/展开；生成中/失败只在节点尾挂 `⏳`/`⚠生成失败，点圆圈重试` 轻提示（`<span data-mm-error>`，原始原因放 title），再点圆圈即重试
 - **生成完自动展开该章**：`setData` 恒把折叠态打回 initialExpandLevel 基线（v2.9 已知边界）→ 成功回调里用 `autoOpenRef` 记章 cid，在 `setData().then` 中从**活树** `mm.state.data`（setData 会克隆节点，payload 必须挂活树）按 content 反查节点、递归 `payload.fold=0`、`mm.renderData(live)`+fit——点一次圆圈完成"展开＋生成＋全展开"闭环

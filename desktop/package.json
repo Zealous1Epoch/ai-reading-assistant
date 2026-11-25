@@ -1,7 +1,7 @@
 {
   "name": "smart-reader-desktop",
   "productName": "PageOn",
-  "version": "3.9.1",
+  "version": "3.9.2",
   "description": "PageOn 桌面版",
   "main": "main.js",
   "private": true,
@@ -33,7 +33,12 @@
     ],
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
       ],
       "category": "public.app-category.productivity",
       "identity": null,
@@ -44,7 +49,12 @@
     },
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "build-resources/icon.png",
       "signAndEditExecutable": false

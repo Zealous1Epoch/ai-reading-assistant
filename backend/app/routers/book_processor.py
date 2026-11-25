@@ -255,12 +255,16 @@ def _hash_file(file_path: str) -> str:
 
 
 def _apply_display_title(result: BookAnalysisResult, original_filename: Optional[str]):
-    """TXT 书名取自原始文件名（文件已改名为 UUID，不能用路径 stem 当书名）"""
-    if original_filename and result.file_format == "TXT":
-        stem = os.path.splitext(os.path.basename(original_filename))[0]
-        # 服务层无法获知原始文件名，书名暂为 UUID 或空 → 用原始文件名回填
-        if stem and (not result.title or result.title == result.book_id):
-            result.title = stem
+    """元数据缺书名时用原始文件名回填（文件已改名为 UUID，不能用路径 stem 当书名）。
+
+    PDF 尤其需要：无元数据 title 的书提取出来标题=UUID（实锤：斯托得扫描书
+    在书架上显示成"05b86123-…"）。
+    """
+    if not original_filename:
+        return
+    stem = os.path.splitext(os.path.basename(original_filename))[0]
+    if stem and (not result.title or result.title == result.book_id):
+        result.title = stem[:120]
 
 
 def _find_book_file(book_id: str) -> Optional[str]:

@@ -125,6 +125,37 @@ def update_tts(voice_a=None, voice_b=None, rate=None) -> None:
         _version += 1
 
 
+def ocr_config() -> dict:
+    """百度 OCR（通用高精度）密钥 = 运行时覆盖 > .env。空由调用方决定报错口径。"""
+    s = get_settings()
+    with _LOCK:
+        rt = dict(_load_locked().get("ocr") or {})
+    return {
+        "api_key": rt.get("baidu_api_key") or s.baidu_ocr_api_key or "",
+        "secret_key": rt.get("baidu_secret_key") or s.baidu_ocr_secret_key or "",
+    }
+
+
+def update_ocr(api_key=None, secret_key=None) -> None:
+    """空串/纯空格/None = 不修改（与 update_llm 同口径）。"""
+    global _version
+    api_key = api_key.strip() if api_key else ""
+    secret_key = secret_key.strip() if secret_key else ""
+    with _LOCK:
+        data = _load_locked()
+        ocr = data.setdefault("ocr", {})
+        if api_key:
+            ocr["baidu_api_key"] = api_key
+        if secret_key:
+            ocr["baidu_secret_key"] = secret_key
+        _save_locked()
+        _version += 1
+    if api_key or secret_key:
+        # 密钥换了，旧 access_token 立即作废（baidu_ocr 内部缓存）
+        from app.services import baidu_ocr
+        baidu_ocr.invalidate_token()
+
+
 # v3.7 批注导出：读书相关内容按慧姐规矩落独立 vault「什么书都有」，新建「读点书吧」文件夹
 DEFAULT_EXPORT_DIR = os.path.join("~", "Documents", "Obsidian", "什么书都有", "读点书吧")
 

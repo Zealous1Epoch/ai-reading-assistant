@@ -38,8 +38,10 @@ export default function SettingsModal({ onClose }) {
     const [remote, setRemote] = useState(null);   // 后端 /api/settings 返回
     const [form, setForm] = useState({ base_url: '', model: '', api_key: '' });
     const [tts, setTts] = useState({ voice_a: '', voice_b: '', rate: '' });
+    const [ocr, setOcr] = useState({ api_key: '', secret_key: '' });
     const [llmMsg, setLlmMsg] = useState(null);   // {ok, detail}
     const [ttsMsg, setTtsMsg] = useState(null);
+    const [ocrMsg, setOcrMsg] = useState(null);
     const [busy, setBusy] = useState('');
     // 数据未回时锁表单：迟到的 GET 响应会把用户刚做的选择覆盖回旧值（禁用=物理防呆）
     const lockCls = remote === null ? 'opacity-50 pointer-events-none' : '';         // '' | 'test' | 'save-llm' | 'save-tts' | 'export'
@@ -107,6 +109,38 @@ export default function SettingsModal({ onClose }) {
             setTtsMsg({ ok: true, detail: '已保存：新合成的听书/播客生效' });
         } catch (e) {
             setTtsMsg({ ok: false, detail: `保存失败：${e.message}` });
+        } finally { setBusy(''); }
+    };
+
+    const saveOcr = async () => {
+        setBusy('save-ocr'); setOcrMsg(null);
+        try {
+            const res = await fetch(`${API_BASE}/api/settings/ocr`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: ocr.api_key || null, secret_key: ocr.secret_key || null }),
+            });
+            const d = await res.json();
+            if (!res.ok) throw new Error(d.detail || res.status);
+            setRemote(d);
+            setOcr({ api_key: '', secret_key: '' });
+            setOcrMsg({ ok: true, detail: '已保存，此后新解析的扫描书走云端 OCR' });
+        } catch (e) {
+            setOcrMsg({ ok: false, detail: `保存失败：${e.message}` });
+        } finally { setBusy(''); }
+    };
+
+    const testOcr = async () => {
+        setBusy('test-ocr'); setOcrMsg(null);
+        try {
+            const res = await fetch(`${API_BASE}/api/settings/ocr/test`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: ocr.api_key || null, secret_key: ocr.secret_key || null }),
+            });
+            setOcrMsg(await res.json());
+        } catch (e) {
+            setOcrMsg({ ok: false, detail: `请求失败：${e.message}` });
         } finally { setBusy(''); }
     };
 
@@ -212,6 +246,40 @@ export default function SettingsModal({ onClose }) {
                         </div>
                         {llmMsg && (
                             <p data-set-llm-result className={`text-[11px] break-all ${llmMsg.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'}`}>{llmMsg.detail}</p>
+                        )}
+                    </div>
+                </Section>
+
+                {/* —— 扫描书 OCR —— */}
+                <Section title="扫描书 OCR（百度高精度）" note="仅扫描版/低质量文字层的 PDF 会用到：逐页云端识别。按量计费（约 0.03 元/页），一本 300 页的书约 9 元；识别结果一律先落待核对草稿。Key 在百度智能云控制台 → 文字识别 → 应用列表。">
+                    <div className={`space-y-2 ${lockCls}`}>
+                        <div className="flex items-center justify-between text-[11px] text-zinc-400 dark:text-zinc-500">
+                            <span>当前：
+                                <span className="tabular-nums">
+                                    {remote ? (remote.ocr?.configured ? `已配置（${remote.ocr.api_key_masked} / ${remote.ocr.secret_key_masked}）` : '未配置') : '…'}
+                                </span>
+                            </span>
+                        </div>
+                        <label className="block">
+                            <span className="text-[11px] text-zinc-400 dark:text-zinc-500">API Key（留空不改）</span>
+                            <input data-set-ocr-key type="password" className={inputCls} value={ocr.api_key} placeholder="••••••••" autoComplete="off"
+                                onChange={e => setOcr(o => ({ ...o, api_key: e.target.value }))} />
+                        </label>
+                        <label className="block">
+                            <span className="text-[11px] text-zinc-400 dark:text-zinc-500">Secret Key（留空不改）</span>
+                            <input data-set-ocr-secret type="password" className={inputCls} value={ocr.secret_key} placeholder="••••••••" autoComplete="off"
+                                onChange={e => setOcr(o => ({ ...o, secret_key: e.target.value }))} />
+                        </label>
+                        <div className="flex items-center gap-2 pt-1">
+                            <button data-set-ocr-test onClick={testOcr} disabled={busy === 'test-ocr' || remote === null} className={btnCls}>
+                                {busy === 'test-ocr' ? '测试中…' : '测试连接'}
+                            </button>
+                            <button data-set-ocr-save onClick={saveOcr} disabled={busy === 'save-ocr' || remote === null} className={primaryBtnCls}>
+                                {busy === 'save-ocr' ? '保存中…' : '保存'}
+                            </button>
+                        </div>
+                        {ocrMsg && (
+                            <p data-set-ocr-result className={`text-[11px] break-all ${ocrMsg.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500 dark:text-red-400'}`}>{ocrMsg.detail}</p>
                         )}
                     </div>
                 </Section>

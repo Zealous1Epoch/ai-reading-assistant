@@ -9,6 +9,7 @@ import uuid
 import os
 import io
 import shutil
+import threading
 from typing import List, Optional, Tuple
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -39,7 +40,8 @@ settings = get_settings()
 
 # 触发 AI 兜底重切的结构性质检规则。
 # R3 版权页 / R4 空章 / R5 章节页 / R6 层级压平 重切治不了，不值得烧调用。
-RESEG_TRIGGERS = frozenset({"R1", "R2", "R7", "R8", "R9", "R10"})
+# R13 封面文案 / R14 OCR 来源重切同样治不了（前者要人删，后者就是要人看）。
+RESEG_TRIGGERS = frozenset({"R1", "R2", "R7", "R8", "R9", "R10", "R11", "R12"})
 
 
 class BookProcessor:
@@ -99,8 +101,44 @@ class BookProcessor:
             self._llm_built_ver = ver
         return self._llm_built
 
+    @staticmethod
+    def _pdf_scan_profile(doc) -> dict:
+        """PDF 扫描特征画像：整页大图页占比 + 平均文字量。
+
+        扫描书（含"图片页上叠一层烂 OCR"型）的典型形态是每页一张铺满
+        页面的背景图；正规电子书 PDF 一般是文字流 + 少量插图。
+        实测口径：扫描版整页图占比 ~100%，电子书 ~1%，阈值 60% 有巨大缓冲。
+        """
+        total = len(doc)
+        if total == 0:
+            return {"pages": 0, "img_ratio": 0.0, "avg_chars": 0}
+        img_pages = 0
+        chars = 0
+        for page in doc:
+            chars += len(page.get_text())
+            r = page.rect
+            try:
+                for im in page.get_images(full=True):
+                    rects = page.get_image_rects(im[0])
+                    if any(b.width * b.height > 0.6 * r.width * r.height for b in rects):
+                        img_pages += 1
+                        break
+            except Exception:
+                continue  # 个别坏图引用不影响画像
+        return {"pages": total, "img_ratio": img_pages / total, "avg_chars": chars // total}
+
+    # 整页背景图占比阈值：超过即判定"扫描书"（电子书插图远低于此）
+    SCAN_IMG_RATIO = 0.6
+
     def extract_text_from_pdf(self, file_path: str, book_id: str = "") -> Tuple[str, dict]:
-        """从PDF提取文本（自动降级到OCR处理扫描版PDF）"""
+        """从PDF提取文本。
+
+        两条 OCR 触发线：
+        - 纯扫描件：平均每页 <20 字（文字层根本没有）
+        - 垃圾文字层：整页背景图占比 ≥60% 但带文字层——扫描书早期用烂
+          OCR 灌的假层（实测斯托得书"团灵/国灵巨人""John Sto付"满页飞），
+          有云端 OCR 密钥时整本重认，比修修补补便宜。
+        """
         doc = fitz.open(file_path)
         full_text = ""
         metadata = {
@@ -114,34 +152,101 @@ class BookProcessor:
             text = page.get_text()
             full_text += f"\n[PAGE {page_num + 1}]\n{text}"
 
-        # 检测是否为扫描版PDF：平均每页文字少于20字符
         total_pages = len(doc)
         text_chars = len(full_text.strip())
+        profile = self._pdf_scan_profile(doc)
         needs_ocr = total_pages > 0 and (text_chars // total_pages) < 20
+        # 垃圾文字层：整页图扫描书但带假层，avg<20 的纯扫描线抓不到它
+        junk_layer = (profile["img_ratio"] >= self.SCAN_IMG_RATIO
+                      and (text_chars // total_pages if total_pages else 0) >= 20)
 
-        if needs_ocr:
-            # 环境预检：pytesseract 可 import ≠ tesseract 二进制可用。
-            # 缺二进制时若不拦，4 线程池里 TesseractNotFoundError 直接炸穿
-            # process_book 且 _ocr_progress 残留、status 永返 ocr_processing。
-            if not HAS_OCR or shutil.which("tesseract") is None:
-                doc.close()
-                raise ValueError(
-                    f"检测到扫描版 PDF（{total_pages} 页仅 {text_chars} 文字），需要 OCR 才能解析。"
-                    "请先安装系统二进制 tesseract 及中文语言包"
-                    "（macOS: brew install tesseract tesseract-lang）后重新上传"
-                )
-            print(f"检测到扫描版PDF（{total_pages}页，仅{text_chars}文字），启动OCR...")
-            try:
-                ocr_text = self._ocr_pdf(doc, book_id)
-            finally:
-                # 成功或炸掉都要清进度，否则 /books/status 永远返回 ocr_processing
-                self._ocr_progress.pop(book_id, None)
-            if len(ocr_text) > text_chars:
-                full_text = ocr_text
-                print(f"OCR完成，提取到{len(ocr_text)}文字")
+        if needs_ocr or junk_layer:
+            from app.services import baidu_ocr
+            kind = "纯扫描版" if needs_ocr else "扫描版（带低质量文字层）"
+            if baidu_ocr.is_configured():
+                print(f"检测到{kind}PDF（{total_pages}页，整页图占比{profile['img_ratio']:.0%}），启动云端 OCR…")
+                try:
+                    ocr_text = self._ocr_pdf_baidu(doc, book_id)
+                finally:
+                    self._ocr_progress.pop(book_id, None)
+                if len(ocr_text) > text_chars * 0.5:
+                    # 垃圾层的 text_chars 是虚高基数，OCR 只要不是明显塌方就采用
+                    full_text = ocr_text
+                    metadata["from_ocr"] = True
+                    metadata["ocr_engine"] = "baidu"
+                    print(f"云端OCR完成，提取到{len(ocr_text)}文字")
+                else:
+                    print(f"[OCR] 云端结果({len(ocr_text)})明显少于原层({text_chars})，保留原文字层")
+            elif needs_ocr:
+                # 无云密钥的纯扫描：走本地 tesseract（环境预检不可省，
+                # 缺二进制时若不拦，4 线程池里 TesseractNotFoundError 直接炸穿
+                # process_book 且 _ocr_progress 残留、status 永返 ocr_processing）
+                if not HAS_OCR or shutil.which("tesseract") is None:
+                    doc.close()
+                    raise ValueError(
+                        f"检测到扫描版 PDF（{total_pages} 页仅 {text_chars} 文字），需要 OCR 才能解析。"
+                        "请在设置面板配置百度 OCR 密钥，或安装系统二进制 tesseract 及中文语言包"
+                        "（macOS: brew install tesseract tesseract-lang）后重新上传"
+                    )
+                print(f"检测到扫描版PDF（{total_pages}页，仅{text_chars}文字），启动本地OCR…")
+                try:
+                    ocr_text = self._ocr_pdf(doc, book_id)
+                finally:
+                    # 成功或炸掉都要清进度，否则 /books/status 永远返回 ocr_processing
+                    self._ocr_progress.pop(book_id, None)
+                if len(ocr_text) > text_chars:
+                    full_text = ocr_text
+                    metadata["from_ocr"] = True
+                    metadata["ocr_engine"] = "tesseract"
+                    print(f"OCR完成，提取到{len(ocr_text)}文字")
+            else:
+                # 垃圾层但没配云密钥：不折腾（本地 tesseract 对烂扫描提升有限），
+                # 沿用原层，质检 R14 之外仍有内容级规则兜底人工核对
+                print(f"[OCR] 检测到{kind}，未配置百度 OCR，沿用原有文字层（建议设置面板开启云端 OCR 后重新解析）")
 
         doc.close()
         return full_text, metadata
+
+    def _ocr_pdf_baidu(self, doc: fitz.Document, book_id: str = "") -> str:
+        """云端逐页 OCR（百度高精度）。fitz 渲染加锁、HTTP 并发 MAX_WORKERS。
+
+        单页重试（baidu_ocr 内部）用尽仍失败则整本失败——计费接口半途而废
+        不如明确报错，源文件保留可重跑，避免交出缺页的书。
+        """
+        from app.services import baidu_ocr
+        total = len(doc)
+        result = [""] * total
+        done = 0
+        _lock = threading.Lock()  # fitz.Document 非线程安全
+        self._ocr_progress[book_id] = {"current": 0, "total": total}
+
+        def render_page(page_num: int) -> bytes:
+            with _lock:
+                page = doc[page_num]
+                pix = page.get_pixmap(dpi=200)
+                scale = 1.0
+                edge = max(pix.width, pix.height)
+                if edge > baidu_ocr.MAX_IMAGE_EDGE:
+                    scale = baidu_ocr.MAX_IMAGE_EDGE / edge
+                    pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale))
+                return pix.tobytes("png")
+
+        def ocr_page(page_num: int) -> tuple:
+            png = render_page(page_num)
+            return page_num, baidu_ocr.ocr_image(png)
+
+        with ThreadPoolExecutor(max_workers=baidu_ocr.MAX_WORKERS) as pool:
+            futures = [pool.submit(ocr_page, i) for i in range(total)]
+            for f in as_completed(futures):
+                page_num, text = f.result()  # 失败上抛 → analyze 失败 → 保留源文件可重试
+                result[page_num] = f"\n[PAGE {page_num + 1}]\n{text}"
+                done += 1
+                self._ocr_progress[book_id] = {"current": done, "total": total}
+                if done % 20 == 0 or done == total:
+                    print(f"  云端OCR进度: {done}/{total}页")
+
+        return "\n\n".join(result)
+
 
     def _ocr_pdf(self, doc: fitz.Document, book_id: str = "") -> str:
         """对扫描版PDF执行OCR识别（并行处理，使用本地Tesseract）"""
@@ -851,6 +956,7 @@ class BookProcessor:
             source=source,
             epub_spine_docs=metadata.get("epub_spine_docs"),
             epub_native_anchors=metadata.get("epub_native_anchors"),
+            ocr_engine=metadata.get("ocr_engine"),
         )
 
     async def analyze_book(self, file_path: str, book_id: str, content_hash: str = "") -> dict:

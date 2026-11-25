@@ -24,6 +24,9 @@ CHAPTER_PAGE_MAX_WORDS = 400     # R5 清洗后短于此且非前后置内容 �
 COVERAGE_MIN = 0.55              # R7 Σ清洗后 / 提取全文 低于此 → 丢内容过多
 EPUB_ANCHOR_RATIO_MIN = 0.5      # R10 原生锚点数 / spine 文档数 低于此 → 目录疑似残缺
 DEGENERATE_MIN_CLEANED = 1_000   # R9 全书清洗后总字数下限
+TOC_ENTRY_MAX_WORDS = 150        # R12 超短章阈值（章号样标题清洗后低于此 → 疑似目录条目被当章节起点）
+TOC_ENTRY_MIN_CLUSTER = 3        # R12 超短章成片的数量线（零星 1-2 个短章是正常小节）
+FRONT_LEAD_MAX_WORDS = 3_000     # R13 "前置内容"章超过此字数 → 封面/封底营销文案混进正文
 
 # R3 前置页标题特征
 _FRONT_PAGE_TITLE = re.compile(
@@ -77,14 +80,17 @@ def run_quality_check(
     source: str = "generic",
     epub_spine_docs: Optional[int] = None,
     epub_native_anchors: Optional[int] = None,
+    ocr_engine: Optional[str] = None,
 ) -> QcReport:
-    """对切分结果跑 R1~R10，返回 QcReport。
+    """对切分结果跑 R1~R14，返回 QcReport。
 
     Args:
         chapters: 切分产出的章节（cleaned_word_count 已回填则用真口径）
         full_text_chars: 提取全文字符数（R7 覆盖率分母）；None 则跳过 R7
         source: "generic"（AI/正则链路）| "epub_native"（原生目录链路）
         epub_spine_docs / epub_native_anchors: EPUB 原生链路的结构统计（R10）
+        ocr_engine: 本书正文来自 OCR（"baidu"/"tesseract"）时传入——
+            OCR 文本的错字与结构噪声规则治不了，一律落草稿人工过目（R14）
     """
     items: List[QcItem] = []
     total = sum(_wc(c) for c in chapters)
@@ -156,6 +162,50 @@ def run_quality_check(
         if epub_spine_docs >= 10 and epub_native_anchors < epub_spine_docs * EPUB_ANCHOR_RATIO_MIN:
             add("R10", "warning",
                 f"EPUB 有 {epub_spine_docs} 个文档但原生目录仅 {epub_native_anchors} 个锚点，目录残缺、文档被整段合并")
+
+    # R11 相邻标题重影（warning）：同名/同章号+同题面的相邻章 → 标题行被切了两次
+    # （扫描书垃圾层实锤：「第二章 像基督」565 字 +「第二章 像基督」3795 字，
+    #   以及「第3章 長大成熟」+「第三章 長大成熟」的简繁数字混写形态）
+    def _norm_title(t: str) -> str:
+        return re.sub(r"[\s:：·、.。\-—_《》\"\"'']+", "", t or "")
+    def _title_rest(t: str) -> str:
+        """剥掉章号标记后的题面（阿拉伯/中文数字差异在章号部分，题面不受影响）"""
+        return _norm_title(_CHAP_NUM.sub("", t or ""))
+    for i in range(1, n):
+        prev_t, cur_t = _norm_title(chapters[i - 1].title), _norm_title(chapters[i].title)
+        prev_no, cur_no = _chap_no(chapters[i - 1].title), _chap_no(chapters[i].title)
+        same_full = bool(cur_t) and cur_t == prev_t
+        same_num_title = (cur_no is not None and cur_no == prev_no
+                          and bool(_title_rest(chapters[i].title))
+                          and _title_rest(chapters[i].title) == _title_rest(chapters[i - 1].title))
+        if same_full or same_num_title:
+            add("R11", "warning",
+                f"「{chapters[i].title}」与前一章重影（疑似同一标题被切成两次或目录条目混入）",
+                [chapters[i - 1].chapter_id, chapters[i].chapter_id])
+
+    # R12 目录条目章成片（warning）：带章号样标题 + 超短 → 目录页没剥干净
+    # （实锤：「第 6 章 前言：門徒或基督徒？」126 字、「第 7 章 不隨波逐流」57 字）
+    _tocish = re.compile(r"^(第\s*[一二三四五六七八九十百\d]+\s*[章回节節]|序\s*言?$|\d+\s*[\.、]?\s*\S)")
+    tocish_short = [c for c in chapters
+                    if _wc(c) < TOC_ENTRY_MAX_WORDS and _tocish.match(c.title.strip())]
+    if len(tocish_short) >= TOC_ENTRY_MIN_CLUSTER:
+        add("R12", "warning",
+            f"{len(tocish_short)} 个带序号的超短章（< {TOC_ENTRY_MAX_WORDS} 字），目录条目疑似被当成章节起点",
+            [c.chapter_id for c in tocish_short])
+
+    # R13 前置内容超长（warning）：封面/封底营销文案被灌进"前置内容"
+    # （实锤：8586 字的"前置内容"，正文一段没进去）
+    for c in chapters:
+        if re.match(r"^(前置内容|封面|封底|勒口)", c.title.strip()) and _wc(c) > FRONT_LEAD_MAX_WORDS:
+            add("R13", "warning",
+                f"「{c.title}」达 {_wc(c)} 字（> {FRONT_LEAD_MAX_WORDS}），疑似封面/封底文案混入正文，建议删或拆",
+                [c.chapter_id])
+
+    # R14 OCR 来源强制人工核对（warning → 不 auto_commit）：
+    # OCR 文本的错字与断行噪声不是规则能兜底的，直通入库等于把风险留给读者
+    if ocr_engine:
+        add("R14", "warning",
+            f"正文来自 {ocr_engine} 识别，错字与章节边界需人工核对后再入库")
 
     has_issue = any(it.level in ("warning", "blocking") for it in items)
     return QcReport(auto_commit=not has_issue, items=items)

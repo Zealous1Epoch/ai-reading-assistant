@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-chat"
 
+    # 百度 OCR（通用文字识别·高精度版）——扫描书云端兜底
+    baidu_ocr_api_key: str = ""
+    baidu_ocr_secret_key: str = ""
+
     # 路径（绝对锚定，与进程启动目录解耦）
     upload_dir: str = str(PROJECT_ROOT / "uploads")
     data_dir: str = str(PROJECT_ROOT / "backend" / "data")

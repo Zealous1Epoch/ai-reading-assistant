@@ -36,9 +36,19 @@ class ExportUpdate(BaseModel):
     obsidian_dir: Optional[str] = None
 
 
+class OcrUpdate(BaseModel):
+    api_key: Optional[str] = None
+    secret_key: Optional[str] = None
+
+
+class OcrTest(OcrUpdate):
+    pass
+
+
 def _public() -> dict:
     cfg = settings_store.llm_config()
     tts = settings_store.tts_config()
+    ocr = settings_store.ocr_config()
     return {
         "llm": {
             "base_url": cfg["base_url"],
@@ -48,6 +58,11 @@ def _public() -> dict:
         },
         "tts": tts,
         "export": settings_store.export_config(),
+        "ocr": {
+            "api_key_masked": settings_store.mask_key(ocr["api_key"]),
+            "secret_key_masked": settings_store.mask_key(ocr["secret_key"]),
+            "configured": bool(ocr["api_key"] and ocr["secret_key"]),
+        },
         "version": settings_store.version(),
     }
 
@@ -117,3 +132,28 @@ async def put_export(req: ExportUpdate):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return _public()
+
+
+@router.put("/ocr")
+async def put_ocr(req: OcrUpdate):
+    """百度 OCR（通用高精度）密钥：扫描书云端兜底。留空 = 不修改。"""
+    settings_store.update_ocr(api_key=req.api_key, secret_key=req.secret_key)
+    return _public()
+
+
+@router.post("/ocr/test")
+async def test_ocr(req: OcrTest):
+    """用「表单值 > 已存配置」拉一次 access_token 验证密钥。不烧识别额度。"""
+    from app.services import baidu_ocr
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(baidu_ocr.test_connection, req.api_key or "", req.secret_key or ""),
+            timeout=30,
+        )
+        return {"ok": True, "detail": "鉴权正常（token 已获取）"}
+    except baidu_ocr.BaiduOcrNotConfigured as e:
+        return {"ok": False, "detail": str(e)}
+    except asyncio.TimeoutError:
+        return {"ok": False, "detail": "30 秒超时：aip.baidubce.com 不可达"}
+    except Exception as e:  # noqa: BLE001 — 鉴权/网络错误统一转人话
+        return {"ok": False, "detail": str(e)[:240]}

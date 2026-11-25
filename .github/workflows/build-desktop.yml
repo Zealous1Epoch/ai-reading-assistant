@@ -10,7 +10,7 @@ on:
 
 jobs:
   build-mac:
-    runs-on: macos-14
+    runs-on: macos-latest
     env:
       # Windows runner 控制台默认 cp1252，print 中文必炸；mac 顺手统一
       PYTHONIOENCODING: utf-8

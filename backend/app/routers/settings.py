@@ -32,6 +32,10 @@ class TtsUpdate(BaseModel):
     rate: Optional[str] = None
 
 
+class ExportUpdate(BaseModel):
+    obsidian_dir: Optional[str] = None
+
+
 def _public() -> dict:
     cfg = settings_store.llm_config()
     tts = settings_store.tts_config()
@@ -43,6 +47,7 @@ def _public() -> dict:
             "api_key_set": bool(cfg["api_key"]),
         },
         "tts": tts,
+        "export": settings_store.export_config(),
         "version": settings_store.version(),
     }
 
@@ -99,6 +104,16 @@ async def test_llm(req: LlmTest):
 async def put_tts(req: TtsUpdate):
     try:
         settings_store.update_tts(voice_a=req.voice_a, voice_b=req.voice_b, rate=req.rate)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _public()
+
+
+@router.put("/export")
+async def put_export(req: ExportUpdate):
+    """v3.7 批注导出目录（Obsidian「读点书吧」）；空串恢复默认。设置面板暂不展示此项，留作 API 配置。"""
+    try:
+        settings_store.update_export(obsidian_dir=req.obsidian_dir)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return _public()

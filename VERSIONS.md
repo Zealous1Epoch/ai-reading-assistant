@@ -1,5 +1,12 @@
 # 智能读书助手 — 版本历史
 
+## v3.7 — 2026-11-25（批注结集抽屉 + 阅读轨迹导出 Obsidian「读点书吧」）
+- **AnnotationsDrawer**（顶栏「批注」按钮，badge=全书高亮数，右侧满高抽屉与资产区同款镜像）：按书的章节顺序分组（章已重切漂移的归「散页」）；色筛 chip 带各色计数 + 「✎ 只看有笔记」开关；条目=色点+原文两行截断+绿色笔记行+日期，hover 出「加入对话/删除」；点条目跳原文=复用 `onNavigateToSource`（引用跳章的 cite-flash 机制，跳完关抽屉让闪烁可见）
+- **导出 `POST /highlights/export`**（`services/annotation_export.py`）：YAML frontmatter（book/author/counts/tags）+ 每章一节、章内按色分节（🟡重要/🟢喜欢/🔵存疑/🩷不认同，与 HL_COLORS 契约对齐）、笔记跟在自己高亮下的 `> ✎` 引用行、日期反引号尾注；文件名洗非法字符（`/`→`·`），整本覆盖写（轨迹是高亮的衍生品非手稿）
+- **目录配置进 settings_store**（v3.7 export 段）：`obsidian_dir` 运行时覆盖 > 默认 `~/Documents/Obsidian/什么书都有/读点书吧`（慧姐读书内容独立 vault 规矩）；`PUT /api/settings/export` 校验绝对路径/~/长度，空串=恢复默认；接口 `dir` 参数最高优先——**E2E 借此指去 /tmp，绝不打进真 vault**
+- **失败兜底**：写盘异常（权限/磁盘）仍回全文，前端自动转浏览器下载 + 「再下载」按钮
+- **测试**：pytest **218 passed**（+4：MD 结构/章序/色序/散页/未知作者、写盘+override+失败回全文、路由 export、settings 默认/覆盖/重置/422）；新增零 LLM `e2e_annotations.cjs` **22/22**（注入三色两章+真实正文段→徽标→分组/色筛/笔记筛→跳原文 cite-flash 命中真章→删条同步→导出落 /tmp 断文件内容→全清理）；回归 highlights 19/layout 35/assets 21/v20 25 全绿；截图目检抽屉与成功条无重叠截断
+
 ## v3.6 — 2026-11-25（划线升级多色高亮 + 笔记批注）
 - **数据模型**：highlight entry 加 `color`（契约 `HL_COLORS=(amber,green,blue,pink)`，默认 amber）与 `note`（NOTE_CAP=500）。**旧数据零迁移**：无 color 字段前端归黄、无 note 即无角标
 - **幂等语义扩展**：同文重复高亮带 color/note → 更新既有条目（换色/补笔记不产生第二条 mark），不带 → 原样返回（不冲掉已有色与笔记）；新增 `PATCH /highlights/{id}`（color/note 至少一项，非法色 400，note='' 语义=清空笔记保留高亮）

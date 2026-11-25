@@ -4,6 +4,7 @@ import SessionMenu from './SessionMenu.jsx';
 import ReadingPane from './ReadingPane.jsx';
 import AiPanel from './AiPanel.jsx';
 import AssetsDrawer from './AssetsDrawer.jsx';
+import AnnotationsDrawer from './AnnotationsDrawer.jsx';
 import CardsMenu from './CardsMenu.jsx';
 
 function ToggleButton({ active, onClick, label, badge, children }) {
@@ -75,6 +76,7 @@ function BookReader({
     const [sessionOpen, setSessionOpen] = useState(false);
     const [favOpen, setFavOpen] = useState(false);
     const [cardsOpen, setCardsOpen] = useState(false);
+    const [annOpen, setAnnOpen] = useState(false);   // v3.7 批注抽屉
     // 工具作用范围：默认当前章；「整本书」供全书思维导图/总结等使用（瞬时态，不持久化）
     const [toolScopeAll, setToolScopeAll] = useState(false);
     // v3.1 两侧栏宽度（拖拽自定义，持久化；阅读区为剩余空间不设宽）
@@ -186,6 +188,12 @@ function BookReader({
                             />
                         )}
                     </div>
+                    {/* v3.7 批注：全书高亮+笔记结集（右侧抽屉，与资产同款镜像） */}
+                    <ToggleButton active={annOpen} onClick={() => setAnnOpen(o => !o)} label="批注" badge={(highlights || []).length}>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                    </ToggleButton>
                     <ToggleButton active={favOpen} onClick={() => setFavOpen(o => !o)} label="资产" badge={favorites.length}>
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
@@ -265,6 +273,16 @@ function BookReader({
                 />
             </div>
 
+            {annOpen && currentBook && (
+                <AnnotationsDrawer
+                    book={currentBook}
+                    highlights={highlights || []}
+                    onClose={() => setAnnOpen(false)}
+                    onJump={onNavigateToSource}
+                    onRemove={onRemoveHighlight}
+                    onQuoteToChat={onQuoteToChat}
+                />
+            )}
             {favOpen && currentBook && (
                 <AssetsDrawer
                     assets={favorites}

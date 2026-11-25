@@ -125,6 +125,39 @@ def update_tts(voice_a=None, voice_b=None, rate=None) -> None:
         _version += 1
 
 
+# v3.7 批注导出：读书相关内容按慧姐规矩落独立 vault「什么书都有」，新建「读点书吧」文件夹
+DEFAULT_EXPORT_DIR = os.path.join("~", "Documents", "Obsidian", "什么书都有", "读点书吧")
+
+
+def export_config() -> dict:
+    """生效的导出目录 = 运行时覆盖 > 默认 vault 路径；resolved 已展开 ~"""
+    with _LOCK:
+        rt = dict(_load_locked().get("export") or {})
+    d = rt.get("obsidian_dir") or DEFAULT_EXPORT_DIR
+    return {"obsidian_dir": d, "resolved": os.path.expanduser(d)}
+
+
+def update_export(obsidian_dir=None) -> None:
+    """校验失败抛 ValueError（路由层转 422）；空串=恢复默认目录。"""
+    global _version
+    if obsidian_dir is None:
+        return
+    v = obsidian_dir.strip()
+    if v and not (v.startswith(("/", "~", ".")) or re.match(r"^[A-Za-z]:[\\/]", v)):
+        raise ValueError(f"目录需为绝对路径或 ~ 开头：{v}")
+    if len(v) > 300:
+        raise ValueError("目录路径过长")
+    with _LOCK:
+        data = _load_locked()
+        ex = data.setdefault("export", {})
+        if v:
+            ex["obsidian_dir"] = v
+        else:
+            ex.pop("obsidian_dir", None)
+        _save_locked()
+        _version += 1
+
+
 def mask_key(key: str) -> str:
     """掩码展示：只留后 4 位；短 key 一律不给看尾巴。"""
     if not key:

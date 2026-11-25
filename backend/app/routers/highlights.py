@@ -29,6 +29,11 @@ class HighlightPatch(BaseModel):
     note: Optional[str] = None    # '' = 清空笔记
 
 
+class ExportRequest(BaseModel):
+    book_id: str
+    dir: Optional[str] = None     # 测试/换库覆盖；默认走设置里的 Obsidian「读点书吧」目录
+
+
 @router.get("")
 async def list_highlights(book_id: Optional[str] = None,
                           chapter_id: Optional[str] = None):
@@ -67,6 +72,18 @@ async def add_highlight(request: HighlightRequest):
     if hl is None:
         raise HTTPException(status_code=400, detail="划线文本不能为空")
     return {"ok": True, "highlight": hl}
+
+
+@router.post("/export")
+async def export_highlights(request: ExportRequest):
+    """v3.7 阅读轨迹导出：全书高亮+笔记 → Markdown 落 Obsidian「读点书吧」。写失败也回全文供下载"""
+    from app.routers.book_processor import analysis_results
+    from app.services import annotation_export
+    book = analysis_results.get(request.book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail="找不到该书")
+    chapters = [(c.chapter_id, c.title) for c in (book.chapters or [])]
+    return annotation_export.export_book(request.book_id, book.title, book.author, chapters, request.dir)
 
 
 @router.patch("/{highlight_id}")

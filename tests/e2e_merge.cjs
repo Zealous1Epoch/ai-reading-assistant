@@ -159,13 +159,13 @@ let browser = null;
         (await page.locator('[data-pr-merged="g4"]').count()) === 1 &&
         (await page.locator('[data-pr-mergepick="g5"]').count()) === 0, 8000));
 
-    // B10 组长被勾选删除 → 组自动散伙成员归位（防"既合并又删除"422）
+    // B10 组长被点删（v3.8.2 行尾垃圾桶钮为 toggle）→ 组自动散伙成员归位（防"既合并又删除"422）
     await page.locator('[data-pr-mergepick="g4"]').check();
-    await page.locator('[data-pr-remove="g4"]').check();
-    say('B10 勾选删除组长自动散伙（g5 归位可再选）', await waitFor(async () =>
+    await page.locator('[data-pr-remove="g4"]').click();
+    say('B10 点删组长自动散伙（g5 归位可再选）', await waitFor(async () =>
         (await page.locator('[data-pr-merged="g4"]').count()) === 0 &&
         (await page.locator('[data-pr-mergepick="g5"]').count()) === 1, 8000));
-    await page.locator('[data-pr-remove="g4"]').uncheck();
+    await page.locator('[data-pr-remove="g4"]').click(); // 再点还原
     await page.locator('[data-pr-mergeprev="g5"]').click(); // 重新并上
 
     // B11 提交入库 → 队列推进/G 处理完

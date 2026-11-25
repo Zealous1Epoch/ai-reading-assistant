@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 const API_BASE = '';
 
 // 解析核对弹层（二期"人工核对关"）：
-// 解析结果质检可疑时先展示章节树 + 质检报告，可改名/删章/重切，确认后才正式入库。
+// 解析结果质检可疑时先展示章节树 + 质检报告，可改名/删章/合并/重切，确认后才正式入库。
 // props:
 //   bookId      — 当前核对的草稿 id
 //   queuePos / queueTotal — 多本排队位置（上传一批可疑书时逐本核对）
@@ -41,21 +41,14 @@ function ChapterRow({ ch, removed, editedTitle, onToggleRemoved, onRename, selec
     return (
         <div className={`border rounded-xl transition-colors ${removed ? 'border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 opacity-50' : worst === 'blocking' ? 'border-red-200 dark:border-red-500/30 bg-red-50/40 dark:bg-red-500/10' : worst === 'warning' ? 'border-amber-200 dark:border-amber-500/30 bg-amber-50/30 dark:bg-amber-500/10' : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900'} ${selected ? 'ring-2 ring-sky-400/60' : ''}`}>
             <div className="flex items-center gap-2 px-3 py-2">
-                <input
-                    type="checkbox"
-                    checked={removed}
-                    onChange={e => onToggleRemoved(ch.chapter_id, e.target.checked)}
-                    className="w-3.5 h-3.5 accent-red-600 flex-shrink-0"
-                    title="勾选后入库时删除此章"
-                    data-pr-remove={ch.chapter_id}
-                />
+                {/* 行首唯一的勾选 = 加入合并（删除挪到行尾图标钮，消灭双框并排误点） */}
                 <input
                     type="checkbox"
                     checked={selected}
                     disabled={removed}
                     onChange={e => onToggleSelect(ch.chapter_id, e.target.checked)}
-                    className="w-3.5 h-3.5 accent-sky-500 flex-shrink-0"
-                    title="勾选多章后合并为一章"
+                    className="w-3.5 h-3.5 accent-sky-500 flex-shrink-0 cursor-pointer disabled:cursor-not-allowed"
+                    title="勾选以合并章节"
                     data-pr-mergepick={ch.chapter_id}
                 />
                 <input
@@ -83,18 +76,30 @@ function ChapterRow({ ch, removed, editedTitle, onToggleRemoved, onRename, selec
                 {canMergePrev && (
                     <button
                         onClick={onMergePrev}
-                        className="text-[10px] px-1.5 py-0.5 rounded-md border border-sky-200 dark:border-sky-500/30 text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 flex-shrink-0"
+                        className="text-[10px] px-1.5 py-0.5 rounded-md border border-sky-200 dark:border-sky-500/30 text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10 focus-visible:outline focus-visible:outline-1 focus-visible:outline-sky-400 flex-shrink-0"
                         title="与上一章合并（重影章一键处理）"
                         data-pr-mergeprev={ch.chapter_id}
                     >
-                        ⇧并上一章
+                        ↑ 并上一章
                     </button>
                 )}
                 <button
                     onClick={() => setOpen(o => !o)}
-                    className="text-[11px] text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 flex-shrink-0 w-8 text-right"
+                    className={`text-[10px] px-1.5 py-0.5 rounded-md border flex-shrink-0 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400 ${open ? 'border-zinc-300 dark:border-zinc-600 text-zinc-600 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800' : 'border-zinc-200 dark:border-zinc-800 text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'}`}
+                    aria-expanded={open}
                 >
-                    {open ? '收起' : '预览'}
+                    {open ? '收起 ▴' : '预览 ▾'}
+                </button>
+                <button
+                    onClick={() => onToggleRemoved(ch.chapter_id, !removed)}
+                    className={`w-6 h-6 rounded-md border flex items-center justify-center flex-shrink-0 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-red-400 ${removed ? 'bg-red-100 dark:bg-red-500/20 border-red-300 dark:border-red-500/40 text-red-600 dark:text-red-400' : 'border-transparent text-zinc-300 dark:text-zinc-600 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-500 hover:border-red-200 dark:hover:border-red-500/30'}`}
+                    title={removed ? '取消删除（点击还原此章）' : '入库时删除此章'}
+                    aria-pressed={removed}
+                    data-pr-remove={ch.chapter_id}
+                >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M10 11v6M14 11v6" />
+                    </svg>
                 </button>
             </div>
             {open && (
@@ -114,6 +119,7 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
     const [sel, setSel] = useState([]);            // 合并多选 chapter_id[]
     // leader chapter_id → 成员 chapter_id[]（含组长，按草稿章序）。组长保留 id，成员行隐身
     const [groups, setGroups] = useState({});
+    const [qcOpen, setQcOpen] = useState(false);   // 质检明细展开（blocking 自动展开）
     const [busy, setBusy] = useState(false);       // commit/discard/reseg 进行中
     const [notice, setNotice] = useState(null);    // 弹层内提示（代替 alert）
 
@@ -131,6 +137,8 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
                 setRemoved([]);
                 setSel([]);
                 setGroups({});
+                // 有阻断项默认摊开明细——进来第一眼必须知道拦在哪
+                setQcOpen((d.qc_report?.items || []).some(i => i.level === 'blocking'));
                 setNotice(null);
             })
             .catch(e => setLoadError(e.message));
@@ -272,6 +280,16 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
 
     const qcItems = detail?.qc_report?.items || [];
     const blockingCount = qcItems.filter(i => i.level === 'blocking').length;
+    // 摘要行规则计数 chips：R11×3 之类，一屏看清问题分布
+    const ruleTally = [];
+    {
+        const seen = {};
+        for (const it of qcItems) {
+            if (!seen[it.rule]) { seen[it.rule] = { rule: it.rule, level: it.level, n: 0 }; ruleTally.push(seen[it.rule]); }
+            seen[it.rule].n += 1;
+            if (it.level === 'blocking') seen[it.rule].level = 'blocking';
+        }
+    }
 
     // 章节树显示行：合并组成员隐身，组长行显示"合并后"的字数与标题预览
     const byId = new Map((detail?.chapters || []).map(c => [c.chapter_id, c]));
@@ -293,7 +311,7 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
                 mergedCount: memChs.length,
             };
         });
-    // "⇧并上一章"目标：显示序列中上一个未删行（仅 R11 重影行给快捷键）
+    // "↑并上一章"目标：显示序列中上一个未删行（仅 R11 重影行给快捷键）
     const notRemoved = displayRows.filter(r => !removed.includes(r.chapter_id));
     const prevIdOf = new Map();
     notRemoved.forEach((r, i) => { if (i > 0) prevIdOf.set(r.chapter_id, notRemoved[i - 1].chapter_id); });
@@ -301,32 +319,36 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
     return (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" data-testid="parse-review-modal">
             <div className="w-full max-w-3xl max-h-[88vh] bg-white dark:bg-zinc-900 rounded-3xl shadow-2xl flex flex-col overflow-hidden">
-                {/* 头 */}
+                {/* 头：书名是主角，状态退为一条辅线 */}
                 <div className="px-6 pt-5 pb-4 border-b border-zinc-100 dark:border-zinc-800 flex-shrink-0">
-                    <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-semibold tracking-widest uppercase text-amber-500">解析核对</span>
-                        {queueTotal > 1 && (
-                            <span className="text-[11px] text-zinc-400 dark:text-zinc-500 tabular-nums" data-testid="pr-queue-pos">{queuePos} / {queueTotal}</span>
-                        )}
-                        {detail?.resegmented && (
-                            <span className="px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/30 text-[10px]">AI 已重切</span>
-                        )}
-                        <span className="ml-auto text-[11px] text-zinc-400 dark:text-zinc-500 tabular-nums" data-testid="pr-count">
+                    <div className="flex items-baseline gap-3">
+                        <h2 className="text-lg font-serif-heading font-bold text-zinc-900 dark:text-zinc-100 truncate">
+                            {detail?.title || bookId}
+                        </h2>
+                        <span className="ml-auto text-[11px] text-zinc-400 dark:text-zinc-500 tabular-nums flex-shrink-0" data-testid="pr-count">
                             {detail ? `${displayRows.length} 章 · ${displayRows.reduce((s, c) => s + (c.cleaned_word_count ?? c.word_count ?? 0), 0).toLocaleString()} 字` : ''}
                         </span>
                     </div>
-                    <h2 className="mt-1 text-lg font-serif-heading font-bold text-zinc-900 dark:text-zinc-100 truncate">
-                        {detail?.title || bookId}
-                    </h2>
+                    <div className="mt-1 flex items-center gap-2 text-[10px] text-zinc-400 dark:text-zinc-500">
+                        {queueTotal > 1 && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30 tabular-nums" data-testid="pr-queue-pos">核对中 {queuePos} / {queueTotal}</span>
+                        )}
+                        {detail?.resegmented && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-500/30">AI 已重切</span>
+                        )}
+                        {detail && (detail.file_format || (detail.source && detail.source !== 'generic')) && (
+                            <span>{[detail.file_format, detail.source !== 'generic' && detail.source].filter(Boolean).join(' · ')}</span>
+                        )}
+                    </div>
                     {detail && blockingCount > 0 && (
-                        <p className="mt-1 text-xs text-red-500 dark:text-red-400" data-testid="pr-blocking-hint">
-                            {blockingCount} 项阻断性问题——直接入库会被拦截，建议先「重新解析」或删掉问题章
+                        <p className="mt-2 text-xs text-red-500 dark:text-red-400" data-testid="pr-blocking-hint">
+                            {blockingCount} 项阻断——问题章需删除或改后重解，否则入库被拦
                         </p>
                     )}
                 </div>
 
                 {/* 体 */}
-                <div className="flex-1 overflow-y-auto scrollbar-thin px-6 py-4 space-y-4">
+                <div className="flex-1 overflow-y-auto scrollbar-thin px-6 py-4">
                     {loadError && (
                         <div className="text-center py-10">
                             <p className="text-sm text-zinc-500 dark:text-zinc-400">草稿读取失败: {loadError}</p>
@@ -339,50 +361,52 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
                             读取草稿…
                         </div>
                     )}
-                    {detail && (<>
+                    {detail && (<div className="space-y-4">
+                        {/* 质检摘要条：折叠为一行，明细按需展开（blocking 自动展开） */}
                         {qcItems.length > 0 && (
-                            <div>
-                                <p className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-1.5">质检报告</p>
-                                <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-100 dark:divide-zinc-800 overflow-hidden">
-                                    {qcItems.map((it, i) => (
-                                        <div key={i} className="flex items-start gap-2 px-3 py-2 bg-white dark:bg-zinc-900">
-                                            <QcChip item={it} />
-                                            <span className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed flex-1">{it.msg}</span>
-                                        </div>
-                                    ))}
-                                </div>
+                            <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+                                <button
+                                    onClick={() => setQcOpen(o => !o)}
+                                    aria-expanded={qcOpen}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-left bg-zinc-50/70 dark:bg-zinc-950/60 hover:bg-zinc-100/70 dark:hover:bg-zinc-900 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-zinc-400"
+                                    data-testid="pr-qc-toggle"
+                                >
+                                    <span className={`text-zinc-400 text-[10px] transition-transform ${qcOpen ? 'rotate-90' : ''}`} aria-hidden="true">▸</span>
+                                    <span className="text-xs font-medium text-zinc-700 dark:text-zinc-200 flex-shrink-0">
+                                        质检 {qcItems.length} 项{blockingCount > 0 ? `（${blockingCount} 项阻断）` : ''}
+                                    </span>
+                                    <span className="flex items-center gap-1 flex-wrap min-w-0 flex-1">
+                                        {ruleTally.map(t => (
+                                            <span key={t.rule} className={`px-1.5 py-0.5 rounded-md border text-[10px] tabular-nums ${LEVEL_STYLE[t.level] || LEVEL_STYLE.info}`}>
+                                                {t.rule}{RULE_LABEL[t.rule] ? ` ${RULE_LABEL[t.rule]}` : ''}{t.n > 1 ? ` ×${t.n}` : ''}
+                                            </span>
+                                        ))}
+                                    </span>
+                                    {detail.dropped.length > 0 && (
+                                        <span className="text-[10px] text-zinc-400 dark:text-zinc-500 flex-shrink-0" title={detail.dropped.map(d => d.title || d.chapter_id).join('、')}>
+                                            入库自动丢弃 {detail.dropped.length} 个空章
+                                        </span>
+                                    )}
+                                </button>
+                                {qcOpen && (
+                                    <div className="divide-y divide-zinc-100 dark:divide-zinc-800 border-t border-zinc-100 dark:border-zinc-800">
+                                        {qcItems.map((it, i) => (
+                                            <div key={i} className="flex items-start gap-2 px-3 py-2 bg-white dark:bg-zinc-900">
+                                                <QcChip item={it} />
+                                                <span className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed flex-1">{it.msg}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         )}
-                        {detail.dropped.length > 0 && (
-                            <p className="text-[11px] text-zinc-400 dark:text-zinc-500">
-                                入库时将自动丢弃 {detail.dropped.length} 个清洗后空章：
-                                {detail.dropped.map(d => `《${d.title || d.chapter_id}》`).join('、')}
-                            </p>
-                        )}
                         <div>
-                            <p className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider mb-1.5">
-                                章节树（改章名 / 勾选删除 / 蓝色勾选多章合并，确认后入库）
-                            </p>
-                            {sel.length >= 2 && (
-                                <div className="mb-2 flex items-center gap-2 rounded-xl border border-sky-200 dark:border-sky-500/30 bg-sky-50/70 dark:bg-sky-500/10 px-3 py-2" data-testid="pr-merge-bar">
-                                    <span className="text-xs text-sky-700 dark:text-sky-300">已选 {sel.length} 章，将按章节顺序合并为一章（标题取正文最长者）</span>
-                                    <button
-                                        onClick={() => mergeRows(sel)}
-                                        className="ml-auto px-2.5 py-1 rounded-lg bg-sky-600 text-white text-[11px] font-medium hover:bg-sky-700 flex-shrink-0"
-                                        data-pr-merge-do="1"
-                                    >
-                                        合并为一章
-                                    </button>
-                                    <button
-                                        onClick={() => setSel([])}
-                                        className="px-2 py-1 rounded-lg border border-sky-200 dark:border-sky-500/30 text-[11px] text-sky-600 dark:text-sky-400 hover:bg-sky-100 dark:hover:bg-sky-500/10 flex-shrink-0"
-                                        data-pr-merge-cancel="1"
-                                    >
-                                        取消选择
-                                    </button>
-                                </div>
-                            )}
-                            <div className="space-y-1.5">
+                            <div className="flex items-center gap-2 mb-1.5">
+                                <span className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500">章节树</span>
+                                <span className="flex-1 border-t border-zinc-100 dark:border-zinc-800" aria-hidden="true"></span>
+                                <span className="text-[10px] text-zinc-300 dark:text-zinc-600">章名可点改</span>
+                            </div>
+                            <div className="space-y-1.5 pb-12">
                                 {displayRows.map(ch => {
                                     const prevId = prevIdOf.get(ch.chapter_id);
                                     const hasR11 = (ch.marks || []).some(m => m.rule === 'R11');
@@ -403,9 +427,33 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
                                 })}
                             </div>
                         </div>
-                    </>)}
+                        {/* 合并动作条：粘底浮层——勾到列表任何位置"合并"都在手边 */}
+                        {sel.length >= 2 && (
+                            <div className="sticky bottom-0 z-10 -mx-2 px-4 py-2.5" data-testid="pr-merge-bar">
+                                <div className="flex items-center gap-2 rounded-xl border border-sky-300 dark:border-sky-500/40 bg-sky-50 dark:bg-zinc-900 shadow-lg shadow-sky-100/50 dark:shadow-black/30 px-3 py-2">
+                                    <span className="text-xs text-sky-800 dark:text-sky-300">
+                                        已选 {sel.length} 章 → 按顺序并为一章，标题取正文最长者
+                                    </span>
+                                    <button
+                                        onClick={() => mergeRows(sel)}
+                                        className="ml-auto px-3 py-1.5 rounded-lg bg-sky-600 text-white text-[11px] font-medium hover:bg-sky-700 focus-visible:outline focus-visible:outline-1 focus-visible:outline-sky-400 flex-shrink-0"
+                                        data-pr-merge-do="1"
+                                    >
+                                        合并为 1 章
+                                    </button>
+                                    <button
+                                        onClick={() => setSel([])}
+                                        className="px-2 py-1.5 rounded-lg text-[11px] text-sky-600 dark:text-sky-400 hover:bg-sky-100 dark:hover:bg-sky-500/10 flex-shrink-0"
+                                        data-pr-merge-cancel="1"
+                                    >
+                                        取消
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>)}
                     {notice && (
-                        <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg px-3 py-2" data-testid="pr-notice">{notice}</p>
+                        <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg px-3 py-2 mt-4" data-testid="pr-notice">{notice}</p>
                     )}
                 </div>
 
@@ -414,7 +462,7 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
                     <button
                         onClick={handleDiscard}
                         disabled={busy || !detail}
-                        className="px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-500 dark:text-zinc-400 hover:border-red-300 dark:hover:border-red-400/70 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-40 transition-all"
+                        className="px-3 py-2 rounded-xl text-xs text-zinc-400 dark:text-zinc-500 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-40 transition-all"
                         data-testid="pr-discard"
                     >
                         放弃此书
@@ -422,7 +470,7 @@ function ParseReviewModal({ bookId, queuePos, queueTotal, onResolved, onBooksCha
                     <button
                         onClick={handleResegment}
                         disabled={busy || !detail}
-                        className="px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-600 dark:text-zinc-300 hover:border-zinc-400 dark:hover:border-zinc-600 disabled:opacity-40 transition-all"
+                        className="ml-2 px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-600 dark:text-zinc-300 hover:border-zinc-400 dark:hover:border-zinc-600 disabled:opacity-40 transition-all"
                         data-testid="pr-reseg"
                         title="用已上传的原文件整体重跑解析（可疑时自动 AI 重切）"
                     >

@@ -15,7 +15,7 @@ import sys
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="智能读书助手桌面版后端")
+    parser = argparse.ArgumentParser(description="PageOn 桌面版后端")
     parser.add_argument("--port", type=int, default=8788)
     parser.add_argument("--data-dir", default=None, help="覆盖可写数据目录（冒烟测试用）")
     args = parser.parse_args()

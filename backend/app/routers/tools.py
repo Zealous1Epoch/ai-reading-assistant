@@ -610,7 +610,7 @@ def _build_knowledge_html(book_title: str, author: str, chapters_data: list, key
         </div>
     </section>
     <footer class="page-footer">
-        由 AI 智能读书助手生成 &nbsp;·&nbsp; 内容仅供参考
+        由 PageOn 生成 &nbsp;·&nbsp; 内容仅供参考
     </footer>
 </div>
 </body>

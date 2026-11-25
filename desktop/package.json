@@ -1,8 +1,8 @@
 {
   "name": "smart-reader-desktop",
-  "productName": "读书助手",
-  "version": "3.9.0",
-  "description": "智能读书助手桌面版",
+  "productName": "PageOn",
+  "version": "3.9.1",
+  "description": "PageOn 桌面版",
   "main": "main.js",
   "private": true,
   "scripts": {
@@ -16,7 +16,7 @@
   },
   "build": {
     "appId": "com.huijie.smartreader",
-    "productName": "读书助手",
+    "productName": "PageOn",
     "directories": {
       "output": "release",
       "buildResources": "build-resources"
@@ -40,7 +40,7 @@
       "icon": "build-resources/icon.png"
     },
     "dmg": {
-      "title": "读书助手"
+      "title": "PageOn"
     },
     "win": {
       "target": [
@@ -53,7 +53,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "读书助手"
+      "shortcutName": "PageOn"
     }
   }
 }

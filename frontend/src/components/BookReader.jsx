@@ -133,7 +133,7 @@ function BookReader({
                 </button>
                 <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-700 flex-shrink-0"></div>
                 <h1 className="text-sm font-serif-heading font-semibold text-zinc-800 dark:text-zinc-200 truncate">
-                    {currentBook?.title || '智能读书助手'}
+                    {currentBook?.title || 'PageOn'}
                 </h1>
                 {currentBook?.author && (
                     <span className="text-[11px] text-zinc-300 truncate flex-shrink-0">{currentBook.author}</span>

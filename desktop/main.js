@@ -1,4 +1,4 @@
-// 智能读书助手桌面壳（v3.9 打包）
+// PageOn 桌面壳（v3.9 打包）
 // 职责：挑空闲端口 → 起 reader-server sidecar → 轮询健康检查 → 开窗口指向它；
 // 退出时负责杀掉 sidecar，不留孤儿进程。界面本体仍是 FastAPI 服务的 frontend/dist。
 const { app, BrowserWindow, dialog, shell } = require("electron");
@@ -78,7 +78,7 @@ function waitForHealth(port, timeoutMs = 90000) {
 
 function showServerError(msg) {
   const log = serverLogFile();
-  dialog.showErrorBox("读书助手启动失败", `${msg}\n\n日志文件：${log}\n（把它发给慧姐即可定位问题）`);
+  dialog.showErrorBox("PageOn 启动失败", `${msg}\n\n日志文件：${log}\n（把它发给慧姐即可定位问题）`);
   quitting = true;
   app.quit();
 }
@@ -91,7 +91,7 @@ function createWindow(port) {
     height: 820,
     minWidth: 980,
     minHeight: 640,
-    title: "读书助手",
+    title: "PageOn",
     backgroundColor: "#fafaf9",
     webPreferences: { contextIsolation: true, nodeIntegration: false, spellcheck: false },
   });

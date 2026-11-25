@@ -1,2 +1,0 @@
-# 本地安装：依赖定义在 backend（与 Railway Root Directory = backend / Railpack 一致）
--r backend/requirements.txt

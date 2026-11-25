@@ -53,7 +53,7 @@ def find_env_file() -> str:
 
 class Settings(BaseSettings):
     """应用配置"""
-    app_name: str = "智能读书助手"
+    app_name: str = "PageOn"
     app_env: str = "development"
     debug: bool = True
 

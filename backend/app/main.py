@@ -9,7 +9,7 @@ settings = get_settings()
 
 app = FastAPI(
     title=settings.app_name,
-    description="基于DeepSeek API的智能读书助手 - 支持智能章节切分和语义搜索",
+    description="PageOn — 基于DeepSeek API的智能读书助手 - 支持智能章节切分和语义搜索",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
@@ -103,7 +103,7 @@ async def serve_frontend():
     frontend_path = os.path.join(frontend_dir, "index.html")
     if os.path.exists(frontend_path):
         return FileResponse(frontend_path, headers=headers)
-    return {"message": "智能读书助手 API", "version": "1.0.0", "docs": "/docs"}
+    return {"message": "PageOn API", "version": "1.0.0", "docs": "/docs"}
 
 
 @app.get("/health")
